@@ -1,6 +1,6 @@
 # RedAlert3A 设计文档权威索引与命名字典 (`docs/`)
 
-本目录承载《墨陆：赤潮警戒》v2.2 全套设计规格与概念图鉴（[`PRD.md`](PRD.md)、[`SDD.md`](SDD.md)、[`assets/`](assets/)）。
+本目录承载《墨陆：赤潮警戒》v2.2 全套设计规格、AI 工程开发计划与概念图鉴（[`PRD.md`](PRD.md)、[`SDD.md`](SDD.md)、[`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md)、[`assets/`](assets/)）。
 
 ---
 

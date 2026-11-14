@@ -59,6 +59,7 @@
 | **文档中心索引 (docs/README)** | 权威裁决规则、全单位/建筑统一命名与规划内部 ID 对照表、v1.0–v2.2 演进日志 | [`docs/README.md`](docs/README.md) |
 | **产品需求文档 (PRD v2.2)** | 世界观与角色群像、非目标与 M1 DoD、陆海空数值矩阵、无冲突快捷键、5 页签映射、12+1 关与存档状态机 | [`docs/PRD.md`](docs/PRD.md) |
 | **软件设计方案 (SDD v2.2)** | Vite 混合高精资产管线、`16.6ms` 帧预算与 4K 纹素软阴影/GPU 部件合批、`7×6` 护甲矩阵、防溢出、平衡压测与风险预案 | [`docs/SDD.md`](docs/SDD.md) |
+| **AI 工程开发计划 (Playbook v2.2)** | 面向 AI Coding Agent 的架构红线、核心数据结构/接口契约、M1–M6 共 27 项原子施工任务（`T1.1`~`T6.3`）与验收门禁 | [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md) |
 
 ---
 
@@ -77,7 +78,8 @@ RedAlert3A/
 │   ├── assets/                   # 兵种、武器与超武概念图鉴
 │   ├── README.md                 # 文档中心索引、权威裁决顺序与统一命名表
 │   ├── PRD.md                    # 产品需求文档 v2.2
-│   └── SDD.md                    # 软件设计方案 v2.2
+│   ├── SDD.md                    # 软件设计方案 v2.2
+│   └── DEVELOPMENT_PLAN.md       # AI Agent 工程开发计划 (M1–M6 原子任务手册)
 └── src/
     ├── core/                     # 30Hz 确定性模拟核心、i18n 多语种运行时、IndexedDB 存档 (save.js) 与配置表
     ├── locales/                  # 默认内置中/英双语词库 (zh-CN / en-US) 与多语种扩展注册器
