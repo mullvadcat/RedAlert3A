@@ -34,15 +34,19 @@ flowchart TB
         AI["ai.js: 三层效用AI (内政官 · 防御官 · 海陆空协同与超武反制指挥官)"]
     end
 
-    subgraph StoryUI["剧情导演 · 持久化存档与交互中枢"]
-        SAVE["save.js: IndexedDB 战役解锁进度、配置与局内检查点状态快照"]
+    subgraph StoryUI["剧情导演 · 国际化 · 持久化存档与交互中枢"]
+        I18N["i18n.js & locales/: 默认中/英(zh-CN/en-US)双语热切换与外部语种扩展"]
+        SAVE["save.js: IndexedDB 战役解锁进度、语言偏好与局内检查点状态快照"]
         DIR["director.js: 局内镜头轨道演出 · 人物立绘无线电通讯 · 13关剧本状态机"]
         SIDE["sidebar.js: 经典右栏5页签HUD · 实时雷达互动 · 秘策与双超武挂件"]
-        AUD["mixer.js: WebAudio自适应交响战斗混音 + 流式语音队列"]
+        AUD["mixer.js: WebAudio自适应交响战斗混音 + 中/英双语语音路由队列"]
     end
 
     Assets --> Presentation
     Assets --> StoryUI
+    I18N -->|"文本绑定 / Sidebar图标重绘"| SIDE
+    I18N -->|"字幕与配音语种切换"| DIR
+    I18N -->|"EVA播报语种包"| AUD
     SIDE -->|"建造 / 秘策 / 镜头跳转"| Simulation
     Simulation -->|"矩阵缓冲 / 破碎事件 / 战斗烈度"| Presentation
     Simulation -->|"剧本触发 / 检查点快照"| DIR
@@ -70,7 +74,7 @@ RedAlert3A/
 │   ├── textures/                   # 2K BasisU(.ktx2) PBR 纹理覆盖集
 │   ├── models/                     # glTF/GLB 精细多部件机械单位与建筑模型
 │   ├── portraits/                  # 墨陆 / 林汐 / 雷泽将军 / EVA 动态立绘与表情层
-│   └── audio/                      # 多轨交响配乐 Stems、武器采样与战役全程配音
+│   ├── audio/                      # 多轨交响配乐 Stems、武器采样与战役双语配音包 (voices/zh-CN, en-US)
 ├── docs/
 │   ├── assets/                     # PRD/README 概念图鉴（abyssal/crimson/infantry/superweapons.jpg）
 │   ├── PRD.md                      # 产品需求文档 v2.1
@@ -79,8 +83,13 @@ RedAlert3A/
     ├── core/
     │   ├── engine.js               # 30Hz 固定逻辑步长主循环 + 资产流式与回退加载管理器
     │   ├── config.js               # 全量建筑/陆海空单位数值、科技树、7×6护甲表与画质预设
-    │   ├── save.js                 # IndexedDB 战役进度、设置与局内检查点状态序列化快照
+    │   ├── i18n.js                 # 多语种国际化运行时 (默认 zh-CN/en-US, t() 查询、热切换与扩展包注册)
+    │   ├── save.js                 # IndexedDB 战役进度、语言偏好与局内检查点状态序列化快照
     │   └── events.js               # 高性能零 GC 事件总线 + 确定性 PRNG
+    ├── locales/                    # 模块化国际化语言词典（默认开箱内置中/英双语，支持扩展更多语种）
+    │   ├── zh-CN.js                # 简体中文完整词库（UI / 兵种简称与详情 / 12+1 关剧本对白）
+    │   ├── en-US.js                # English full dictionary (UI / concise unit tags / 12+1 campaign scripts)
+    │   └── index.js                # 语种注册表与外部 JSON Locale 动态挂载器
     ├── render/
     │   ├── pipeline.js             # WebGL2 HDR 9步后处理、AgX色调映射、Bloom、热浪折射
     │   ├── csm.js                  # 4级联软阴影 (CSM) + GTAO 环境光遮蔽 + 动态战斗点光源池
@@ -229,10 +238,18 @@ AI 与玩家严格共用同一建造、电力与战争迷雾规则（冷酷模�
 
 ### 6.2 战役进度与局内检查点存档（`src/core/save.js`）
 依托浏览器原生 **`IndexedDB`（支持较大二进制状态压缩存储）** 持久化两类数据：
-1. **档案进度（Profile）**：已通关关卡星级与评分、阵营分歧抉择记录（解锁 `EX-13` 判定）、画质/音量键位偏好。
+1. **档案进度（Profile）**：已通关关卡星级与评分、阵营分歧抉择记录（解锁 `EX-13` 判定）、界面语种/语音语种、画质与键位偏好。
 2. **局内自动检查点（Checkpoint Snapshot）**：每当战役进入新阶段剧本触发器（如 A-02 击沉首艘敌舰后、或玩家主动点击“保存战局”）时，序列化全部 `TypedArray` 迷雾/矿产、建筑与单位状态池 ID、建造队列进度及剧本触发器已执行标记，允许玩家阵亡时一键读档重试当前战局节点。
 
-### 6.3 研发与验收专用 URL 参数
+### 6.3 多语种国际化引擎 (`src/core/i18n.js`) 与双语音频路由设计
+为了从首行代码开始杜绝硬编码文案，全部 UI、兵种数值说明与战役台词统一接入轻量级响应式 `i18n` 引擎：
+1. **默认语言解析与降级链**：启动时优先级为 `URL 参数 (?lang=zh|en)` > `IndexedDB 用户偏好` > `navigator.language`（匹配 `zh*` 激活 `zh-CN`，其余激活 `en-US`）；查找函数 `t(key, params)` 按 `activeLocale -> 'zh-CN' -> 'en-US' -> key` 安全回退，防止任何词条缺失导致界面空白。
+2. **DOM 自动绑定与 Canvas 图标重绘**：HTML 静态面板节点使用 `[data-i18n="key"]` 与 `[data-i18n-tip="key"]` 声明式绑定；触发 `events.emit('locale:change', locale)`（如玩家按下 `L` 键）后，`sidebar.js` 立刻按新语种的简称（如 `光棱` / `Prism`、`天启` / `Apoc`）与自适应字号重新烘焙 Canvas 2D 建造按钮图块，**战局零中断热切换**。
+3. **双语战役剧本结构**：`src/story/campaigns/*.js` 统一采用结构化双语对象，例如 `{ speaker: 'linxi', text: { 'zh-CN': '...', 'en-US': '...' }, voiceId: 'a01_04' }`，由 `dialogue.js` 与 `mixer.js` 按用户选择的 **语音语种 (`voiceLocale`)** 独立加载 `assets/audio/voices/<voiceLocale>/<voiceId>` 或切换 `window.speechSynthesis`（支持中文界面搭配经典英文 EVA *“Unit Ready / Kirov Reporting”*）。
+4. **可扩展语种包注册**：`src/locales/index.js` 提供 `registerLocale(code, label, dict)` 接口，后续新增繁体中文、日语或俄语包只需新增一份纯 JSON/JS 词典并注册即可。
+
+### 6.4 研发与验收专用 URL 参数
+- `?lang=zh` / `?lang=en`：强制以简体中文或英文启动测试 UI、Sidebar 按钮宽度适应性与双语 EVA 播报；
 - `?show=gallery`：打开全 3D 可旋转双阵营模型检阅展厅（切换红/蓝涂装、预览 `< 50%` 战损状态、试放全套武器与展开/坍塌动画）；
 - `?mission=A01..A06 / C01..C06 / EX13`：直跳指定战役关卡调试剧本与分镜演出；
 - `?nofog=1` / `?fastbuild=1`：全图透视 AI 海陆空运营逻辑，10 倍速测试双超武协同；
