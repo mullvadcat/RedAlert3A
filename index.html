@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>墨陆：赤潮警戒 | Mò Lù: Red Tide Alert</title>
+  <link rel="stylesheet" href="./src/styles/ui.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <main id="viewport-container">
+      <canvas id="game-canvas" tabindex="0" aria-label="Battlefield Canvas"></canvas>
+      <div id="selection-box" hidden></div>
+
+      <header id="hud-top-bar">
+        <div class="hud-pill" id="hud-faction-badge"></div>
+        <div class="hud-pill" id="hud-power-badge"></div>
+        <div class="hud-pill" id="hud-perf-badge"></div>
+        <div class="hud-pill" id="hud-status-msg"></div>
+      </header>
+
+      <div id="doctrine-bar" aria-label="Commander Doctrines">
+        <button type="button" class="doctrine-btn" data-doctrine="recon_satellite">F1</button>
+        <button type="button" class="doctrine-btn" data-doctrine="paratroopers">F2</button>
+        <button type="button" class="doctrine-btn" data-doctrine="nano_repair">F3</button>
+        <button type="button" class="doctrine-btn" data-doctrine="emp_strike">F4</button>
+      </div>
+
+      <section id="dialogue-box" hidden aria-live="polite">
+        <div id="dialogue-portrait"></div>
+        <div id="dialogue-body">
+          <div id="dialogue-speaker"></div>
+          <div id="dialogue-text"></div>
+        </div>
+      </section>
+
+      <section id="loading-screen">
+        <div class="loading-card">
+          <h1 id="loading-title">RED ALERT 3A</h1>
+          <p id="loading-subtitle"></p>
+          <div class="loading-track">
+            <div id="loading-progress-bar"></div>
+          </div>
+          <div id="loading-status"></div>
+        </div>
+      </section>
+
+      <section id="victory-modal" hidden role="dialog" aria-modal="true">
+        <div class="modal-card">
+          <h2 id="victory-title"></h2>
+          <p id="victory-summary"></p>
+          <div id="victory-stats"></div>
+          <div class="modal-actions">
+            <button type="button" id="btn-restart-match"></button>
+            <button type="button" id="btn-dismiss-modal"></button>
+          </div>
+        </div>
+      </section>
+
+      <div id="sidebar-tooltip" hidden>
+        <div id="tooltip-title"></div>
+        <div id="tooltip-cost"></div>
+        <div id="tooltip-desc"></div>
+      </div>
+    </main>
+
+    <aside id="sidebar-root" aria-label="Tactical Sidebar">
+      <div id="sidebar-credits-row">
+        <span id="sidebar-credits-label"></span>
+        <span id="sidebar-credits-value">$10000</span>
+      </div>
+
+      <div id="sidebar-radar-row">
+        <div id="power-meter-shell" title="Power">
+          <div id="power-meter-fill"></div>
+          <div id="power-meter-demand"></div>
+        </div>
+        <div id="minimap-frame">
+          <canvas id="minimap-canvas" width="176" height="176"></canvas>
+          <div id="minimap-no-radar" hidden></div>
+        </div>
+      </div>
+
+      <div id="sidebar-tool-bar">
+        <button type="button" class="tool-btn" id="btn-tool-repair"></button>
+        <button type="button" class="tool-btn" id="btn-tool-sell"></button>
+        <button type="button" class="tool-btn" id="btn-tool-lang"></button>
+        <button type="button" class="tool-btn" id="btn-tool-help"></button>
+      </div>
+
+      <div id="sidebar-tabs" role="tablist">
+        <button type="button" class="tab-btn active" data-tab="main">Q</button>
+        <button type="button" class="tab-btn" data-tab="defense">W</button>
+        <button type="button" class="tab-btn" data-tab="infantry">E</button>
+        <button type="button" class="tab-btn" data-tab="vehicle">R</button>
+        <button type="button" class="tab-btn" data-tab="air_naval">T</button>
+      </div>
+
+      <div id="sidebar-subtabs" hidden>
+        <button type="button" class="subtab-btn active" data-subtab="air"></button>
+        <button type="button" class="subtab-btn" data-subtab="naval"></button>
+      </div>
+
+      <div id="sidebar-grid-wrap">
+        <canvas id="production-grid-canvas" width="184" height="360"></canvas>
+      </div>
+
+      <div id="sidebar-selection-footer">
+        <div id="selection-summary"></div>
+        <div id="command-hints"></div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
