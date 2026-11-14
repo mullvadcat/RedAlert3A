@@ -86,6 +86,11 @@
 | 铁幕装置 | Iron Curtain | `iron_curtain` | 赤铁战术超武 |
 | 天气控制机 | Weather Control | `weather_control` | 同盟终极超武 |
 | 核弹发射井 | Nuclear Silo | `nuclear_silo` | 赤铁终极超武 |
+| 科技钻油井 | Tech Oil Derrick | `oil_derrick` | 中立可占领经济建筑 |
+| 科技机场 | Tech Airport | `tech_airport` | 中立可占领空降建筑 |
+| 战地医疗站 | Field Hospital | `hospital` | 中立可占领步兵回血建筑 |
+
+> **关卡编号约定**：UI 与叙事文本显示为 **`A-01`~`A-06` / `C-01`~`C-06` / `EX-13`**；程序剧本文件名、IndexedDB 存档键与 URL 调试参数（`?mission=`）统一采用无连字符格式 **`A01`~`A06` / `C01`~`C06` / `EX13`**。
 
 ---
 
