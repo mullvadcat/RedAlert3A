@@ -40,6 +40,49 @@ export function findNearestPassableLand(map, worldX, worldZ, maxRadiusCells = 8)
   return { x: worldX, z: worldZ, elev: map.elevation[cz * MAP_SIZE + cx] ?? 1.6 };
 }
 
+const AIRPAD_OFFSETS = [
+  [-1.0, -1.2],
+  [1.0, -1.2],
+  [-1.0, 1.2],
+  [1.0, 1.2]
+];
+
+export function getAirpadWorldPos(radar, padIndex = 0) {
+  const off = AIRPAD_OFFSETS[padIndex & 3];
+  return {
+    x: radar.x + off[0],
+    y: (radar.y ?? 1.6) + 2.25,
+    z: radar.z + off[1]
+  };
+}
+
+export function findFreeAirpad(state, playerId) {
+  const radars = [];
+  for (let i = 0; i < state.entities.length; i++) {
+    const e = state.entities[i];
+    if (e.alive && e.typeId === 'airforce_radar' && e.playerId === playerId) {
+      radars.push(e);
+    }
+  }
+  if (radars.length === 0) return null;
+
+  for (let r = 0; r < radars.length; r++) {
+    const radar = radars[r];
+    const used = [false, false, false, false];
+    for (let i = 0; i < state.entities.length; i++) {
+      const a = state.entities[i];
+      if (!a.alive || a.playerId !== playerId) continue;
+      if (ENTITY_DEFS[a.typeId]?.producerType !== 'airforce_radar') continue;
+      if (a.homeId === radar.id) {
+        used[(a.padIndex ?? 0) & 3] = true;
+      }
+    }
+    const freeIdx = used.indexOf(false);
+    if (freeIdx !== -1) return { radar, padIndex: freeIdx };
+  }
+  return { radar: radars[0], padIndex: 0 };
+}
+
 export function applyVeterancyRank(ent, rank) {
   const safeRank = Math.max(0, Math.min(2, rank));
   const vet = VETERANCY_CONFIG[safeRank] ?? VETERANCY_CONFIG[0];
@@ -162,6 +205,9 @@ export function spawnEntity(state, spec) {
     ironCurtainTicks: 0,
     empTicks: 0,
     stunTicks: 0,
+    surfacedTicks: 0,
+    revealTicks: 0,
+    c4CooldownTicks: 0,
     deployState: 'MOBILE',
 
     veterancy: spec.veterancy ?? 0,
@@ -176,18 +222,42 @@ export function spawnEntity(state, spec) {
     moveTargetZ: null,
     moveStopDist: 0.9,
     attackTargetId: null,
+    interactTargetId: null,
+    boardTargetId: null,
+    chronoLockTargetId: null,
     rallyX: isBuilding ? x : null,
     rallyZ: isBuilding ? Math.min(WORLD_SIZE - 4, z + h * CELL_SIZE * 0.5 + 3.0) : null,
 
     fsmState: def.id === 'harvester' ? 'H_IDLE' : 'IDLE',
     fsmTimerTicks: 0,
+    passiveTimerTicks: def.passiveIntervalTicks ?? 0,
     cargoCount: 0,
     cargoValue: 0,
     targetOreGx: -1,
     targetOreGz: -1,
     homeId: spec.homeId ?? null,
     ammo: def.maxAmmo ?? 0,
-    cargoIds: []
+    airState: spec.airState ?? (def.producerType === 'airforce_radar' ? 'A_DOCKED' : 'A_AIRBORNE'),
+    padIndex: spec.padIndex ?? 0,
+    cargoIds: [],
+    cargoList: [],
+    drones: def.maxDrones
+      ? Array.from({ length: def.maxDrones }, (_, idx) => ({
+          id: `${id}_d${idx}`,
+          index: idx,
+          fsmState: 'D_DOCKED',
+          timerTicks: 0,
+          targetId: null,
+          x,
+          y: y + 2.2,
+          z,
+          yaw: spec.yaw ?? 0,
+          fuelTicks: 300,
+          reservedDamage: 0,
+          released: true
+        }))
+      : null,
+    droneLaunchCooldown: 0
   };
 
   if (ent.veterancy > 0) {
@@ -281,8 +351,34 @@ export function removeEntity(state, entityId, reason = 'destroyed') {
     }
   }
 
+  // Orphan airborne carrier drones detach on carrier destruction and crash when out of fuel
+  if (ent.drones && reason !== 'boarded') {
+    if (!state.orphanDrones) state.orphanDrones = [];
+    for (let i = 0; i < ent.drones.length; i++) {
+      const d = ent.drones[i];
+      if (d.fsmState === 'D_LAUNCHING' || d.fsmState === 'D_ATTACK_RUN' || d.fsmState === 'D_RETURNING') {
+        d.fuelTicks = Math.min(d.fuelTicks ?? 45, 30);
+        d.fsmState = 'D_ORPHAN';
+        state.orphanDrones.push(d);
+      }
+    }
+  }
+
+  if (ent.cargoList && ent.cargoList.length > 0 && reason !== 'boarded') {
+    ent.cargoList.length = 0;
+    ent.cargoIds.length = 0;
+  }
+
+  const eventTypeMap = {
+    sold: 'entity:sold',
+    deployed: 'entity:deployed',
+    erased: 'entity:erased',
+    boarded: 'entity:boarded',
+    consumed: 'entity:consumed'
+  };
+
   state.events.push({
-    type: reason === 'sold' ? 'entity:sold' : reason === 'deployed' ? 'entity:deployed' : 'entity:destroyed',
+    type: eventTypeMap[reason] ?? 'entity:destroyed',
     entityId: ent.id,
     typeId: ent.typeId,
     playerId: ent.playerId,
@@ -363,7 +459,147 @@ export function deployEntity(state, ent) {
     return true;
   }
 
+  if (ent.typeId === 'ifv' || ent.typeId === 'hover_transport' || ent.typeId === 'nighthawk') {
+    return unloadTransport(state, ent);
+  }
+
   return false;
+}
+
+export function getCargoSlotSize(ent) {
+  if (!ent) return 99;
+  if (ent.category === 'infantry') return 1;
+  if (ent.typeId === 'harvester' || ent.typeId === 'mcv' || ent.typeId === 'apocalypse') return 4;
+  return 2;
+}
+
+function findPassableUnloadSpot(map, worldX, worldZ, maxRadiusCells = 7) {
+  if (!map) return { x: worldX, z: worldZ, elev: 1.6 };
+  const cx = worldToGrid(worldX);
+  const cz = worldToGrid(worldZ);
+  for (let r = 0; r <= maxRadiusCells; r++) {
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+        const gx = cx + dx;
+        const gz = cz + dz;
+        if (gx < 1 || gx >= MAP_SIZE - 1 || gz < 1 || gz >= MAP_SIZE - 1) continue;
+        const idx = gz * MAP_SIZE + gx;
+        const t = map.terrain[idx];
+        if ((t === TERRAIN.LAND || t === TERRAIN.BRIDGE) && map.buildingId[idx] === 0) {
+          return { x: gridToWorldCenter(gx), z: gridToWorldCenter(gz), elev: Math.max(0, map.elevation[idx]) };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function getUsedCargoSlots(transport) {
+  if (!transport?.cargoList) return 0;
+  let used = 0;
+  for (let i = 0; i < transport.cargoList.length; i++) {
+    used += getCargoSlotSize(transport.cargoList[i]);
+  }
+  return used;
+}
+
+export function canBoardTransport(transport, passenger) {
+  if (!transport || !passenger || !transport.alive || !passenger.alive) return false;
+  if (transport.id === passenger.id || transport.playerId !== passenger.playerId) return false;
+  if (passenger.isBuilding || passenger.frozenByCount > 0) return false;
+  const maxSlots = ENTITY_DEFS[transport.typeId]?.transportSlots ?? 0;
+  if (maxSlots <= 0) return false;
+  if ((ENTITY_DEFS[passenger.typeId]?.transportSlots ?? 0) > 0) return false;
+  if (transport.typeId === 'ifv' || transport.typeId === 'nighthawk') {
+    if (passenger.category !== 'infantry') return false;
+  } else if (passenger.domain === 'AIR' || passenger.domain === 'SEA' || passenger.domain === 'SUBMERGED') {
+    return false;
+  }
+  return getUsedCargoSlots(transport) + getCargoSlotSize(passenger) <= maxSlots;
+}
+
+export function boardTransport(state, transport, passenger) {
+  if (!canBoardTransport(transport, passenger)) return false;
+  passenger.boardTargetId = null;
+  passenger.moveTargetX = null;
+  passenger.moveTargetZ = null;
+  passenger.attackTargetId = null;
+  passenger.interactTargetId = null;
+  passenger.orderType = 'IDLE';
+  removeEntity(state, passenger.id, 'boarded');
+  transport.cargoList.push(passenger);
+  transport.cargoIds.push(passenger.id);
+  state.events.push({ type: 'transport:boarded', transportId: transport.id, passengerId: passenger.id, typeId: passenger.typeId });
+  return true;
+}
+
+export function unloadTransport(state, transport) {
+  if (!transport || !transport.alive || !transport.cargoList || transport.cargoList.length === 0) {
+    return false;
+  }
+  const baseSpot = findPassableUnloadSpot(state.map, transport.x, transport.z, 7);
+  if (!baseSpot) {
+    state.events.push({ type: 'hud:notice', playerId: transport.playerId, key: 'hud.status.deployBlocked' });
+    return false;
+  }
+
+  const unloadedIds = [];
+  for (let i = 0; i < transport.cargoList.length; i++) {
+    const p = transport.cargoList[i];
+    const angle = (i / Math.max(1, transport.cargoList.length)) * Math.PI * 2;
+    const spot = findPassableUnloadSpot(
+      state.map,
+      baseSpot.x + Math.cos(angle) * (1.2 + (i % 3) * 0.9),
+      baseSpot.z + Math.sin(angle) * (1.2 + (i % 3) * 0.9),
+      6
+    ) ?? baseSpot;
+
+    p.alive = true;
+    p.x = spot.x;
+    p.z = spot.z;
+    p.prevX = spot.x;
+    p.prevZ = spot.z;
+    p.y = spot.elev;
+    p.prevY = spot.elev;
+    p.moveTargetX = null;
+    p.moveTargetZ = null;
+    p.attackTargetId = null;
+    p.boardTargetId = null;
+    p.orderType = 'IDLE';
+
+    state.entities.push(p);
+    state.entityById.set(p.id, p);
+    unloadedIds.push(p.id);
+  }
+
+  transport.cargoList.length = 0;
+  transport.cargoIds.length = 0;
+  state.events.push({ type: 'transport:unloaded', transportId: transport.id, passengerIds: unloadedIds });
+  return true;
+}
+
+export function transferEntityOwner(state, target, newPlayerId, newTeamId) {
+  if (!target || !target.alive) return false;
+  const wasNeutralOil = target.typeId === 'oil_derrick' && target.teamId === 3;
+  target.playerId = newPlayerId;
+  target.teamId = newTeamId;
+  target.attackTargetId = null;
+  if (wasNeutralOil) {
+    const player = state.players[newPlayerId];
+    if (player) {
+      player.credits += ENTITY_DEFS.oil_derrick.captureBonus ?? 500;
+    }
+    target.passiveTimerTicks = ENTITY_DEFS.oil_derrick.passiveIntervalTicks ?? 120;
+  }
+  if (target.typeId === 'refinery') {
+    wakeIdleHarvestersForPlayer(state, newPlayerId, target.id);
+  }
+  state.events.push({ type: 'engineer:captured', entityId: target.id, typeId: target.typeId, playerId: newPlayerId });
+  if (newPlayerId === 0) {
+    state.events.push({ type: 'hud:notice', playerId: 0, key: 'hud.status.engineerCaptured', x: target.x, z: target.z });
+  }
+  return true;
 }
 
 function findFriendlyRefinery(state, playerId, preferredId = null) {
@@ -586,11 +822,35 @@ function stepHarvesterFSM(state, harv) {
   }
 }
 
+function healNearbyUnits(state, origin, radius, healPerSec, filterFn) {
+  const healAmt = healPerSec * TICK_DT;
+  const r2 = radius * radius;
+  for (let i = 0; i < state.entities.length; i++) {
+    const unit = state.entities[i];
+    if (!unit.alive || unit.isBuilding || unit.playerId !== origin.playerId) continue;
+    if (unit.frozenByCount > 0 || unit.hp >= unit.maxHp) continue;
+    if (!filterFn(unit)) continue;
+    const dx = unit.x - origin.x;
+    const dz = unit.z - origin.z;
+    if (dx * dx + dz * dz <= r2) {
+      unit.hp = Math.min(unit.maxHp, unit.hp + healAmt);
+    }
+  }
+}
+
 export function stepEntitiesAndHarvesters(state) {
   const depots = [];
+  const crushers = [];
   for (let i = 0; i < state.entities.length; i++) {
     const e = state.entities[i];
-    if (e.alive && e.typeId === 'service_depot') depots.push(e);
+    if (!e.alive) continue;
+    if (e.typeId === 'service_depot') depots.push(e);
+    else if (!e.isBuilding && ENTITY_DEFS[e.typeId]?.canCrush && e.empTicks === 0 && e.frozenByCount === 0) {
+      const moved = Math.hypot(e.x - e.prevX, e.z - e.prevZ);
+      if (moved > 0.02 || e.moveTargetX !== null) {
+        crushers.push(e);
+      }
+    }
   }
 
   for (let i = 0; i < state.entities.length; i++) {
@@ -604,9 +864,103 @@ export function stepEntitiesAndHarvesters(state) {
     if (ent.ironCurtainTicks > 0) ent.ironCurtainTicks--;
     if (ent.empTicks > 0) ent.empTicks--;
     if (ent.stunTicks > 0) ent.stunTicks--;
+    if (ent.surfacedTicks > 0) ent.surfacedTicks--;
+    if (ent.revealTicks > 0) ent.revealTicks--;
+    if (ent.c4CooldownTicks > 0) ent.c4CooldownTicks--;
 
     if (ent.typeId === 'harvester') {
       stepHarvesterFSM(state, ent);
+    }
+
+    // Engineer interactions: capture enemy/neutral building, instant repair friendly building, or repair broken bridge
+    if (ent.typeId === 'engineer' && ent.frozenByCount === 0 && ent.empTicks === 0) {
+      if (ent.interactTargetId !== null) {
+        const target = state.entityById.get(ent.interactTargetId);
+        if (!target || !target.alive || !target.isBuilding) {
+          ent.interactTargetId = null;
+        } else {
+          const reach = (target.radius ?? 2.2) + 2.6;
+          if (Math.hypot(ent.x - target.x, ent.z - target.z) <= reach) {
+            if (target.playerId === ent.playerId) {
+              if (target.hp < target.maxHp) {
+                target.hp = target.maxHp;
+                state.events.push({ type: 'engineer:repaired', entityId: target.id, playerId: ent.playerId });
+                removeEntity(state, ent.id, 'consumed');
+                continue;
+              }
+              ent.interactTargetId = null;
+            } else {
+              transferEntityOwner(state, target, ent.playerId, ent.teamId);
+              removeEntity(state, ent.id, 'consumed');
+              continue;
+            }
+          } else {
+            ent.moveTargetX = target.x;
+            ent.moveTargetZ = target.z;
+            ent.moveStopDist = Math.max(1.8, (target.radius ?? 2.0) + 1.4);
+          }
+        }
+      }
+
+      // Check broken bridge repair within 4.5m
+      const bridges = state.map?.bridges ?? [];
+      let repairedBridge = false;
+      for (let b = 0; b < bridges.length; b++) {
+        const br = bridges[b];
+        if (br.intact) continue;
+        const bcx = ((br.x0 + br.x1) * 0.5 + 0.5) * CELL_SIZE;
+        const bcz = ((br.z0 + br.z1) * 0.5 + 0.5) * CELL_SIZE;
+        const bw = (br.x1 - br.x0 + 1) * CELL_SIZE * 0.5 + 4.5;
+        const bh = (br.z1 - br.z0 + 1) * CELL_SIZE * 0.5 + 4.5;
+        if (Math.abs(ent.x - bcx) <= bw && Math.abs(ent.z - bcz) <= bh) {
+          for (let c = 0; c < br.cells.length; c++) {
+            const idx = br.cells[c];
+            state.map.terrain[idx] = TERRAIN.BRIDGE;
+          }
+          br.intact = true;
+          state.map.revision++;
+          state.events.push({ type: 'bridge:repaired', bridgeId: br.id, playerId: ent.playerId });
+          if (ent.playerId === 0) {
+            state.events.push({ type: 'hud:notice', playerId: 0, key: 'hud.status.bridgeRepaired', x: bcx, z: bcz });
+          }
+          removeEntity(state, ent.id, 'consumed');
+          repairedBridge = true;
+          break;
+        }
+      }
+      if (repairedBridge) continue;
+    }
+
+    // Boarding friendly transports (IFV / Hover Transport / Nighthawk)
+    if (!ent.isBuilding && ent.boardTargetId !== null && ent.frozenByCount === 0) {
+      const transport = state.entityById.get(ent.boardTargetId);
+      if (!transport || !transport.alive || !canBoardTransport(transport, ent)) {
+        ent.boardTargetId = null;
+      } else if (Math.hypot(ent.x - transport.x, ent.z - transport.z) <= (transport.radius ?? 1.5) + 2.6) {
+        if (boardTransport(state, transport, ent)) {
+          continue;
+        }
+      } else {
+        ent.moveTargetX = transport.x;
+        ent.moveTargetZ = transport.z;
+        ent.moveStopDist = Math.max(1.2, (transport.radius ?? 1.5) + 1.2);
+      }
+    }
+
+    // Neutral & captured tech buildings (Oil Derrick, Hospital, Tech Airport)
+    if (ent.typeId === 'oil_derrick' && ent.teamId !== 3 && ent.playerId >= 0) {
+      if (ent.passiveTimerTicks > 0) ent.passiveTimerTicks--;
+      if (ent.passiveTimerTicks <= 0) {
+        ent.passiveTimerTicks = ENTITY_DEFS.oil_derrick.passiveIntervalTicks ?? 120;
+        const owner = state.players[ent.playerId];
+        if (owner) {
+          owner.credits += ENTITY_DEFS.oil_derrick.passiveIncome ?? 40;
+        }
+      }
+    } else if (ent.typeId === 'hospital' && ent.teamId !== 3 && ent.playerId >= 0) {
+      healNearbyUnits(state, ent, 10.0, 18, (u) => u.category === 'infantry' && u.domain === 'GROUND');
+    } else if (ent.typeId === 'tech_airport' && ent.teamId !== 3 && ent.playerId >= 0) {
+      healNearbyUnits(state, ent, 16.0, 12, (u) => u.domain === 'AIR');
     }
 
     // Building manual repair (K mode toggle)
@@ -629,7 +983,7 @@ export function stepEntitiesAndHarvesters(state) {
     }
 
     // Service Depot rapid paid repair for parked friendly ground vehicles (60 HP/s, 25% cost rate)
-    if (!ent.isBuilding && ent.category === 'vehicle' && ent.domain === 'GROUND' && ent.hp < ent.maxHp && depots.length > 0) {
+    if (!ent.isBuilding && ent.category === 'vehicle' && ent.domain === 'GROUND' && ent.frozenByCount === 0 && ent.hp < ent.maxHp && depots.length > 0) {
       for (let d = 0; d < depots.length; d++) {
         const depot = depots[d];
         if (depot.playerId !== ent.playerId) continue;
@@ -648,12 +1002,31 @@ export function stepEntitiesAndHarvesters(state) {
     }
 
     // Out-of-combat self-repair for Apocalypse & Elite (Rank 2) units (after 4s = 120 ticks out of combat)
-    if (!ent.isBuilding && ent.hp < ent.maxHp && state.tickCount - ent.lastCombatTick >= 120) {
+    if (!ent.isBuilding && ent.frozenByCount === 0 && ent.hp < ent.maxHp && state.tickCount - ent.lastCombatTick >= 120) {
       const vetHeal = VETERANCY_CONFIG[ent.veterancy]?.selfHealPerSec ?? 0;
       const unitHeal = ENTITY_DEFS[ent.typeId]?.selfHealPerSec ?? 0;
       const totalHeal = Math.max(vetHeal, unitHeal);
       if (totalHeal > 0) {
         ent.hp = Math.min(ent.maxHp, ent.hp + totalHeal * TICK_DT);
+      }
+    }
+  }
+
+  // Vehicle crushing: heavy crusher tanks eliminate unfortified, non-antiCrush ground infantry on contact
+  for (let c = 0; c < crushers.length; c++) {
+    const tank = crushers[c];
+    if (!tank.alive) continue;
+    const tankR = tank.radius ?? 1.5;
+    for (let j = 0; j < state.entities.length; j++) {
+      const inf = state.entities[j];
+      if (!inf.alive || inf.category !== 'infantry' || inf.domain !== 'GROUND') continue;
+      if (inf.teamId === tank.teamId || inf.ironCurtainTicks > 0 || inf.frozenByCount > 0) continue;
+      if (ENTITY_DEFS[inf.typeId]?.antiCrush || inf.deployState === 'DEPLOYED') continue;
+      const crushR = (tankR + (inf.radius ?? 0.45)) * 0.9;
+      const dx = inf.x - tank.x;
+      const dz = inf.z - tank.z;
+      if (dx * dx + dz * dz <= crushR * crushR) {
+        removeEntity(state, inf.id, 'crushed');
       }
     }
   }

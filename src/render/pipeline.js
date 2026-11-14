@@ -954,6 +954,22 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       writeInst(ix, iy, iz, yaw, thick, thick, len, 0, 1.0, isMissile ? 0.45 : 0.82, isMissile ? 0.15 : 0.28, 3.2);
     }
 
+    // 2b. Carrier Strike Drones & Orphan Airborne Drones
+    for (let i = 0; i < (state.entities?.length ?? 0); i++) {
+      const ent = state.entities[i];
+      if (!ent.alive || ent.typeId !== 'carrier' || !ent.drones) continue;
+      for (let j = 0; j < ent.drones.length; j++) {
+        const d = ent.drones[j];
+        if (d.fsmState === 'D_DOCKED' || d.fsmState === 'D_REARMING') continue;
+        writeInst(d.x, d.y, d.z, d.yaw ?? 0, 1.35, 0.24, 1.15, 0, 0.25, 0.65, 0.98, 1.4);
+      }
+    }
+    const orphans = state.orphanDrones ?? [];
+    for (let i = 0; i < orphans.length; i++) {
+      const d = orphans[i];
+      writeInst(d.x, d.y, d.z, d.yaw ?? 0, 1.35, 0.24, 1.15, 0, 0.95, 0.45, 0.25, 1.6);
+    }
+
     // 3. Transient Fire Flashes / Explosions / Beams / Move Rings
     for (let i = transientFx.length - 1; i >= 0; i--) {
       const fx = transientFx[i];
@@ -1000,7 +1016,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     const humanFog = state.fogGrids?.[0];
     gpuFog.sync(humanFog, state.tickCount, state.tickCount <= 2);
     syncTerrainMap(state.map, state.tickCount);
-    modelFactory.syncEntities(state, alpha);
+    modelFactory.syncEntities(state, alpha, uiState);
     billboardRenderer.sync(state, uiState.selectedIds, alpha);
 
     // 1. Tight-Ortho Texel-Snapped Shadow Pass (static buildings cached + dynamic units)
@@ -1075,6 +1091,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
 
     // 2c. 3D Articulated Units & Buildings (1 Draw Call per active typeId!)
     modelFactory.renderMainPass(frameCtx);
+    modelFactory.renderXRayPass(frameCtx);
 
     // 2d. Dynamic 4-Wave Gerstner Ocean (1 Draw Call)
     waterRenderer.render(frameCtx);

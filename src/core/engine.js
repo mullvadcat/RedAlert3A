@@ -4,14 +4,17 @@
 import { ENTITY_DEFS, FACTIONS, TICK_DT, TICK_RATE } from './config.js';
 import {
   DEFAULT_M1_MAP_BLUEPRINT,
+  MAP_SIZE,
   TERRAIN,
   WORLD_SIZE,
   compileMap,
-  stepMapResources
+  stepMapResources,
+  worldToGrid
 } from '../world/map.js';
-import { createTeamFogGrids, rebuildTeamFogGrids } from '../gameplay/fogCpu.js';
+import { createTeamFogGrids, isCellExplored, rebuildTeamFogGrids } from '../gameplay/fogCpu.js';
 import { createFlowCache, stepNavigation } from '../gameplay/nav.js';
 import {
+  canBoardTransport,
   deployEntity,
   findNearestPassableLand,
   spawnEntity,
@@ -26,6 +29,8 @@ import {
   stepProductionAndPower
 } from '../gameplay/production.js';
 import { applyDamage, checkVictoryCondition, stepCombatAndProjectiles } from '../gameplay/combat.js';
+import { stepAirforce } from '../gameplay/airforce.js';
+import { stepNaval } from '../gameplay/naval.js';
 
 function createPlayerState(spec) {
   return {
@@ -108,6 +113,7 @@ export function createGameState(options = {}) {
     commandQueue: [],
     areaEffects: [],
     nextAreaEffectId: 1,
+    orphanDrones: [],
     orePillars: map.orePillars ?? [],
     flowCache: createFlowCache(),
     hadMultipleHqTeams: false,
@@ -289,13 +295,56 @@ function executeCommand(state, cmd) {
         const col = i % cols;
         const ox = (col - (cols - 1) * 0.5) * spacing;
         const oz = (row - (Math.ceil(n / cols) - 1) * 0.5) * spacing;
+        const tx = clampWorld((cmd.x ?? ent.x) + ox);
+        const tz = clampWorld((cmd.z ?? ent.z) + oz);
+        ent.interactTargetId = null;
+        ent.boardTargetId = null;
         ent.attackTargetId = null;
+
+        if (ent.typeId === 'chrono') {
+          const dist = Math.hypot(tx - ent.x, tz - ent.z);
+          const gx = Math.max(0, Math.min(MAP_SIZE - 1, worldToGrid(tx)));
+          const gz = Math.max(0, Math.min(MAP_SIZE - 1, worldToGrid(tz)));
+          const idx = gz * MAP_SIZE + gx;
+          const cellTerrain = state.map.terrain[idx];
+          const cellBlocked = state.map.buildingId[idx] !== 0;
+          if (
+            dist > 4.0 &&
+            ent.stunTicks === 0 &&
+            ent.empTicks === 0 &&
+            ent.frozenByCount === 0 &&
+            (cellTerrain === TERRAIN.LAND || cellTerrain === TERRAIN.BRIDGE) &&
+            !cellBlocked &&
+            isCellExplored(state, ent.teamId, gx, gz)
+          ) {
+            const oldX = ent.x;
+            const oldZ = ent.z;
+            ent.x = tx;
+            ent.z = tz;
+            ent.prevX = tx;
+            ent.prevZ = tz;
+            ent.moveTargetX = null;
+            ent.moveTargetZ = null;
+            ent.orderType = 'IDLE';
+            ent.stunTicks = Math.round(Math.max(1.0, Math.min(4.0, dist * 0.08)) * TICK_RATE);
+            state.events.push({ type: 'fx:chronoWarp', x: oldX, z: oldZ, tx, tz, entityId: ent.id });
+            continue;
+          }
+        }
+
         ent.orderType = cmd.type;
-        ent.moveTargetX = clampWorld((cmd.x ?? ent.x) + ox);
-        ent.moveTargetZ = clampWorld((cmd.z ?? ent.z) + oz);
+        ent.moveTargetX = tx;
+        ent.moveTargetZ = tz;
         ent.moveStopDist = 0.9;
         if (ent.deployState === 'DEPLOYED' && ent.typeId === 'gi') {
           deployEntity(state, ent);
+        }
+        if (
+          ENTITY_DEFS[ent.typeId]?.producerType === 'airforce_radar' &&
+          ent.airState === 'A_DOCKED' &&
+          ent.ammo > 0
+        ) {
+          ent.airState = 'A_LAUNCHING';
         }
       }
       break;
@@ -308,19 +357,54 @@ function executeCommand(state, cmd) {
       for (let i = 0; i < ids.length; i++) {
         const ent = state.entityById.get(ids[i]);
         if (!ent || !ent.alive || ent.playerId !== cmd.playerId) continue;
+
+        if (canBoardTransport(target, ent)) {
+          ent.boardTargetId = target.id;
+          ent.interactTargetId = null;
+          ent.attackTargetId = null;
+          ent.orderType = 'BOARD';
+          ent.moveTargetX = target.x;
+          ent.moveTargetZ = target.z;
+          ent.moveStopDist = (target.radius ?? 1.8) + 1.4;
+          continue;
+        }
+
+        if (ent.typeId === 'engineer' && target.isBuilding && (target.teamId !== ent.teamId || target.playerId === cmd.playerId)) {
+          ent.interactTargetId = target.id;
+          ent.boardTargetId = null;
+          ent.attackTargetId = null;
+          ent.orderType = 'INTERACT';
+          ent.moveTargetX = target.x;
+          ent.moveTargetZ = target.z;
+          ent.moveStopDist = (target.radius ?? 2.0) + 1.4;
+          continue;
+        }
+
         if (ent.teamId === target.teamId) continue;
+        ent.interactTargetId = null;
+        ent.boardTargetId = null;
         ent.attackTargetId = target.id;
         ent.orderType = 'ATTACK';
         if (!ent.isBuilding) {
+          const isShadowC4 =
+            ent.typeId === 'shadow' &&
+            (target.isBuilding || target.domain === 'SEA' || target.domain === 'SUBMERGED');
           const weapon = ENTITY_DEFS[ent.typeId]?.weapon;
-          const range = weapon?.range ?? 10;
-          if (Math.hypot(target.x - ent.x, target.z - ent.z) > range) {
+          const range = isShadowC4 ? 1.8 : (weapon?.range ?? 10);
+          if (Math.hypot(target.x - ent.x, target.z - ent.z) > range + (target.radius ?? 0)) {
             ent.moveTargetX = target.x;
             ent.moveTargetZ = target.z;
-            ent.moveStopDist = Math.max(2.0, range * 0.85);
+            ent.moveStopDist = isShadowC4 ? 1.6 : Math.max(2.0, range * 0.85);
           } else {
             ent.moveTargetX = null;
             ent.moveTargetZ = null;
+          }
+          if (
+            ENTITY_DEFS[ent.typeId]?.producerType === 'airforce_radar' &&
+            ent.airState === 'A_DOCKED' &&
+            ent.ammo > 0
+          ) {
+            ent.airState = 'A_LAUNCHING';
           }
         }
       }
@@ -335,6 +419,8 @@ function executeCommand(state, cmd) {
         ent.moveTargetX = null;
         ent.moveTargetZ = null;
         ent.attackTargetId = null;
+        ent.interactTargetId = null;
+        ent.boardTargetId = null;
         ent.orderType = 'IDLE';
       }
       break;
@@ -416,8 +502,8 @@ export function consumeCommands(state) {
 }
 
 function stepAirAndNaval(state) {
-  // M1: Clean pass-through; M3 (T3.3 & T3.4) plugs in airforce.js & naval.js here.
-  void state;
+  stepAirforce(state);
+  stepNaval(state);
 }
 
 function stepSuperweaponsAndAreaEffects(state) {

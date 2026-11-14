@@ -11,6 +11,7 @@
     "check:i18n": "node scripts/check-i18n.mjs",
     "test:m1": "node scripts/test-m1.mjs",
     "test:m2": "node scripts/test-m2.mjs",
+    "test:m3": "node scripts/test-m3.mjs",
     "sim:balance": "node scripts/balance-sim.mjs"
   }
 }

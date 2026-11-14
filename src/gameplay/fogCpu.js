@@ -115,7 +115,9 @@ export function isEntityTargetable(state, teamId, target) {
   const gx = worldToGrid(target.x);
   const gz = worldToGrid(target.z);
   const mask = getCellFogMask(state, teamId, gx, gz);
-  const isStealth = target.domain === 'SUBMERGED' || Boolean(target.isStealthed);
+  const isStealth =
+    (target.domain === 'SUBMERGED' && !(target.surfacedTicks > 0)) ||
+    (Boolean(target.isStealthed) && !(target.revealTicks > 0));
   if (isStealth) {
     return (mask & (FOG_VISIBLE | FOG_DETECTED)) === (FOG_VISIBLE | FOG_DETECTED);
   }

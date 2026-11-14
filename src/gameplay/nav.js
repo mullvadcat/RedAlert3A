@@ -328,6 +328,7 @@ export function stepNavigation(state) {
     if (ent.isBuilding) continue;
     if (ent.empTicks > 0 || ent.frozenByCount > 0 || ent.stunTicks > 0) continue;
     if (ent.deployState === 'DEPLOYED') continue;
+    if (ent.airState === 'A_DOCKED' || ent.airState === 'A_REARMING') continue;
 
     const layer = getMovementLayer(ent);
     const speed = ent.speed ?? ENTITY_DEFS[ent.typeId]?.speed ?? 0;

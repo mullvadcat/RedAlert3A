@@ -15,11 +15,22 @@ import {
   removeEntity
 } from './entities.js';
 
+const IFV_MODES = {
+  engineer: { damage: 0, healPerShot: 42, burst: 1, cooldownTicks: 15, range: 12, damageType: 'Repair', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 0 },
+  gi: { damage: 24, burst: 1, cooldownTicks: 6, range: 16, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 64 },
+  chrono: { damage: 250 / 30, burst: 1, cooldownTicks: 1, range: 15, damageType: 'Chrono', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 0 }
+};
+
 function getActiveWeapon(ent) {
   const def = ENTITY_DEFS[ent.typeId];
   if (!def) return null;
+  if (ent.typeId === 'carrier') return null; // Uses 4-drone 5-state FSM in naval.js
   if (ent.typeId === 'gi' && ent.deployState === 'DEPLOYED') {
     return def.deployedWeapon;
+  }
+  if (ent.typeId === 'ifv' && ent.cargoList && ent.cargoList.length > 0) {
+    const modeWeapon = IFV_MODES[ent.cargoList[0].typeId];
+    if (modeWeapon) return modeWeapon;
   }
   return def.weapon ?? null;
 }
@@ -39,8 +50,12 @@ function countAdjacentTeslaTroopers(state, coil) {
 
 function isWeaponOperational(state, attacker, weapon) {
   if (!weapon || !attacker.alive) return false;
-  if (attacker.empTicks > 0 || attacker.frozenByCount > 0) return false;
+  if (attacker.empTicks > 0 || attacker.frozenByCount > 0 || attacker.stunTicks > 0) return false;
   const def = ENTITY_DEFS[attacker.typeId];
+  if (def?.producerType === 'airforce_radar' && (attacker.airState === 'A_DOCKED' || attacker.airState === 'A_REARMING')) {
+    return false;
+  }
+  if (def?.maxAmmo > 0 && (attacker.ammo ?? 0) <= 0) return false;
   if (def?.requiresPower && state.players[attacker.playerId]?.isLowPower) {
     // >= 2 friendly Tesla Troopers adjacent to a Tesla Coil override blackout shutdown!
     if (attacker.typeId === 'tesla_coil' && countAdjacentTeslaTroopers(state, attacker) >= 2) {
@@ -56,7 +71,11 @@ function isWeaponOperational(state, attacker, weapon) {
 
 function isDomainAllowed(weapon, target) {
   if (!weapon?.targetDomains) return false;
-  return weapon.targetDomains.includes(target.domain);
+  if (weapon.targetDomains.includes(target.domain)) return true;
+  if (target.domain === 'SUBMERGED' && target.surfacedTicks > 0 && weapon.targetDomains.includes('SEA')) {
+    return true;
+  }
+  return false;
 }
 
 export function releaseProjectileReservation(state, proj) {
@@ -194,21 +213,177 @@ function selectTargetForEntity(state, attacker, weapon) {
   return best;
 }
 
-function fireWeapon(state, attacker, target, weapon) {
-  attacker.fireCooldownTicks = attacker.cooldownTicks || weapon.cooldownTicks;
+function stepChronoLocks(state) {
+  const entities = state.entities;
+  const nextLocks = new Map();
+
+  for (let i = 0; i < entities.length; i++) {
+    const ent = entities[i];
+    if (!ent.alive || ent.empTicks > 0 || ent.stunTicks > 0 || ent.frozenByCount > 0) {
+      ent.chronoLockTargetId = null;
+      continue;
+    }
+    const weapon = getActiveWeapon(ent);
+    if (!weapon || weapon.damageType !== 'Chrono') {
+      ent.chronoLockTargetId = null;
+      continue;
+    }
+    if (ent.orderType === 'MOVE' && ent.moveTargetX !== null) {
+      ent.chronoLockTargetId = null;
+      continue;
+    }
+
+    const range = weapon.range ?? 14;
+    let target = null;
+    const preferredId = ent.attackTargetId ?? ent.chronoLockTargetId;
+    if (preferredId !== null) {
+      const cand = state.entityById.get(preferredId);
+      if (
+        cand &&
+        cand.alive &&
+        cand.teamId !== ent.teamId &&
+        cand.teamId !== 3 &&
+        cand.ironCurtainTicks === 0 &&
+        isDomainAllowed(weapon, cand) &&
+        isEntityTargetable(state, ent.teamId, cand)
+      ) {
+        if (Math.hypot(cand.x - ent.x, cand.z - ent.z) <= range + (cand.radius ?? 0)) {
+          target = cand;
+        }
+      }
+    }
+
+    if (!target) {
+      let bestDist2 = Infinity;
+      for (let j = 0; j < entities.length; j++) {
+        const cand = entities[j];
+        if (!cand.alive || cand.teamId === ent.teamId || cand.teamId === 3) continue;
+        if (cand.ironCurtainTicks > 0 || !isDomainAllowed(weapon, cand)) continue;
+        if (!isEntityTargetable(state, ent.teamId, cand)) continue;
+        const effR = range + (cand.radius ?? 0);
+        const dx = cand.x - ent.x;
+        const dz = cand.z - ent.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 <= effR * effR && d2 < bestDist2) {
+          bestDist2 = d2;
+          target = cand;
+        }
+      }
+    }
+
+    if (!target) {
+      ent.chronoLockTargetId = null;
+      continue;
+    }
+
+    ent.chronoLockTargetId = target.id;
+    ent.turretYaw = Math.atan2(target.x - ent.x, target.z - ent.z);
+    ent.lastCombatTick = state.tickCount;
+    nextLocks.set(target.id, (nextLocks.get(target.id) ?? 0) + 1);
+    target.eraseProgress += weapon.damage ?? (250 / 30);
+
+    if (state.tickCount % 3 === 0) {
+      state.events.push({
+        type: 'combat:fire',
+        attackerId: ent.id,
+        attackerTypeId: ent.typeId,
+        targetId: target.id,
+        x: ent.x,
+        z: ent.z,
+        tx: target.x,
+        tz: target.z,
+        damageType: 'Chrono'
+      });
+    }
+  }
+
+  for (let i = 0; i < entities.length; i++) {
+    const ent = entities[i];
+    if (!ent.alive) continue;
+    const locks = nextLocks.get(ent.id) ?? 0;
+    ent.frozenByCount = locks;
+    if (locks === 0) {
+      ent.eraseProgress = 0;
+    } else if (ent.eraseProgress >= ent.maxHp) {
+      const victimPlayer = state.players[ent.playerId];
+      if (victimPlayer) victimPlayer.stats.lost += 1;
+      state.events.push({ type: 'fx:chronoErase', entityId: ent.id, x: ent.x, y: ent.y, z: ent.z });
+      removeEntity(state, ent.id, 'erased');
+    }
+  }
+}
+
+function stepIfvRepair(state, ent, weapon) {
+  const range = weapon.range ?? 12;
+  let best = null;
+  let bestDist2 = Infinity;
+  for (let i = 0; i < state.entities.length; i++) {
+    const cand = state.entities[i];
+    if (!cand.alive || cand.id === ent.id || cand.playerId !== ent.playerId) continue;
+    if (cand.frozenByCount > 0 || cand.hp >= cand.maxHp) continue;
+    if (!isDomainAllowed(weapon, cand)) continue;
+    const effR = range + (cand.radius ?? 0);
+    const dx = cand.x - ent.x;
+    const dz = cand.z - ent.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 <= effR * effR && d2 < bestDist2) {
+      bestDist2 = d2;
+      best = cand;
+    }
+  }
+  if (!best) return;
+  ent.fireCooldownTicks = weapon.cooldownTicks;
+  ent.turretYaw = Math.atan2(best.x - ent.x, best.z - ent.z);
+  best.hp = Math.min(best.maxHp, best.hp + (weapon.healPerShot ?? 40));
+  state.events.push({
+    type: 'combat:fire',
+    attackerId: ent.id,
+    attackerTypeId: ent.typeId,
+    targetId: best.id,
+    x: ent.x,
+    z: ent.z,
+    tx: best.x,
+    tz: best.z,
+    damageType: 'Prism'
+  });
+}
+
+function fireWeapon(state, attacker, target, weapon, prismCtx) {
+  attacker.fireCooldownTicks = (attacker.typeId === 'ifv' && attacker.cargoList?.length > 0)
+    ? weapon.cooldownTicks
+    : (attacker.cooldownTicks || weapon.cooldownTicks);
   attacker.recoil = attacker.isBuilding ? 0.25 : 0.45;
   attacker.lastCombatTick = state.tickCount;
+
+  const burst = weapon.burst ?? attacker.burst ?? 1;
+  // Enforce Airforce radar-pad ammo consumption & auto-RTB (expend sortie burst)
+  const def = ENTITY_DEFS[attacker.typeId];
+  if (def?.maxAmmo > 0) {
+    attacker.ammo = Math.max(0, (attacker.ammo ?? 0) - burst);
+    if (attacker.ammo === 0) {
+      attacker.airState = 'A_RETURNING';
+    }
+  }
+
+  // Temporary stealth reveal windows upon firing (T3.3 Nighthawk & T3.4 Typhoon)
+  if (attacker.typeId === 'typhoon') attacker.surfacedTicks = 45;
+  if (attacker.typeId === 'nighthawk') attacker.revealTicks = 30;
 
   // Rotate turret smoothly toward target
   const dx = target.x - attacker.x;
   const dz = target.z - attacker.z;
   attacker.turretYaw = Math.atan2(dx, dz);
 
-  const burst = attacker.burst ?? weapon.burst ?? 1;
+  const useWeaponDamage = attacker.typeId === 'ifv' && attacker.cargoList?.length > 0;
   const basePerShot = (target.domain === 'AIR' && weapon.antiAirDamage)
     ? weapon.antiAirDamage
-    : attacker.damage;
+    : (useWeaponDamage ? weapon.damage : attacker.damage);
   let rawTotal = basePerShot * burst;
+
+  // Dolphin sonar anti-submarine bonus (150% vs SUBMERGED)
+  if (weapon.subMult && target.domain === 'SUBMERGED') {
+    rawTotal *= weapon.subMult;
+  }
 
   // Prism Tower convergence: up to 4 adjacent idle powered Prism Towers add +50% each (max 300%)
   if (attacker.typeId === 'prism_tower') {
@@ -255,6 +430,46 @@ function fireWeapon(state, attacker, target, weapon) {
 
   if (!weapon.projectileSpeed || weapon.projectileSpeed <= 0) {
     applyDamage(state, target, rawTotal, weapon.damageType, attacker, attacker.playerId);
+
+    // Prism Tank Beam Splitting: up to 5 secondary rays, global cap 128/tick, marginal decay 0.7^{k-3} for k > 3
+    if (attacker.typeId === 'prism' && weapon.prismSplits > 0 && prismCtx && prismCtx.globalSplits < 128) {
+      const splitRange2 = 10.0 * 10.0;
+      const candidates = [];
+      for (let i = 0; i < state.entities.length; i++) {
+        const cand = state.entities[i];
+        if (!cand.alive || cand.id === target.id || cand.teamId === attacker.teamId || cand.teamId === 3) continue;
+        if (cand.domain === 'AIR' || cand.frozenByCount > 0) continue;
+        if (!isEntityTargetable(state, attacker.teamId, cand)) continue;
+        const sdx = cand.x - target.x;
+        const sdz = cand.z - target.z;
+        const d2 = sdx * sdx + sdz * sdz;
+        if (d2 <= splitRange2) {
+          candidates.push({ cand, d2 });
+        }
+      }
+      candidates.sort((a, b) => a.d2 - b.d2);
+      const maxRays = Math.min(weapon.prismSplits, candidates.length, 128 - prismCtx.globalSplits);
+      for (let r = 0; r < maxRays; r++) {
+        const sec = candidates[r].cand;
+        const k = (prismCtx.targetHits.get(sec.id) ?? 0) + 1;
+        prismCtx.targetHits.set(sec.id, k);
+        const decay = k <= 3 ? 1.0 : Math.pow(0.7, k - 3);
+        const splitRaw = rawTotal * 0.55 * decay;
+        applyDamage(state, sec, splitRaw, 'Prism', attacker, attacker.playerId);
+        prismCtx.globalSplits++;
+        state.events.push({
+          type: 'combat:fire',
+          attackerId: attacker.id,
+          attackerTypeId: attacker.typeId,
+          targetId: sec.id,
+          x: target.x,
+          z: target.z,
+          tx: sec.x,
+          tz: sec.z,
+          damageType: 'Prism'
+        });
+      }
+    }
     return;
   }
 
@@ -290,6 +505,11 @@ function fireWeapon(state, attacker, target, weapon) {
 }
 
 export function stepCombatAndProjectiles(state) {
+  // 0. Chrono Legionnaire / Chrono IFV phase lock & erasure pre-pass (updates frozenByCount deterministically)
+  stepChronoLocks(state);
+
+  const prismCtx = { globalSplits: 0, targetHits: new Map() };
+
   // 1. Units & defensive structures acquire targets and fire
   const entities = state.entities;
   for (let i = 0; i < entities.length; i++) {
@@ -299,11 +519,44 @@ export function stepCombatAndProjectiles(state) {
 
     const weapon = getActiveWeapon(ent);
     if (!isWeaponOperational(state, ent, weapon)) continue;
+    if (weapon.damageType === 'Chrono') continue; // Resolved deterministically in stepChronoLocks
+    if (weapon.damageType === 'Repair') {
+      if (ent.fireCooldownTicks === 0) stepIfvRepair(state, ent, weapon);
+      continue;
+    }
+
+    // Shadow Hero C4 close-quarters demolition on enemy buildings & naval vessels
+    if (ent.typeId === 'shadow' && ent.c4CooldownTicks === 0 && ent.attackTargetId !== null) {
+      const c4Target = state.entityById.get(ent.attackTargetId);
+      if (
+        c4Target &&
+        c4Target.alive &&
+        c4Target.teamId !== ent.teamId &&
+        c4Target.teamId !== 3 &&
+        (c4Target.isBuilding || c4Target.domain === 'SEA' || c4Target.domain === 'SUBMERGED')
+      ) {
+        const reach = (c4Target.radius ?? 1.5) + 2.4;
+        if (Math.hypot(c4Target.x - ent.x, c4Target.z - ent.z) <= reach) {
+          ent.c4CooldownTicks = 60;
+          ent.attackTargetId = null;
+          ent.moveTargetX = null;
+          ent.moveTargetZ = null;
+          ent.orderType = 'IDLE';
+          applyDamage(state, c4Target, 999999, 'HighExplosive', ent, ent.playerId);
+          state.events.push({ type: 'fx:explosion', x: c4Target.x, y: c4Target.y ?? 1.6, z: c4Target.z, scale: 1.8 });
+          continue;
+        }
+        ent.moveTargetX = c4Target.x;
+        ent.moveTargetZ = c4Target.z;
+        ent.moveStopDist = Math.max(1.2, (c4Target.radius ?? 1.5) + 1.2);
+        continue;
+      }
+    }
 
     // Hold fire when idle harvester? Harvester still defends itself if enemy closes in!
     const target = selectTargetForEntity(state, ent, weapon);
     if (!target) {
-      // AA Turret can intercept in-flight V3 ballistic rockets within 24m
+      // AA Turret can intercept in-flight V3/Dreadnought ballistic rockets within 24m
       if (ent.typeId === 'aa_turret' && ent.fireCooldownTicks === 0) {
         const aaRange = weapon.range ?? 24;
         for (let pIdx = 0; pIdx < state.projectiles.length; pIdx++) {
@@ -336,9 +589,9 @@ export function stepCombatAndProjectiles(state) {
 
     // Attack-move pauses briefly to engage targets in range cleanly
     if (ent.orderType === 'ATTACK_MOVE' && ent.fireCooldownTicks === 0) {
-      fireWeapon(state, ent, target, weapon);
+      fireWeapon(state, ent, target, weapon, prismCtx);
     } else if (ent.fireCooldownTicks === 0) {
-      fireWeapon(state, ent, target, weapon);
+      fireWeapon(state, ent, target, weapon, prismCtx);
     }
   }
 
@@ -371,6 +624,18 @@ export function stepCombatAndProjectiles(state) {
       const attacker = state.entityById.get(p.attackerId) ?? { typeId: p.attackerTypeId, alive: false, playerId: p.attackerPlayerId };
       if (target && target.alive) {
         applyDamage(state, target, p.baseDamage, p.damageType, attacker, p.attackerPlayerId);
+      }
+      if (p.splashRadius > 0) {
+        const sr2 = p.splashRadius * p.splashRadius;
+        for (let k = 0; k < entities.length; k++) {
+          const near = entities[k];
+          if (!near.alive || near.id === p.targetId || near.domain === 'AIR' || near.teamId === p.attackerTeamId || near.teamId === 3) continue;
+          const sd2 = (near.x - p.targetX) ** 2 + (near.z - p.targetZ) ** 2;
+          if (sd2 <= sr2) {
+            const falloff = Math.max(0.25, 1.0 - Math.sqrt(sd2) / p.splashRadius);
+            applyDamage(state, near, p.baseDamage * falloff, p.damageType, attacker, p.attackerPlayerId);
+          }
+        }
       }
       state.events.push({ type: 'fx:impact', x: p.targetX, y: p.targetY, z: p.targetZ, damageType: p.damageType });
       continue;

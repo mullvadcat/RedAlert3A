@@ -5,6 +5,7 @@ import { ENTITY_DEFS, KEYMAP_DEFAULTS } from '../core/config.js';
 import { toggleLocale } from '../core/i18n.js';
 import { CELL_SIZE, MAP_SIZE, worldToGrid } from '../world/map.js';
 import { isEntityTargetable } from '../gameplay/fogCpu.js';
+import { canBoardTransport } from '../gameplay/entities.js';
 import { validateBuildingPlacement } from '../gameplay/production.js';
 
 export function createInputController(canvas, state, uiState, pipeline, sidebarUI, enqueue) {
@@ -255,11 +256,27 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
       const world = pipeline.camera.screenToWorld(e.clientX, e.clientY, 1.6);
       const selectedList = Array.from(uiState.selectedIds);
 
-      // Check if targeting an enemy entity
+      const selectedEntities = selectedList
+        .map((id) => state.entityById.get(id))
+        .filter((ent) => ent && ent.alive);
+      const selectedHasEngineer = selectedEntities.some((ent) => ent.typeId === 'engineer');
+
+      // Check if targeting an enemy, neutral interactable (engineer), or friendly transport (boarding)
       const enemyTarget = findEntityAtWorld(
         world.x,
         world.z,
-        (ent) => ent.teamId !== 0 && ent.teamId !== 3 && (uiState.noFog || isEntityTargetable(state, 0, ent))
+        (ent) => {
+          if (ent.teamId !== 0 && ent.teamId !== 3) {
+            return uiState.noFog || isEntityTargetable(state, 0, ent);
+          }
+          if (selectedHasEngineer && ent.isBuilding && (ent.teamId === 3 || (ent.playerId === 0 && ent.hp < ent.maxHp))) {
+            return true;
+          }
+          if (ent.playerId === 0 && selectedEntities.some((unit) => canBoardTransport(ent, unit))) {
+            return true;
+          }
+          return false;
+        }
       );
 
       if (enemyTarget) {

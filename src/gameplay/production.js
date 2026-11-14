@@ -13,10 +13,13 @@ import {
   CELL_SIZE,
   MAP_SIZE,
   TERRAIN,
+  gridToWorldCenter,
   worldToGrid
 } from '../world/map.js';
 import {
+  findFreeAirpad,
   findNearestPassableLand,
+  getAirpadWorldPos,
   removeEntity,
   spawnEntity
 } from './entities.js';
@@ -159,8 +162,9 @@ export function startProduction(state, playerId, queueKey, typeId, count = 1) {
   const def = ENTITY_DEFS[typeId];
   if (!player || !def) return false;
 
-  const targetQueueKey = def.queueKey ?? queueKey;
-  if (queueKey && targetQueueKey !== queueKey) return false;
+  const normQueueKey = (queueKey === 'air' || queueKey === 'naval') ? 'air_naval' : queueKey;
+  const targetQueueKey = def.queueKey ?? normQueueKey;
+  if (normQueueKey && targetQueueKey !== normQueueKey) return false;
   if (!canBuildItem(state, playerId, typeId)) return false;
 
   if (targetQueueKey === 'main' || targetQueueKey === 'defense') {
@@ -211,7 +215,8 @@ export function cancelProduction(state, playerId, queueKey, typeId, count = 1) {
   const player = state.players[playerId];
   if (!player) return false;
 
-  const targetKey = ENTITY_DEFS[typeId]?.queueKey ?? queueKey;
+  const normQueueKey = (queueKey === 'air' || queueKey === 'naval') ? 'air_naval' : queueKey;
+  const targetKey = ENTITY_DEFS[typeId]?.queueKey ?? normQueueKey;
   if (!targetKey) return false;
 
   if (targetKey === 'main' || targetKey === 'defense') {
@@ -427,13 +432,59 @@ export function sellBuilding(state, playerId, entityId) {
   return true;
 }
 
+function findNearestSeaExit(map, worldX, worldZ) {
+  if (!map) return { x: worldX, z: worldZ };
+  const cx = worldToGrid(worldX);
+  const cz = worldToGrid(worldZ);
+  for (let r = 0; r <= 6; r++) {
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+        const gx = cx + dx;
+        const gz = cz + dz;
+        if (gx < 1 || gx >= MAP_SIZE - 1 || gz < 1 || gz >= MAP_SIZE - 1) continue;
+        const idx = gz * MAP_SIZE + gx;
+        if (map.terrain[idx] === TERRAIN.SEA && map.buildingId[idx] === 0) {
+          return { x: gridToWorldCenter(gx), z: gridToWorldCenter(gz) };
+        }
+      }
+    }
+  }
+  return { x: worldX, z: worldZ };
+}
+
 function spawnProducedUnit(state, player, def) {
   const producer = findPrimaryProducer(state, player.playerId, def.producerType);
   if (!producer) return null;
 
   let spawnX = producer.x;
   let spawnZ = producer.z + producer.footprintH * CELL_SIZE * 0.5 + 3.0;
-  if (def.domain !== 'AIR' && def.domain !== 'SEA' && def.domain !== 'SUBMERGED') {
+  let spawnY;
+  let homeId = producer.id;
+  let airState;
+  let padIndex = 0;
+
+  if (def.producerType === 'airforce_radar') {
+    const pad = findFreeAirpad(state, player.playerId);
+    const targetRadar = pad?.radar ?? producer;
+    padIndex = pad?.padIndex ?? 0;
+    const pos = getAirpadWorldPos(targetRadar, padIndex);
+    spawnX = pos.x;
+    spawnY = pos.y;
+    spawnZ = pos.z;
+    homeId = targetRadar.id;
+    airState = 'A_DOCKED';
+  } else if (def.domain === 'AIR') {
+    // War Factory vertical roof liftoff (Nighthawk / Kirov) — bypasses Airforce helipads completely
+    spawnX = producer.x;
+    spawnY = (producer.y ?? 1.6) + 2.8;
+    spawnZ = producer.z;
+    airState = 'A_AIRBORNE';
+  } else if (def.domain === 'SEA' || def.domain === 'SUBMERGED') {
+    const seaPos = findNearestSeaExit(state.map, producer.x, producer.z + producer.footprintH * CELL_SIZE * 0.5 + 3.0);
+    spawnX = seaPos.x;
+    spawnZ = seaPos.z;
+  } else {
     const safe = findNearestPassableLand(state.map, spawnX, spawnZ);
     spawnX = safe.x;
     spawnZ = safe.z;
@@ -445,16 +496,31 @@ function spawnProducedUnit(state, player, def) {
     teamId: player.teamId,
     factionId: player.factionId,
     x: spawnX,
+    y: spawnY,
     z: spawnZ,
-    homeId: producer.id
+    homeId,
+    airState,
+    padIndex
   });
 
   if (unit.typeId === 'harvester') {
     unit.fsmState = 'H_SEEK_ORE';
-  } else if (producer.rallyX !== null && producer.rallyZ !== null) {
+  } else if (def.producerType !== 'airforce_radar' && producer.rallyX !== null && producer.rallyZ !== null) {
     unit.moveTargetX = producer.rallyX;
     unit.moveTargetZ = producer.rallyZ;
     unit.orderType = 'MOVE';
+  }
+
+  if (unit.typeId === 'kirov') {
+    // Broadcast global Kirov airship liftoff warning to player 0 & telemetry
+    state.events.push({
+      type: 'hud:notice',
+      playerId: 0,
+      globalAlert: true,
+      key: 'hud.status.kirovReporting',
+      x: unit.x,
+      z: unit.z
+    });
   }
 
   player.stats.produced += 1;
@@ -542,29 +608,40 @@ export function stepProductionAndPower(state) {
       }
     }
 
-    // Concurrent unit queues: infantry (E), vehicle (R), air_naval (T)
+    // Concurrent unit queues: infantry (E), vehicle (R), air_naval (T - independent per producerType)
     for (const qKey of ['infantry', 'vehicle', 'air_naval']) {
       const list = player.queues[qKey];
       if (!Array.isArray(list) || list.length === 0) continue;
-      const head = list[0];
-      const def = ENTITY_DEFS[head.typeId];
-      if (!def) {
-        list.shift();
-        continue;
-      }
-      if (head.status === 'PAUSED' && player.credits >= 1 && getCompatibleProducerCount(state, player.playerId, def.producerType) > 0) {
-        head.status = 'BUILDING';
-      }
-      if (advanceQueueItem(state, player, head, def)) {
-        spawnProducedUnit(state, player, def);
-        head.count -= 1;
-        if (head.count <= 0) {
-          list.shift();
-        } else {
-          head.progressTicks = 0;
-          head.paidCost = 0;
-          head.status = 'BUILDING';
+      const seenProducers = new Set();
+      let idx = 0;
+      while (idx < list.length) {
+        const item = list[idx];
+        const def = ENTITY_DEFS[item.typeId];
+        if (!def) {
+          list.splice(idx, 1);
+          continue;
         }
+        const prodKey = def.producerType ?? qKey;
+        if (seenProducers.has(prodKey)) {
+          idx++;
+          continue;
+        }
+        seenProducers.add(prodKey);
+        if (item.status === 'PAUSED' && player.credits >= 1 && getCompatibleProducerCount(state, player.playerId, def.producerType) > 0) {
+          item.status = 'BUILDING';
+        }
+        if (advanceQueueItem(state, player, item, def)) {
+          spawnProducedUnit(state, player, def);
+          item.count -= 1;
+          if (item.count <= 0) {
+            list.splice(idx, 1);
+            continue;
+          }
+          item.progressTicks = 0;
+          item.paidCost = 0;
+          item.status = 'BUILDING';
+        }
+        idx++;
       }
     }
   }
