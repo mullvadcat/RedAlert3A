@@ -28,7 +28,7 @@ flowchart TB
     subgraph Simulation["30 Hz 确定性海陆空模拟与平衡内核"]
         MAP["map.js: 声明式地图编译器(<15ms生成256×256) · 可破坏桥梁 · 1024弹坑贴花池"]
         NAV["nav.js: 128×128宏观流场 + 256×256精密占格 + 逻辑Tick分片(<=2张/Tick)"]
-        ECO["economy.js: 30Hz五通道并发队列 · 电力三态 · 矿车7态/航母5态FSM · 指挥官秘策"]
+        ECO["production.js & entities.js: 30Hz五通道并发队列 · 电力三态 · 矿车7态/航母5态FSM"]
         CMB["combat.js: 7×6全维护甲 · CPU视野索敌 · 防溢出预约释放(pendingDamage) · 光棱递减"]
         SW["superweapon.js: 光棱协同 + 四大超武(含6秒预警环与反制窗口)"]
         AI["ai.js: 三层效用AI(受CPU战争迷雾约束) · 无头1000x压测(scripts/balance-sim.mjs)"]
@@ -77,7 +77,8 @@ RedAlert3A/
 ├── vite.config.js                  # 现代 ES 模块化构建、KTX2/GLB 分包与静态输出配置
 ├── package.json                    # dev / build / sim:balance / bench 工程脚本
 ├── scripts/
-│   └── balance-sim.mjs             # Node.js 无头 1000x 自动化对局与经济战损平衡压测器
+│   ├── balance-sim.mjs             # Node.js 无头 1000x 自动化对局与经济战损平衡压测器
+│   └── check-i18n.mjs              # zh-CN / en-US 词条完整性与对等校验脚本
 ├── assets/                         # 可选外置高精资产覆盖池（按战役/阵营异步懒加载）
 │   ├── textures/                   # 2K BasisU(.ktx2) PBR 纹理覆盖集
 │   ├── models/                     # glTF/GLB 精细多部件机械单位与建筑模型
@@ -87,12 +88,15 @@ RedAlert3A/
 │   ├── assets/                     # PRD/README 概念图鉴（abyssal/crimson/infantry/superweapons.jpg）
 │   ├── README.md                   # 文档中心索引、权威裁决顺序、统一命名表与版本历史
 │   ├── PRD.md                      # 产品需求文档 v2.2
-│   └── SDD.md                      # 软件设计方案 v2.2
+│   ├── SDD.md                      # 软件设计方案 v2.2
+│   └── DEVELOPMENT_PLAN.md         # AI Agent 工程开发执行计划 (M1–M6 Playbook)
 └── src/
+    ├── main.js                     # 浏览器适配入口 (URL 解析 / rAF 固定步长累加器 / 模式切换)
     ├── core/
-    │   ├── engine.js               # 30Hz 固定逻辑步长主循环 + 资产流式与回退加载管理器
+    │   ├── engine.js               # 30Hz 纯模拟固定步长调度核 (createGameState / enqueueCommand / stepSimulation)
     │   ├── config.js               # 全量建筑/陆海空单位数值、科技树、7×6护甲表与画质预设
     │   ├── i18n.js                 # 多语种国际化运行时 (默认 zh-CN/en-US, t() 查询与热切换)
+    │   ├── mixer.js                # 浏览器 WebAudio 自适应交响混音与军用无线电滤波音频管线
     │   ├── save.js                 # IndexedDB 战役进度、语言偏好与局内检查点状态序列化快照
     │   └── events.js               # 高性能零 GC 事件总线 + 确定性 PRNG
     ├── locales/                    # 模块化国际化语言词典（默认内置中/英双语，支持扩展更多语种）
@@ -101,6 +105,7 @@ RedAlert3A/
     │   └── index.js                # 语种注册表与外部 JSON Locale 动态挂载器
     ├── render/
     │   ├── pipeline.js             # WebGL2 HDR 9步后处理、AgX色调映射、Bloom、热浪折射
+    │   ├── pbr.js                  # 启动期 GPU FBO 2048×2048 PBR 材质烘焙 + KTX2 异步覆盖钩子
     │   ├── shadow.js               # 相机紧包络 4096×4096 纹素对齐 PCSS 软阴影 + 静态阴影缓存 + GTAO
     │   ├── billboards.js           # 单 Draw Call GPU 实例化战术血条、老兵星标、铁幕与载员指示器
     │   ├── water.js                # Gerstner 物理海浪(岸深平滑衰减)、尾流航迹与潜艇隐身滤镜
@@ -108,9 +113,11 @@ RedAlert3A/
     │   └── decals.js               # 持久地面弹坑、焦土、核辐射荧光斑与坦克履带印环状池 (1024槽)
     ├── world/
     │   ├── map.js                  # 声明式地图编译器 + 256×256 海陆桥网格与双矿柱再生
+    │   ├── skirmishMaps.js         # 首发 8 张 256×256 遭遇战战术地图声明式蓝图
     │   ├── models.js               # 单 Draw Call 顶点部件驱动 InstancedMesh + X-Ray遮挡 + 战损/轮廓光
     │   └── destruction.js          # 确定性解析抛物线碎片池 (vy*=-0.35弹跳)、黑烟火柱与残骸沉降
     ├── gameplay/
+    │   ├── fogCpu.js               # CPU 256×256 视野位掩码 (EXPLORED/VISIBLE/DETECTED) 与索敌约束
     │   ├── nav.js                  # 128×128 宏观流场 + 256×256 占格 + 30Hz 逻辑Tick分片(<=2/Tick) + Boids
     │   ├── entities.js             # 单位/建筑结构体数组池(playerId/teamId/faction)、老兵晋升、矿车与航母FSM
     │   ├── naval.js                # 造船厂 SEA 放置校验、潜艇潜浮隐身、反潜声呐探测、气垫船装卸抢滩
@@ -124,6 +131,8 @@ RedAlert3A/
     │   ├── dialogue.js             # 无线电立绘通讯面板、军用对讲滤波音频队列与双语字幕
     │   └── campaigns/              # 12+1 关独立声明式战役剧本与地图蓝图（A01~A06 / C01~C06 / EX13）
     └── ui/
+        ├── input.js                # DOM 键鼠输入监听与 4 级优先级栈 (enqueueCommand 生成器)
+        ├── bench.js                # ?bench=1 全兵种 250+ 同屏 60s 自动性能与 Draw Call 压测场景
         ├── sidebar.js              # 右栏 5 页签经典 Sidebar、动态头像小窗、双超武倒计时挂件
         ├── minimap.js              # 256×256 高精互动小地图（海陆轮廓/核弹预警/左跳右指）
         └── menus.js                # 3D实时战区背景主菜单、战役分歧星图、遭遇战8图大厅与战后复盘

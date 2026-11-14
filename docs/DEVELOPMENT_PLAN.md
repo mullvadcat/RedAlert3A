@@ -11,11 +11,11 @@
 ## 1. AI Agent 研发执行总则（Agent Execution Protocol）
 
 ### 1.1 文档真理源与冲突裁决顺序
-当开发过程中出现文档理解或参数疑问时，严格按以下优先级裁决：
-1. **运行时数值唯一真理源**：所有单位、建筑、护甲矩阵、电力、超武参数一经写入 `src/core/config.js`，即成为代码运行时的唯一真理源。
+当开发过程中出现文档理解或参数疑问时，严格按以下优先级裁决（与 [`docs/README.md`](README.md) 第 1 节保持一致）：
+1. **运行时数值唯一真理源**：源码落地前初始化 `src/core/config.js` 时，以 [`PRD.md`](PRD.md)（v2.2）数值表与 [`SDD.md`](SDD.md)（v2.2）护甲矩阵为准；一旦写入 `src/core/config.js`，即成为代码运行时的唯一真理源（Target Baseline 参数在 M4 压测调优后同步回写文档）。
 2. **统一命名与 ID 字典**：所有代码键名、文件名、`i18n` Key 必须与 [`docs/README.md`](README.md) 第 2 节一致（例如：`conyard`、`refinery`、`crimson_mig`、`aa_turret`、`hospital`，**严禁自造别名或混用“红刀”**）。
-3. **玩法机制与操控边界**：以 [`PRD.md`](PRD.md) 为准。
-4. **渲染管线、内存池与性能门禁**：以 [`SDD.md`](SDD.md) 为准。
+3. **玩法机制与操控边界**：以 [`PRD.md`](PRD.md)（v2.2）为准。
+4. **渲染方案、模块职责与性能门禁**：以 [`SDD.md`](SDD.md)（v2.2）为准（其中代码文件树与纯模拟拆分边界以本计划及已同步的 SDD 第 2 节为准）。
 
 ### 1.2 四条绝对架构红线（Hard Architectural Invariants）
 Agent 在生成或重构任何模块前，必须校验是否触犯以下红线：
@@ -87,6 +87,13 @@ export function createGameState(options) {
   powerProduced: 0,
   powerConsumed: 0,
   powerFactor: 1.0,            // green >= 1.0 -> 1.0; yellow [0.6, 1.0) -> 0.5; red < 0.6 -> 0.35
+  powerState: 'green',         // 'green' | 'yellow' | 'red'
+  isLowPower: false,           // true 当且仅当 powerProduced < powerConsumed：雷达小地图/光棱塔/未充能磁暴线圈/超武停机
+  aiState: {                   // AI 内部推进态（isHuman 为 true 时可为 null），随存档持久化
+    phase: 'OPENING',          // 'OPENING' | 'EXPANDING' | 'MIDGAME' | 'ENDGAME'
+    nextAttackTick: 900,
+    lastScoutTick: 0
+  },
   // 5 通道队列与 Sidebar Q/W/E/R/T 严格 1:1 映射
   queues: {
     main: null,                // { typeId, totalCost, paidCost, progressTicks, totalTicks, status: 'BUILDING'|'READY'|'PAUSED' }
@@ -204,6 +211,29 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 9. `rebuildTeamFogGrids(state)`（按队执行 `grid[i] &= 1`，由存活单位/建筑与活跃 `areaEffects` 重建 `VISIBLE | DETECTED`）
 10. `stepAiAndCheckVictory(state)`（受 `fogGrids[teamId]` 约束驱动三层 AI 写入指令队列，并判定胜负结算）
 
+### 2.5 `Command` 标准指令契约（`enqueueCommand(state, cmd)`）
+
+`ui/input.js`、`sidebar.js`、`minimap.js` 与 `ai.js` 均须通过统一联合指令格式向 `state.commandQueue` 派发操作，`consumeCommands(state)` 校验归属后执行：
+
+```js
+// type 取值决定必需载荷字段，禁止各模块自造 Action 字段名
+{
+  tick?: number,          // 目标生效逻辑 Tick（缺省或 <= state.tickCount 则于当前 Tick 立即消费）
+  playerId: number,       // 指令发起玩家 (0..3)
+  type: 'MOVE' | 'ATTACK_MOVE' | 'ATTACK' | 'STOP' | 'DEPLOY'
+      | 'START_PROD' | 'CANCEL_PROD' | 'PLACE_BUILDING'
+      | 'TOGGLE_REPAIR' | 'SELL_BUILDING'
+      | 'FIRE_SUPERWEAPON' | 'USE_DOCTRINE' | 'SET_RALLY',
+  entityIds?: number[],   // MOVE / ATTACK_MOVE / ATTACK / STOP / DEPLOY / SET_RALLY
+  targetId?: number,      // ATTACK / TOGGLE_REPAIR / SELL_BUILDING
+  queueKey?: 'main' | 'defense' | 'infantry' | 'vehicle' | 'air_naval', // START_PROD / CANCEL_PROD
+  typeId?: string,        // START_PROD / CANCEL_PROD / PLACE_BUILDING / FIRE_SUPERWEAPON / USE_DOCTRINE
+  count?: number,         // START_PROD / CANCEL_PROD 增减数量（默认 1，Shift 传 5）
+  x?: number,             // 地图世界或格坐标（目标点/放置左上角格/超武秘策落点）
+  z?: number
+}
+```
+
 ---
 
 ## 3. M1 – M6 分阶段原子任务清单（Atomic Task Breakdown）
@@ -287,7 +317,9 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
   - **输出文件**：`src/gameplay/entities.js`、`src/gameplay/production.js`、`src/gameplay/combat.js`、`src/ui/sidebar.js`（M1 核心页签）、`src/ui/minimap.js`、`src/ui/input.js`、`src/main.js`（M1 `?bench=1` 基础压测入口）
   - **实施要点**：
     - `entities.js`：实现 `mcv` 按 `D` 展开为 `4×4` `conyard`（校验足印平整、无障碍后激活 `18` 格建造圈）；实现 `harvester` **7 状态 FSM**（`H_IDLE -> H_SEEK_ORE -> H_MOVE_TO_ORE -> H_HARVESTING(4.0s) -> H_RETURN -> H_DOCKING -> H_UNLOADING(1.5s)`，混装 2 格按实际赤/紫晶价格累加；所属 `refinery` 被毁时切寻备选厂否则停 `H_IDLE`，新建厂时唤醒恢复）；实现 `veterancy` `0/1/2` 直接覆盖公式。
-    - `production.js`：实现建造位置校验（建造厂 `18` 格 / 己方建筑 `8` 格）、电力三态计算、逐 Tick 平滑扣款（`credits === 0` 自动 `PAUSED`）、多厂加速公式与 `N === 0` 暂停及取消全额退款守卫。
+    - `production.js`：实现建造位置校验（建造厂 `18` 格 / 己方建筑 `8` 格）、电力三态计算（同步更新 `powerState`、`powerFactor` 与 `isLowPower`）、逐 Tick 平滑扣款（`credits === 0` 自动 `PAUSED`）、多厂加速守卫公式：
+      - 当兼容生产建筑数 `N === 0` 时立即将对应队列置为 `PAUSED`（取消时全额退还已扣费用）；
+      - 当 `N >= 1` 时采用 `SpeedMultiplier = (1 + 0.25 * Math.min(N - 1, 4)) * PowerFactor`（绿电 `1.0` / 黄电 `0.5` / 红电 `0.35`）。
     - `combat.js`：实现 `7×6` 护甲结算、CPU 视野索敌、`pendingDamage` 预约与单次幂等释放、胜负条件检测（敌方所有建筑 + MCV 归零判定胜利）。
     - `ui/input.js`：DOM 交互层严格实现 **4 级输入优先级栈**（弹窗拦截 > 游标放置/瞄准锁定且屏蔽 `A/S/D` > 选中态 `A/S/D` > 全局方向键/`1~9` 编队/`Q/W/E/R/T`/`L`），并把合法指令转换为 `enqueueCommand(state, cmd)` 送入模拟层。
     - `main.js` 内置 **M1 级 `?bench=1` 冒烟压测**（同屏生成 `100` 辆灰熊/犀牛坦克 + `20` 座建筑自动接敌交战，输出控制台 Draw Calls，后续在 `T6.2` 扩展为 `250+` 全兵种基准）。
@@ -306,14 +338,14 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
     - `Q/W/E/R/T` 5 页签 Canvas 2D 图标网格（顺时针扇形进度、左键+1 / Shift+5 上限 `99`、右键暂停/取消并退款），`T` 页签内置 `[空军 | 海军]` 子过滤切换（共用 `queues.air_naval`）。
   - **自检门禁**：按 `L` 键即时切换 `zh-CN` ↔ `en-US`，所有按钮简称、Tooltip 与队列数字均正确重绘且无 CSS 溢出。
 
-- **`T2.2` 造船厂海域放置、建筑维修/变卖与四大阵地防御塔**
+- **`T2.2` 造船厂海域放置、功能建筑特种逻辑、维修/变卖与四大防御塔**
   - **前置依赖**：`T1.8`、`T2.1`
-  - **输出文件**：更新 `src/gameplay/production.js`、`src/gameplay/combat.js`、`src/world/models.js`
+  - **输出文件**：更新 `src/gameplay/production.js`、`src/gameplay/combat.js`、`src/gameplay/entities.js`、`src/world/models.js`
   - **实施要点**：
     - **造船厂海域校验**：`4×4` 全部格满足 `terrain === SEA` 且出海连通开放海域，中心距己方 `conyard <= 18` 格或距任一己方已建陆地建筑 `<= 12` 格。
-    - **维修（`K`）与变卖（`X`）**：建筑每秒回复 `35 HP`，按原造价 `30%` 均摊每秒扣费；变卖播放倒放拆解并返还 `50%` 残值 + 生成 `1~2` 名基础步兵。
-    - **防御塔逻辑**：`pillbox`（0 耗电不受停电影响）、`aa_turret`（专职防空与拦截 V3）、`prism_tower`（黄/红电或停电停机；支持最多周围协同塔向主塔汇聚激光最高放大至 `300%`）、`tesla_coil`（默认低电停机，**周围有 `>= 2` 名己方 `tesla_trooper` 贴身充能时无视停电强制开火**）。
-  - **自检门禁**：Node 测试验证低电 (`<1.0`) 状态下 `pillbox` 仍开火、`prism_tower` 停火、配 `2` 名磁暴步兵的 `tesla_coil` 可继续开火。
+    - **功能建筑机制与维修（`K`）/ 变卖（`X`）**：建筑维修每秒回复 `35 HP`，按原造价 `30%` 均摊每秒扣费；变卖播放倒放拆解并返还 `50%` 残值 + 生成 `1~2` 名基础步兵；`nuclear_reactor` 被摧毁时触发高杀伤辐射爆炸并写入临时辐射区域（`areaEffects`）；`service_depot` 对停入中心维修坪的己方载具按秒扣费极速修复。
+    - **防御塔逻辑（统一读取 `player.isLowPower`）**：`pillbox`（0 耗电，低电仍正常开火）、`aa_turret`（专职防空与拦截 V3，受低电停机影响）、`prism_tower`（`isLowPower` 时停机；相邻空闲己方光棱塔向开火主塔传输辅助光束，每座提供 **`+50%` 基础伤害增幅**，最多 `4` 座副塔汇聚达 **`100% + 4×50% = 300%`**）、`tesla_coil`（默认 `isLowPower` 时停机，**周围有 `>= 2` 名己方 `tesla_trooper` 贴身充能时无视停电强制开火**）。
+  - **自检门禁**：Node 测试验证低电 (`isLowPower === true`) 状态下 `pillbox` 仍开火、`prism_tower` 停火、配 `2` 名磁暴步兵的 `tesla_coil` 可继续开火；`nuclear_reactor` 摧毁触发辐射伤。
 
 - **`T2.3` 确定性解析抛物线碎片坍塌池 (`destruction.js`)**
   - **前置依赖**：`T1.6`、`T2.2`
@@ -354,6 +386,7 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
     - `v3`：发射高抛弹道战术火箭（`interceptable = true`），飞行中若被防空击毁则触发唯一 `pendingDamage` 幂等释放（即使 V3 车已先被毁，火箭飞至中途之前绝不提前释放预约）。
     - `prism`：主激光命中后向周围裂变最多 `5` 条折射光束；同一目标同一 Tick 受 `> 3` 条次级光束时按 `0.7^{k-3}` 指数递减，全局活跃折射光束上限 `128`。
     - `apocalypse`：双门 `120mm` 对地主炮 + 对空防空导弹 + 碾压常规步兵（不碾压 `HeavyInfantry` 磁暴/幽影/重锤/展开大兵）+ 脱战缓速回血。
+    - `harvester`（高科超时空回程）：己方 `factionId === 'abyssal'` 且场上存在己方 `battle_lab` 时，矿车满载切入 `H_RETURN` 瞬间直接超时空折跃至目标 `refinery` 卸矿坪（对齐 [PRD §4.5](PRD.md#L133)）。
   - **自检门禁**：Node 测试验证 10 辆光棱同时齐射同一天启时折射伤害呈现正确边际衰减；V3 发射后立即删除发射车，在途火箭仍正常命中目标并只释放一次 `pendingDamage`。
 
 - **`T3.3` 全 4 种空军与双出厂来源调度 (`airforce.js`)**
@@ -371,7 +404,7 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
   - **实施要点**：
     - `hover_transport`：切换 `AMPHIBIOUS` 流场，支持沿海滩直接抢滩上下陆地（最多装载 `12` 格单位），按 `D` 全部卸载；`naval_yard` 范围内受损海军舰只自动缓速免费/低速维修。
     - `dolphin` & `sea_scorpion`：海豚高频声呐对潜 `150%` 并定期扫描显影（向所属队 `fogGrid` 写入 `DETECTED` 位 `4`）；赤蝎四联高炮补齐赤铁海军防空并附带近距反潜声呐。
-    - `aegis`：垂直防空导弹 `2×65 / 0.5s`，对空特攻 `160%`（单轮 `208` 伤害，实现 `4.5s` 内击落 `2000 HP` 基洛夫）。
+    - `aegis`：垂直防空导弹 `2×65 / 0.5s`，对空特攻 `160%`（单轮 `208` 伤害，10 轮齐射发射耗时 `4.5s`、含弹道飞行 `<= 5.0s` 内击落 `2000 HP` 基洛夫）。
     - `typhoon`：默认处于 `SUBMERGED` 深潜隐形（仅受海豚/赤蝎反潜探测或 `F1` 卫星显影后对敌可见），开火瞬间短暂上浮。
     - `carrier`：内置 `4` 架舰载无人机 **5 状态机**（`D_DOCKED -> D_LAUNCHING(0.4s间隔) -> D_ATTACK_RUN -> D_RETURNING -> D_REARMING(2.5s)`），航母被击沉后尚在空中的无人机耗尽燃料坠毁（并幂等释放其未投弹的 `pendingDamage`）。
     - `dreadnought`：`40m` 超视距双联高爆巡航导弹（`2×180 / 5.5s`，对建筑触发 `135%` 覆盖倍率）。
@@ -390,13 +423,14 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 ### 阶段四（M4）：双超级武器 6s 反制窗口、三层效用 AI 与 1000× 无头平衡压测
 
 - **`T4.1` 四大超级武器与指挥官秘策 (`superweapon.js`)**
-  - **前置依赖**：`T3.2`、`T3.3`、`T3.4`
+  - **前置依赖**：`T3.1`、`T3.2`、`T3.3`、`T3.4`
   - **输出文件**：`src/gameplay/superweapon.js`、`src/render/pipeline.js`（超武光效与地面预警光圈）
   - **实施要点**：
+    - 当所属玩家 `isLowPower === true` 时，已建成的 4 大超级武器冷却倒计时自动暂停。
     - **`chrono_sphere`（冷却 `210s`）**：选中 `3×3` 格内己方 **`GROUND` / `SEA` 机动载具**（不含建筑与任何 `AIR` 单位；步兵触及直接抹除），瞬移至目标点（水面舰船仅可落至 `SEA` 格，陆军仅可落至可行走陆地）。
     - **`iron_curtain`（冷却 `210s`）**：赋予 `3×3` 格内己方 **`GROUND` / `SEA` 机动载具及 `kirov` 空艇**（不含常规战机/`nighthawk` 与建筑；步兵触碰即死）持续 `15s`（`450 Tick`）绝对无敌护盾（`uIronCurtainOverlay` 着色器脉冲）。
     - **`weather_control`（冷却 `300s`）** & **`nuclear_silo`（冷却 `300s`）**：激活瞬间立刻广播全图语音警报并在目标点渲染 **`6s`（`180 Tick`）地面预警圈**，给予防守方使用铁幕硬抗、超时空急救转移或 `X` 变卖建筑的反制窗口；随后闪电风暴持续 `12s`（`18m` 半径随机劈下 `18` 道强雷）或核弹中心落点直击并留下 `30s`（`900 Tick`）持续伤害辐射区（写入 `state.areaEffects`）。
-    - **指挥官秘策 `F1~F4`**：`F1` 侦察卫星（`20m` 半径 `15s` 写入 `VISIBLE | DETECTED` 至 `areaEffects`）、`F2` 伞兵空降（需雷达或占领科技机场）、`F3` 纳米维修波（`12m` 回血 `35%`）、`F4` EMP 轰炸（`12m` 机械载具与耗电防御塔瘫痪 `8s`）。
+    - **指挥官秘策 `F1~F4`**：`F1` 侦察卫星（`20m` 半径 `15s` 写入 `VISIBLE | DETECTED` 至 `areaEffects`）、`F2` 伞兵空降（需雷达或占领科技机场，空降 **同盟 `6` 名 `gi` / 赤铁 `8` 名 `conscript`**）、`F3` 纳米维修波（`12m` 回血 `35%`）、`F4` EMP 轰炸（`12m` 机械载具与耗电防御塔瘫痪 `8s`）。
   - **自检门禁**：Node 测试验证“核弹发射后第 `179` Tick 开铁幕覆盖目标天启集群，第 `180` Tick 核爆落地后天启 HP 无损”。
 
 - **`T4.2` 首发 8 张遭遇战地图蓝图与大厅菜单 (`menus.js`)**
@@ -436,10 +470,10 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
   - **前置依赖**：`T4.1`、`T4.3`
   - **输出文件**：`src/core/save.js`
   - **实施要点**：
-    - 持久化战役外部解锁状态：`prologueCleared`（`A01` 通关同时解锁 `A02` 与 `C01`）、`abyssalCleared`、`crimsonCleared`（两者皆真时解锁 `EX13`）、每关三档最高勋章 `clearedDifficulty`、用户语种/音画偏好与自定义键位。
-    - 局内检查点事务原子写入，**必须完整覆盖全部玩法状态**：
-      1. 全局控制态：`tickCount`、`prngState`、`nextEntityId`、`nextProjectileId`、`winnerTeamId`；
-      2. 各玩家状态 `players[0..3]`：`credits`、`powerFactor`、`queues` 5 通道进度、`doctrines` 秘策冷却、`superweapons` 倒计时、`aiState`；
+    - 持久化战役外部解锁状态与版本控制：**根对象携带 `schemaVersion: 1`**（版本不匹配时安全迁移或回退默认档）、`prologueCleared`（`A01` 通关同时解锁 `A02` 与 `C01`）、`abyssalCleared`、`crimsonCleared`（两者皆真时解锁 `EX13`）、每关三档最高勋章 `clearedDifficulty`、用户语种/音画偏好与自定义键位。
+    - 局内检查点事务原子写入（同带 `schemaVersion: 1`），**必须完整覆盖全部玩法状态**：
+      1. 全局控制态：`schemaVersion`、`tickCount`、`prngState`、`nextEntityId`、`nextProjectileId`、`winnerTeamId`；
+      2. 各玩家状态 `players[0..3]`：`credits`、`powerFactor`、`powerState`、`isLowPower`、`queues` 5 通道进度、`doctrines` 秘策冷却、`superweapons` 倒计时、`aiState`；
       3. 动态地图变化层：各地图格剩余晶矿 `oreAmount`、每座再生矿柱 `nextRegenTick`、`bridges` 断桥/修复态；
       4. 视野与区域效果：`fogGrids`（仅持久化 `grid[i] & 1` 永久探索位）、`areaEffects`（F1 侦察卫星显影圈/核辐射区/闪电倒计时的中心、半径、队伍与 `expiryTick`）；
       5. 实体与预约态：`entities` 完整状态（含 `eraseProgress`、`frozenByCount`、`ironCurtainTicks`、`empTicks`、`veterancy`、`cargoCount`、`cargoValue`）、在途 `projectiles`（含 `reservedDamage` 与 `released` 态）以及 `director` 已触发事件集合。
