@@ -15,79 +15,224 @@ const PAD_Y = 4;
 function drawUnitSilhouette(ctx, def, cx, cy, accentColor) {
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.fillStyle = '#9aaec4';
-  ctx.strokeStyle = accentColor;
-  ctx.lineWidth = 1.6;
+
+  const drawMetallicPlate = (x, y, w, h, topCol = '#53677e', botCol = '#2a3748') => {
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, topCol);
+    grad.addColorStop(1, botCol);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#7b93ad';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(x, y, w, h);
+  };
 
   if (def.isBuilding) {
-    // Structural architectural icon
-    const w = 34;
-    const h = 24;
-    ctx.fillStyle = '#3a4a5e';
-    ctx.fillRect(-w * 0.5, -h * 0.5 + 3, w, h);
-    ctx.strokeRect(-w * 0.5, -h * 0.5 + 3, w, h);
-    ctx.fillStyle = accentColor;
+    // Isometric concrete plinth
+    ctx.fillStyle = '#253140';
+    ctx.beginPath();
+    ctx.moveTo(-24, 6);
+    ctx.lineTo(0, -4);
+    ctx.lineTo(24, 6);
+    ctx.lineTo(0, 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#52657a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
     if (def.id === 'conyard') {
-      ctx.fillRect(-10, -8, 20, 14);
-      ctx.fillStyle = '#e5a93c';
-      ctx.fillRect(4, -14, 7, 9);
-    } else if (def.id === 'power_plant' || def.id === 'nuclear_reactor') {
+      drawMetallicPlate(-16, -9, 20, 17, '#4f647d', '#24303e');
+      drawMetallicPlate(0, -3, 16, 13, '#3c4c60', '#1c2632');
+      // Industrial yellow gantry crane + faction roof beacon
+      ctx.strokeStyle = '#e5a93c';
+      ctx.lineWidth = 2.4;
       ctx.beginPath();
-      ctx.arc(-6, 1, 7, 0, Math.PI * 2);
-      ctx.arc(7, 1, 7, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(6, 4);
+      ctx.lineTo(6, -15);
+      ctx.lineTo(19, -9);
+      ctx.stroke();
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(-13, -7, 8, 5);
+    } else if (def.id === 'power_plant' || def.id === 'nuclear_reactor') {
+      drawMetallicPlate(-17, -4, 34, 13, '#44556a', '#232e3b');
+      // Cooling turbines / containment dome
+      for (const tx of def.id === 'nuclear_reactor' ? [0] : [-8, 8]) {
+        const r = def.id === 'nuclear_reactor' ? 11 : 6.5;
+        ctx.fillStyle = '#324152';
+        ctx.beginPath();
+        ctx.arc(tx, -3, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#6f859e';
+        ctx.stroke();
+        ctx.fillStyle = def.id === 'nuclear_reactor' ? '#5cff7a' : accentColor;
+        ctx.beginPath();
+        ctx.arc(tx, -3, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
     } else if (def.id === 'refinery') {
-      ctx.fillRect(-13, -7, 12, 14);
+      drawMetallicPlate(-18, -11, 16, 20, '#4f6277', '#253240');
+      drawMetallicPlate(-2, -1, 20, 11, '#39495c', '#1e2834');
+      // Ore hopper glow + caution stripes
       ctx.fillStyle = '#e84838';
-      ctx.fillRect(2, -4, 11, 10);
+      ctx.fillRect(1, 2, 13, 6);
+      ctx.fillStyle = '#e5a93c';
+      ctx.fillRect(-16, 6, 12, 3);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(-14, -8, 10, 4);
     } else if (def.id === 'war_factory') {
-      ctx.fillRect(-14, -9, 28, 12);
-      ctx.fillStyle = '#1b2636';
-      ctx.fillRect(-9, 1, 18, 9);
+      drawMetallicPlate(-20, -10, 40, 18, '#4e6075', '#232e3c');
+      // Dark assembly bay doors & twin roof vents
+      ctx.fillStyle = '#0e151f';
+      ctx.fillRect(-10, -2, 20, 11);
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(-16, -9, 32, 3);
+      ctx.fillStyle = '#e5a93c';
+      ctx.fillRect(-12, 8, 24, 2);
+    } else if (def.category === 'defense') {
+      drawMetallicPlate(-11, 0, 22, 12, '#4c5f75', '#253140');
+      ctx.fillStyle = accentColor;
+      if (def.id === 'prism_tower') {
+        ctx.beginPath();
+        ctx.moveTo(-6, 2); ctx.lineTo(0, -16); ctx.lineTo(6, 2); ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fff5aa';
+        ctx.beginPath(); ctx.arc(0, -14, 4, 0, Math.PI * 2); ctx.fill();
+      } else if (def.id === 'tesla_coil') {
+        ctx.strokeStyle = '#68d5ff';
+        ctx.lineWidth = 2;
+        for (const ry of [-4, -9, -14]) {
+          ctx.beginPath(); ctx.ellipse(0, ry, 7, 2.5, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.fillStyle = '#b6f0ff';
+        ctx.beginPath(); ctx.arc(0, -16, 3.5, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillRect(-5, -8, 10, 9);
+        ctx.fillStyle = '#d4e2f0';
+        ctx.fillRect(0, -6, 15, 3);
+      }
     } else {
-      ctx.fillRect(-8, -9, 16, 12);
+      drawMetallicPlate(-16, -10, 32, 19, '#51657b', '#222d3a');
+      ctx.fillStyle = accentColor;
+      ctx.beginPath();
+      ctx.arc(0, -4, 6, 0, Math.PI * 2);
+      ctx.fill();
     }
   } else if (def.category === 'infantry') {
+    // Tactical trooper silhouette with helmet & weapon
+    ctx.fillStyle = '#364556';
+    ctx.fillRect(-5, -1, 10, 14);
     ctx.fillStyle = accentColor;
     ctx.beginPath();
-    ctx.arc(0, -8, 5, 0, Math.PI * 2);
+    ctx.arc(-1, -7, 5.2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#c4d4e6';
-    ctx.fillRect(-5, -2, 10, 14);
-    ctx.fillStyle = '#6d8299';
-    ctx.fillRect(3, 0, 10, 3);
+    ctx.fillStyle = '#9be8ff';
+    ctx.fillRect(0, -9, 4.5, 2.5);
+    ctx.fillStyle = '#cfdbe8';
+    ctx.fillRect(2, 1, 14, 2.8);
   } else if (def.category === 'air') {
-    ctx.beginPath();
-    ctx.moveTo(0, -14);
-    ctx.lineTo(15, 6);
-    ctx.lineTo(4, 4);
-    ctx.lineTo(0, 12);
-    ctx.lineTo(-4, 4);
-    ctx.lineTo(-15, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    if (def.id === 'kirov') {
+      // Heavy Kirov rigid airship silhouette
+      ctx.fillStyle = '#5a363c';
+      ctx.beginPath();
+      ctx.ellipse(0, -1, 21, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = accentColor;
+      ctx.stroke();
+      ctx.fillStyle = '#2a3340';
+      ctx.fillRect(-10, 7, 20, 4);
+      ctx.fillStyle = '#f5b342';
+      ctx.beginPath();
+      ctx.arc(14, -2, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Swept-wing strike jet / gunship
+      ctx.fillStyle = '#55687e';
+      ctx.beginPath();
+      ctx.moveTo(20, 0);
+      ctx.lineTo(-4, -14);
+      ctx.lineTo(-10, -14);
+      ctx.lineTo(-4, -3);
+      ctx.lineTo(-18, -6);
+      ctx.lineTo(-14, 0);
+      ctx.lineTo(-18, 6);
+      ctx.lineTo(-4, 3);
+      ctx.lineTo(-10, 14);
+      ctx.lineTo(-4, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = accentColor;
+      ctx.stroke();
+      ctx.fillStyle = '#8ce8ff';
+      ctx.fillRect(4, -2, 7, 4);
+    }
   } else if (def.category === 'naval') {
+    // Cruiser / Carrier naval silhouette
+    ctx.fillStyle = '#3f5166';
     ctx.beginPath();
-    ctx.moveTo(-16, 2);
-    ctx.lineTo(0, -10);
-    ctx.lineTo(16, 2);
-    ctx.lineTo(12, 10);
-    ctx.lineTo(-12, 10);
+    ctx.moveTo(-22, 4);
+    ctx.lineTo(-14, -7);
+    ctx.lineTo(15, -7);
+    ctx.lineTo(23, 2);
+    ctx.lineTo(16, 9);
+    ctx.lineTo(-18, 9);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = accentColor;
     ctx.stroke();
-    ctx.fillStyle = accentColor;
-    ctx.fillRect(-4, -5, 8, 7);
+    drawMetallicPlate(-8, -11, 14, 7, '#647b96', '#334254');
+    ctx.fillStyle = '#dce7f2';
+    ctx.fillRect(8, -6, 10, 2.5);
   } else {
-    // Vehicle / Harvester / Tank
-    ctx.fillStyle = '#2d3a4a';
-    ctx.fillRect(-15, -9, 30, 18);
-    ctx.strokeRect(-15, -9, 30, 18);
-    ctx.fillStyle = accentColor;
-    ctx.fillRect(-9, -6, 16, 12);
-    ctx.fillStyle = '#d8e3ef';
-    ctx.fillRect(2, -2, 16, 4);
+    // Detailed sloped-armor tank / harvester / MCV silhouette
+    // Dark track assembly + road wheels
+    ctx.fillStyle = '#18202a';
+    ctx.fillRect(-19, 3, 38, 8);
+    ctx.fillStyle = '#56697e';
+    for (let wx = -14; wx <= 14; wx += 7) {
+      ctx.beginPath();
+      ctx.arc(wx, 7, 2.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Sloped hull chassis
+    ctx.fillStyle = '#4f6279';
+    ctx.beginPath();
+    ctx.moveTo(-18, 3);
+    ctx.lineTo(-14, -4);
+    ctx.lineTo(16, -4);
+    ctx.lineTo(20, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    if (def.id === 'harvester') {
+      ctx.fillStyle = '#e5a93c';
+      ctx.fillRect(-12, -10, 16, 7);
+      ctx.fillStyle = '#e84838';
+      ctx.fillRect(14, 0, 8, 9);
+    } else if (def.id === 'mcv') {
+      ctx.fillStyle = '#e5a93c';
+      ctx.fillRect(-13, -11, 20, 8);
+      ctx.fillStyle = '#80e5ff';
+      ctx.fillRect(9, -8, 5, 4);
+    } else {
+      // Chamfered combat turret + main barrel(s)
+      ctx.fillStyle = accentColor;
+      ctx.beginPath();
+      ctx.moveTo(-9, -4);
+      ctx.lineTo(-6, -11);
+      ctx.lineTo(7, -11);
+      ctx.lineTo(11, -4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#dce6f2';
+      ctx.fillRect(8, -9.5, 16, 2.8);
+      if (def.id === 'apocalypse') {
+        ctx.fillRect(8, -6.0, 15, 2.6);
+      }
+    }
   }
 
   ctx.restore();
@@ -131,6 +276,19 @@ export function createSidebarUI(state, uiState, handlers) {
   let displayedItems = [];
   let hoveredTypeId = null;
   let noticeTimer = 0;
+
+  // Dynamic superweapon countdown strip inserted cleanly below credits row (hidden until built)
+  const swStripEl = document.createElement('div');
+  swStripEl.id = 'sidebar-superweapon-strip';
+  swStripEl.hidden = true;
+  swStripEl.style.display = 'none';
+  swStripEl.style.flexDirection = 'column';
+  swStripEl.style.gap = '2px';
+  const creditsRow = document.getElementById('sidebar-credits-row');
+  if (creditsRow && creditsRow.parentNode) {
+    creditsRow.parentNode.insertBefore(swStripEl, creditsRow.nextSibling);
+  }
+  const swRowPool = new Map();
 
   function applyStaticTranslations() {
     document.documentElement.lang = getLocale();
@@ -353,6 +511,44 @@ export function createSidebarUI(state, uiState, handlers) {
     // 4. Minimap radar status
     const hasRadar = state.entities.some((e) => e.alive && e.playerId === 0 && e.typeId === 'airforce_radar');
     dom.noRadarOverlay.hidden = uiState.noFog ? true : (hasRadar && !player.isLowPower);
+
+    // 4b. Superweapon cooldown placeholder strip
+    let activeSwCount = 0;
+    const swMap = player.superweapons ?? {};
+    for (const [swId, swState] of Object.entries(swMap)) {
+      const hasBuilding = state.entities.some((e) => e.alive && e.playerId === 0 && e.typeId === swId);
+      let row = swRowPool.get(swId);
+      if (!hasBuilding && !swState) {
+        if (row) row.hidden = true;
+        continue;
+      }
+      activeSwCount++;
+      if (!row) {
+        row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.fontSize = '10px';
+        row.style.padding = '2px 6px';
+        row.style.background = '#101824';
+        row.style.border = '1px solid var(--steel-border)';
+        const lbl = document.createElement('span');
+        const val = document.createElement('span');
+        row.appendChild(lbl);
+        row.appendChild(val);
+        swStripEl.appendChild(row);
+        swRowPool.set(swId, row);
+      }
+      row.hidden = false;
+      row.firstChild.textContent = t(`unit.${swId}.short`);
+      const remTicks = typeof swState === 'number' ? swState : (swState?.remainingTicks ?? 0);
+      const sec = Math.max(0, Math.ceil(remTicks / 30));
+      const mm = Math.floor(sec / 60);
+      const ss = String(sec % 60).padStart(2, '0');
+      row.lastChild.textContent = remTicks <= 0 ? t('sidebar.status.ready') : `${mm}:${ss}`;
+      row.lastChild.style.color = remTicks <= 0 ? 'var(--green)' : 'var(--amber)';
+    }
+    swStripEl.hidden = activeSwCount === 0;
+    swStripEl.style.display = activeSwCount > 0 ? 'flex' : 'none';
 
     // 5. Selection footer
     const selCount = uiState.selectedIds.size;

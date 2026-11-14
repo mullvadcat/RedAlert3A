@@ -3,11 +3,15 @@
 
 import { ENTITY_DEFS, TICK_DT } from './core/config.js';
 import { createGameState, enqueueCommand, stepSimulation } from './core/engine.js';
-import { initI18n, t } from './core/i18n.js';
+import { initI18n, onLocaleChange, t } from './core/i18n.js';
+import { createAudioMixer } from './core/mixer.js';
+import { createDialogueController } from './story/dialogue.js';
 import { createRenderPipeline } from './render/pipeline.js';
 import { createSidebarUI } from './ui/sidebar.js';
 import { createMinimapUI } from './ui/minimap.js';
 import { createInputController } from './ui/input.js';
+import { spawnBuildingDebris, stepDebrisSystem } from './world/destruction.js';
+import { getElevationAtWorld } from './world/map.js';
 
 function parseLaunchFlags() {
   const params = new URLSearchParams(window.location.search);
@@ -74,9 +78,20 @@ function bootstrap() {
   }
 
   const enqueue = (cmd) => enqueueCommand(state, cmd);
+  const mixer = createAudioMixer();
+  const dialogueCtrl = createDialogueController();
   const sidebarUI = createSidebarUI(state, uiState, { enqueue });
   const minimapUI = createMinimapUI(state, uiState, pipeline.camera, enqueue);
   const inputCtrl = createInputController(canvas, state, uiState, pipeline, sidebarUI, enqueue);
+
+  const handleAudioUnlock = () => {
+    mixer.unlock();
+    window.removeEventListener('pointerdown', handleAudioUnlock);
+    window.removeEventListener('keydown', handleAudioUnlock);
+  };
+  window.addEventListener('pointerdown', handleAudioUnlock);
+  window.addEventListener('keydown', handleAudioUnlock);
+  onLocaleChange(() => dialogueCtrl.refreshLocale());
 
   setLoadingProgress(100, 'loading.ready');
   const loadingScreen = document.getElementById('loading-screen');
@@ -101,8 +116,10 @@ function bootstrap() {
           startSec: elapsedSec,
           duration: 0.42
         });
+        mixer.playSfx('explosion');
       } else if (ev.type === 'combat:fire') {
         const isBeam = ev.damageType === 'Prism' || ev.damageType === 'Tesla' || ev.damageType === 'Chrono';
+        mixer.playSfx(ev.damageType === 'Tesla' ? 'tesla' : (isBeam ? 'laser' : 'cannon'));
         if (isBeam) {
           const col = ev.damageType === 'Prism'
             ? [1.0, 0.92, 0.55]
@@ -121,19 +138,44 @@ function bootstrap() {
             duration: 0.22
           });
         }
+      } else if (ev.type === 'entity:destroyed') {
+        const def = ENTITY_DEFS[ev.typeId];
+        if (def?.isBuilding) {
+          pipeline.shadowSys.invalidateCache();
+          mixer.playSfx('explosion');
+          spawnBuildingDebris(
+            pipeline.debrisSys,
+            ev.entityId ?? ev.id ?? 0,
+            state.tickCount,
+            ev.x,
+            ev.y ?? 1.6,
+            ev.z,
+            def.footprintW,
+            def.footprintH,
+            pipeline.quality.debrisScale
+          );
+        }
       } else if (ev.type === 'building:placed') {
         pipeline.shadowSys.invalidateCache();
-        if (ev.playerId === 0 && ev.typeId === 'refinery') {
-          sidebarUI.setStatusNotice('hud.status.harvesterSpawned', 4.5);
+        if (ev.playerId === 0) {
+          mixer.playEvaNotice('building_placed');
+          if (ev.typeId === 'refinery') {
+            sidebarUI.setStatusNotice('hud.status.harvesterSpawned', 4.5);
+          }
         }
       } else if (ev.type === 'unit:deployed') {
         if (ev.typeId === 'conyard') {
           pipeline.shadowSys.invalidateCache();
-          if (ev.playerId === 0) sidebarUI.setStatusNotice('hud.status.deployed', 4.5);
+          if (ev.playerId === 0) {
+            sidebarUI.setStatusNotice('hud.status.deployed', 4.5);
+            mixer.playEvaNotice('deployed');
+            dialogueCtrl.showDialogue('EVA', 'hud.status.deployed', 4.5);
+          }
         }
       } else if (ev.type === 'hud:notice') {
         if (ev.playerId === 0) {
           sidebarUI.setStatusNotice(ev.key, 4.0);
+          mixer.playEvaNotice(ev.key);
           if (typeof ev.x === 'number' && typeof ev.z === 'number') {
             uiState.lastAlertPos = { x: ev.x, z: ev.z };
           }
@@ -162,6 +204,8 @@ function bootstrap() {
     state,
     uiState,
     pipeline,
+    mixer,
+    dialogueCtrl,
     telemetry,
     enqueueCommand: enqueue,
     stepSimulation: () => stepSimulation(state),
@@ -186,6 +230,14 @@ function bootstrap() {
     if (steps === 5 && accumulator > TICK_DT) {
       accumulator = 0;
     }
+
+    stepDebrisSystem(
+      pipeline.debrisSys,
+      dtSec,
+      (x, z) => getElevationAtWorld(state.map, x, z),
+      (x, y, z) => pipeline.decalPool.addDecal(x, y, z, 1.1, 0, 0, 0.7)
+    );
+    dialogueCtrl.update(dtSec);
 
     const alpha = accumulator / TICK_DT;
     pipeline.renderFrame(state, alpha, uiState, elapsedSec);

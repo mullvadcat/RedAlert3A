@@ -587,6 +587,12 @@ function stepHarvesterFSM(state, harv) {
 }
 
 export function stepEntitiesAndHarvesters(state) {
+  const depots = [];
+  for (let i = 0; i < state.entities.length; i++) {
+    const e = state.entities[i];
+    if (e.alive && e.typeId === 'service_depot') depots.push(e);
+  }
+
   for (let i = 0; i < state.entities.length; i++) {
     const ent = state.entities[i];
     if (!ent.alive) continue;
@@ -618,6 +624,25 @@ export function stepEntitiesAndHarvesters(state) {
           ent.hp = Math.min(ent.maxHp, ent.hp + healStep);
         } else {
           ent.isRepairing = false;
+        }
+      }
+    }
+
+    // Service Depot rapid paid repair for parked friendly ground vehicles (60 HP/s, 25% cost rate)
+    if (!ent.isBuilding && ent.category === 'vehicle' && ent.domain === 'GROUND' && ent.hp < ent.maxHp && depots.length > 0) {
+      for (let d = 0; d < depots.length; d++) {
+        const depot = depots[d];
+        if (depot.playerId !== ent.playerId) continue;
+        if (Math.hypot(ent.x - depot.x, ent.z - depot.z) <= 4.8) {
+          const player = state.players[ent.playerId];
+          const unitCost = ENTITY_DEFS[ent.typeId]?.cost ?? 0;
+          const healStep = Math.min(ent.maxHp - ent.hp, 60 * TICK_DT);
+          const stepCost = unitCost > 0 ? healStep * ((unitCost * 0.25) / ent.maxHp) : 0;
+          if (player && player.credits >= stepCost) {
+            player.credits -= stepCost;
+            ent.hp = Math.min(ent.maxHp, ent.hp + healStep);
+          }
+          break;
         }
       }
     }

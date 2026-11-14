@@ -25,7 +25,7 @@ import {
   startProduction,
   stepProductionAndPower
 } from '../gameplay/production.js';
-import { checkVictoryCondition, stepCombatAndProjectiles } from '../gameplay/combat.js';
+import { applyDamage, checkVictoryCondition, stepCombatAndProjectiles } from '../gameplay/combat.js';
 
 function createPlayerState(spec) {
   return {
@@ -107,6 +107,7 @@ export function createGameState(options = {}) {
     nextProjectileId: 1,
     commandQueue: [],
     areaEffects: [],
+    nextAreaEffectId: 1,
     orePillars: map.orePillars ?? [],
     flowCache: createFlowCache(),
     hadMultipleHqTeams: false,
@@ -420,9 +421,25 @@ function stepAirAndNaval(state) {
 }
 
 function stepSuperweaponsAndAreaEffects(state) {
-  if (state.areaEffects && state.areaEffects.length > 0) {
-    state.areaEffects = state.areaEffects.filter((fx) => fx.expiryTick > state.tickCount);
+  if (!state.areaEffects || state.areaEffects.length === 0) return;
+  const active = [];
+  for (let i = 0; i < state.areaEffects.length; i++) {
+    const fx = state.areaEffects[i];
+    if (fx.expiryTick <= state.tickCount) continue;
+
+    if ((fx.kind === 'radiation' || fx.type === 'radiation') && fx.damagePerTick > 0) {
+      for (let j = 0; j < state.entities.length; j++) {
+        const ent = state.entities[j];
+        if (!ent.alive || ent.domain === 'AIR') continue;
+        if (Math.hypot(ent.x - fx.x, ent.z - fx.z) <= fx.radius) {
+          applyDamage(state, ent, fx.damagePerTick, 'Radiation', null, fx.ownerPlayerId ?? null);
+        }
+      }
+    }
+
+    active.push(fx);
   }
+  state.areaEffects = active;
 }
 
 function stepAiAndCheckVictory(state) {

@@ -51,6 +51,9 @@ export function createMinimapUI(state, uiState, camera, enqueue) {
     const map = state.map;
     const fogGrid = state.fogGrids?.[0];
     const noFog = Boolean(uiState.noFog);
+    const player = state.players[0];
+    const hasRadar = state.entities.some((e) => e.alive && e.playerId === 0 && e.typeId === 'airforce_radar');
+    const radarOffline = !noFog && (!hasRadar || Boolean(player?.isLowPower));
 
     // Paint ore crystals & fog mask on minimap (sampled every 2 cells for fast 2D frame time)
     for (let gz = 0; gz < MAP_SIZE; gz += 2) {
@@ -78,28 +81,60 @@ export function createMinimapUI(state, uiState, camera, enqueue) {
       }
     }
 
-    // Entities
-    const wToMini = size / WORLD_SIZE;
-    for (let i = 0; i < state.entities.length; i++) {
-      const ent = state.entities[i];
-      if (!ent.alive) continue;
-      if (!noFog && ent.teamId !== 0 && ent.teamId !== 3 && fogGrid) {
-        const gx = Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(ent.x / 2)));
-        const gz = Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(ent.z / 2)));
-        if (!(fogGrid[gz * MAP_SIZE + gx] & FOG_VISIBLE)) continue;
+    if (radarOffline) {
+      // Tactical radar static interference overlay when airforce_radar missing or low-power offline
+      ctx.fillStyle = 'rgba(8, 14, 22, 0.62)';
+      ctx.fillRect(0, 0, size, size);
+      const t = state.tickCount;
+      ctx.fillStyle = 'rgba(130, 175, 220, 0.14)';
+      for (let y = 0; y < size; y += 6) {
+        const yOff = (y + (t * 3) % 6) % size;
+        ctx.fillRect(0, yOff, size, 1);
+      }
+      for (let k = 0; k < 28; k++) {
+        const nx = ((k * 73 + t * 29) % 173);
+        const ny = ((k * 41 + t * 53) % 173);
+        ctx.fillStyle = (k & 1) ? 'rgba(180, 210, 240, 0.25)' : 'rgba(20, 35, 55, 0.4)';
+        ctx.fillRect(nx, ny, 8, 2);
+      }
+    } else {
+      // Full operational radar: live Entities + AreaEffect alerts
+      const wToMini = size / WORLD_SIZE;
+      for (let i = 0; i < state.entities.length; i++) {
+        const ent = state.entities[i];
+        if (!ent.alive) continue;
+        if (!noFog && ent.teamId !== 0 && ent.teamId !== 3 && fogGrid) {
+          const gx = Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(ent.x / 2)));
+          const gz = Math.max(0, Math.min(MAP_SIZE - 1, Math.floor(ent.z / 2)));
+          if (!(fogGrid[gz * MAP_SIZE + gx] & FOG_VISIBLE)) continue;
+        }
+
+        const color = ent.category === 'neutral'
+          ? FACTIONS.neutral.color
+          : (PLAYER_COLORS[ent.playerId % 4]?.hex ?? '#ffffff');
+        const mx = ent.x * wToMini;
+        const my = ent.z * wToMini;
+        const sz = ent.isBuilding ? 4 : 2.5;
+        ctx.fillStyle = color;
+        ctx.fillRect(mx - sz * 0.5, my - sz * 0.5, sz, sz);
       }
 
-      const color = ent.category === 'neutral'
-        ? FACTIONS.neutral.color
-        : (PLAYER_COLORS[ent.playerId % 4]?.hex ?? '#ffffff');
-      const mx = ent.x * wToMini;
-      const my = ent.z * wToMini;
-      const sz = ent.isBuilding ? 4 : 2.5;
-      ctx.fillStyle = color;
-      ctx.fillRect(mx - sz * 0.5, my - sz * 0.5, sz, sz);
+      const areaEffects = state.areaEffects ?? [];
+      for (let i = 0; i < areaEffects.length; i++) {
+        const fx = areaEffects[i];
+        const pulse = 0.5 + 0.5 * Math.sin(state.tickCount * 0.35 + i);
+        ctx.strokeStyle = fx.kind === 'radiation'
+          ? `rgba(110, 255, 110, ${0.4 + 0.4 * pulse})`
+          : `rgba(255, 80, 60, ${0.5 + 0.5 * pulse})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(fx.x * wToMini, fx.z * wToMini, Math.max(4, fx.radius * wToMini), 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
 
-    // Camera frustum rectangle
+    // Camera frustum rectangle (always drawn so player retains map orientation)
+    const wToMini = size / WORLD_SIZE;
     const corners = camera.getViewRectBounds();
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';

@@ -17,6 +17,7 @@ import { createWaterRenderer } from './water.js';
 import { createModelFactory } from '../world/models.js';
 import { createBillboardRenderer } from './billboards.js';
 import { createDecalPool } from './decals.js';
+import { createDebrisSystem } from '../world/destruction.js';
 
 export function compileProgram(gl, vsSrc, fsSrc) {
   const compileShader = (type, src) => {
@@ -586,6 +587,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   const modelFactory = createModelFactory(gl, compileProgram, WORLD_SIZE);
   const billboardRenderer = createBillboardRenderer(gl, compileProgram);
   const decalPool = createDecalPool(gl, compileProgram);
+  const debrisSys = createDebrisSystem(256);
 
   // Terrain programs & textures
   const terrainProg = compileProgram(gl, TERRAIN_VS, TERRAIN_FS);
@@ -980,6 +982,12 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       }
     }
 
+    const chunks = debrisSys.chunks;
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      writeInst(c.x, c.y, c.z, c.yaw, c.sx, c.sy, c.sz, c.pitch, c.r, c.g, c.b, 0.25);
+    }
+
     return count;
   }
 
@@ -1184,6 +1192,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     info: rendererInfo,
     camera,
     decalPool,
+    debrisSys,
     billboardRenderer,
     shadowSys,
     gpuFog,

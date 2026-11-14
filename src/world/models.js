@@ -107,23 +107,32 @@ void main() {
   float roughness = mat.b;
 
   if (vTone < 0.5) {
-    // Tone 0: Faction painted military armor
-    vec3 oliveSteel = mix(vec3(0.24, 0.27, 0.31), teamCol * 0.82, 0.58);
-    baseCol = oliveSteel * (0.85 + detail.r * 0.35 - detail.g * 0.22);
+    // Tone 0: Faction painted military armor with machined panel seam grid
+    vec2 seam = abs(fract(vUv * vec2(3.0, 3.0)) - 0.5);
+    float panelEdge = smoothstep(0.45, 0.495, max(seam.x, seam.y));
+    vec3 oliveSteel = mix(vec3(0.24, 0.27, 0.31), teamCol * 0.85, 0.58);
+    baseCol = oliveSteel * (0.88 + detail.r * 0.32 - detail.g * 0.20) * (1.0 - panelEdge * 0.28);
   } else if (vTone < 1.5) {
-    // Tone 1: Dark gunmetal, tracks & tires
-    baseCol = vec3(0.11, 0.12, 0.14) * (0.8 + detail.r * 0.3);
+    // Tone 1: Dark gunmetal, tracks & tires with tread rib pattern
+    float treadRib = 0.86 + 0.14 * step(0.45, fract(vUv.y * 8.0));
+    baseCol = vec3(0.11, 0.12, 0.14) * (0.82 + detail.r * 0.28) * treadRib;
     roughness = clamp(roughness + 0.2, 0.0, 1.0);
   } else if (vTone < 2.5) {
-    // Tone 2: Glowing energy core / canopy / sensor (boosts HDR bloom subtly)
-    baseCol = mix(teamCol * 1.45, vec3(0.95, 0.82, 0.35), 0.3);
+    // Tone 2: Glowing energy core / optical visor / plasma vent
+    baseCol = mix(teamCol * 1.48, vec3(0.95, 0.86, 0.42), 0.28);
     metallic = 0.2;
-    roughness = 0.18;
+    roughness = 0.16;
+  } else if (vTone < 3.5) {
+    // Tone 3: Reinforced concrete plinth / copper coil / metallic trim
+    baseCol = vec3(0.47, 0.46, 0.44) * (0.86 + detail.r * 0.24);
+    metallic = 0.15;
+    roughness = 0.82;
   } else {
-    // Tone 3: Concrete pad / gold ore trim
-    baseCol = vec3(0.46, 0.45, 0.43) * (0.85 + detail.r * 0.25);
-    metallic = 0.1;
-    roughness = 0.85;
+    // Tone 4: Industrial yellow/black chevron hazard stripes
+    float stripe = step(0.5, fract((vWorldPos.x + vWorldPos.z) * 1.65));
+    baseCol = mix(vec3(0.12, 0.12, 0.13), vec3(0.92, 0.68, 0.12), stripe);
+    metallic = 0.3;
+    roughness = 0.55;
   }
 
   // < 50% HP charred battle-damage mask
@@ -241,7 +250,51 @@ function createMeshBuilder() {
     addQuad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], -1, 0, 0, partId, tone);
   }
 
-  // Oriented barrel / cylinder aligned along Z or Y axis
+  function addQuadAuto(p0, p1, p2, p3, partId = 0, tone = 0) {
+    const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+    const vx = p3[0] - p0[0], vy = p3[1] - p0[1], vz = p3[2] - p0[2];
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    addQuad(p0, p1, p2, p3, nx, ny, nz, partId, tone);
+  }
+
+  // Tapered / sloped trapezoid prism (glacis hulls, wedge turrets, flared roofs)
+  function addTrapezoid(cx, cy, cz, bw, bd, tw, td, h, offsetZ = 0, partId = 0, tone = 0) {
+    const hy = h * 0.5;
+    const bx = bw * 0.5, bz = bd * 0.5;
+    const tx = tw * 0.5, tz = td * 0.5;
+    const y0 = cy - hy, y1 = cy + hy;
+    const bfl = [cx - bx, y0, cz + bz], bfr = [cx + bx, y0, cz + bz];
+    const brr = [cx + bx, y0, cz - bz], brl = [cx - bx, y0, cz - bz];
+    const tfl = [cx - tx, y1, cz + offsetZ + tz], tfr = [cx + tx, y1, cz + offsetZ + tz];
+    const trr = [cx + tx, y1, cz + offsetZ - tz], trl = [cx - tx, y1, cz + offsetZ - tz];
+
+    addQuad(tfl, tfr, trr, trl, 0, 1, 0, partId, tone);   // Top
+    addQuad(brl, brr, bfr, bfl, 0, -1, 0, partId, tone);  // Bottom
+    addQuadAuto(bfl, bfr, tfr, tfl, partId, tone);        // Sloped Front
+    addQuadAuto(brr, brl, trl, trr, partId, tone);        // Sloped Rear
+    addQuadAuto(bfr, brr, trr, tfr, partId, tone);        // Sloped Right
+    addQuadAuto(brl, bfl, tfl, trl, partId, tone);        // Sloped Left
+  }
+
+  // Track pod assembly with tapered front/rear approach angles, road wheels & armored skirt
+  function addTrackAssembly(cx, cy, cz, w, h, len, wheels = 4, partId = 0) {
+    addTrapezoid(cx, cy, cz, w, len * 0.78, w, len, h, 0, partId, 1);
+    addTrapezoid(cx, cy + h * 0.34, cz, w * 1.12, len * 0.96, w * 1.06, len * 0.88, h * 0.32, 0, partId, 0);
+    const wheelSpan = len * 0.68;
+    const sideSign = cx >= 0 ? 1 : -1;
+    const wx = cx + sideSign * (w * 0.42);
+    for (let i = 0; i < wheels; i++) {
+      const t = wheels === 1 ? 0 : (i / (wheels - 1) - 0.5);
+      const wz = cz + t * wheelSpan;
+      addCylinder(wx, cy - h * 0.14, wz, h * 0.33, h * 0.33, 0.18, 8, 'X', partId, 3);
+    }
+  }
+
+  // Oriented barrel / cylinder aligned along X, Y, or Z axis
   function addCylinder(cx, cy, cz, rBottom, rTop, length, segs = 10, axis = 'Y', partId = 0, tone = 0) {
     for (let i = 0; i < segs; i++) {
       const a0 = (i / segs) * Math.PI * 2;
@@ -251,7 +304,19 @@ function createMeshBuilder() {
       const c1 = Math.cos(a1), s1 = Math.sin(a1);
       const cm = Math.cos(am), sm = Math.sin(am);
       const half = length * 0.5;
-      if (axis === 'Z') {
+      if (axis === 'X') {
+        addQuad(
+          [cx - half, cy + c0 * rBottom, cz + s0 * rBottom],
+          [cx + half, cy + c0 * rTop, cz + s0 * rTop],
+          [cx + half, cy + c1 * rTop, cz + s1 * rTop],
+          [cx - half, cy + c1 * rBottom, cz + s1 * rBottom],
+          0, cm, sm, partId, tone
+        );
+        if (rTop > 0.01) {
+          addTri([cx + half, cy, cz], [cx + half, cy + c0 * rTop, cz + s0 * rTop], [cx + half, cy + c1 * rTop, cz + s1 * rTop], 1, 0, 0, 0.5, 0.5, 1, 0.5, 0.5, 1, partId, tone);
+          addTri([cx - half, cy, cz], [cx - half, cy + c1 * rBottom, cz + s1 * rBottom], [cx - half, cy + c0 * rBottom, cz + s0 * rBottom], -1, 0, 0, 0.5, 0.5, 1, 0.5, 0.5, 1, partId, tone);
+        }
+      } else if (axis === 'Z') {
         addQuad(
           [cx + c0 * rBottom, cy + s0 * rBottom, cz - half],
           [cx + c1 * rBottom, cy + s1 * rBottom, cz - half],
@@ -279,6 +344,8 @@ function createMeshBuilder() {
 
   return {
     addBox,
+    addTrapezoid,
+    addTrackAssembly,
     addCylinder,
     build() {
       return {
@@ -290,150 +357,220 @@ function createMeshBuilder() {
   };
 }
 
-// Detailed multi-part procedural CAD blueprints for M1 units & buildings + clean coverage for all 49 IDs.
+// High-detail procedural CAD blueprints for units & buildings + clean coverage for all 49 canonical IDs.
 function buildProceduralGeometryData(typeId) {
   const b = createMeshBuilder();
   const def = ENTITY_DEFS[typeId];
 
   switch (typeId) {
     case 'grizzly': {
-      // Lower chassis + left/right heavy armored treads (part 0)
-      b.addBox(0, 0.45, 0, 1.5, 0.6, 2.7, 0, 0);
-      b.addBox(-0.92, 0.38, 0, 0.42, 0.65, 2.95, 0, 1);
-      b.addBox(0.92, 0.38, 0, 0.42, 0.65, 2.95, 0, 1);
-      b.addBox(0, 0.78, -0.95, 1.4, 0.28, 0.65, 0, 1); // Engine vent
-      // Sloped turret (part 1) + viewport sensor (tone 2)
-      b.addBox(0, 1.05, -0.08, 1.35, 0.55, 1.55, 1, 0);
-      b.addBox(0.32, 1.36, -0.22, 0.42, 0.16, 0.42, 1, 2);
-      // 105mm main gun + bore evacuator (part 2 -> recoils along -Z)
-      b.addCylinder(0, 1.08, 1.35, 0.11, 0.09, 1.85, 8, 'Z', 2, 1);
-      b.addCylinder(0, 1.08, 1.1, 0.15, 0.15, 0.35, 8, 'Z', 2, 0);
+      // Abyssal Grizzly: Sloped NATO hull, armored skirted 4-wheel tracks, chamfered turret, bore evacuator
+      b.addTrapezoid(0, 0.48, 0.05, 1.52, 2.85, 1.38, 2.25, 0.62, -0.15, 0, 0);
+      b.addBox(0, 0.72, 1.25, 1.15, 0.14, 0.16, 0, 2); // Tactical headlight bar
+      b.addTrackAssembly(-0.92, 0.42, 0, 0.46, 0.66, 3.05, 4, 0);
+      b.addTrackAssembly(0.92, 0.42, 0, 0.46, 0.66, 3.05, 4, 0);
+      b.addBox(0, 0.82, -1.0, 1.32, 0.25, 0.62, 0, 1); // Rear louver deck
+      // Chamfered turret (part 1) + optic cupola + coax
+      b.addTrapezoid(0, 1.06, -0.1, 1.48, 1.65, 1.12, 1.18, 0.52, -0.1, 1, 0);
+      b.addCylinder(0.32, 1.38, -0.25, 0.24, 0.22, 0.18, 8, 'Y', 1, 1);
+      b.addBox(0.32, 1.42, -0.05, 0.22, 0.1, 0.14, 1, 2); // Optic glow
+      // 105mm stabilized cannon (part 2)
+      b.addCylinder(0, 1.08, 1.4, 0.1, 0.085, 1.95, 8, 'Z', 2, 1);
+      b.addCylinder(0, 1.08, 1.12, 0.145, 0.145, 0.36, 8, 'Z', 2, 0);
+      b.addBox(0.28, 1.12, 0.88, 0.08, 0.08, 0.48, 2, 1);
       break;
     }
 
     case 'rhino': {
-      // Wide Crimson heavy hull & thick treads
-      b.addBox(0, 0.5, 0, 1.75, 0.7, 3.05, 0, 0);
-      b.addBox(-1.05, 0.42, 0, 0.48, 0.75, 3.25, 0, 1);
-      b.addBox(1.05, 0.42, 0, 0.48, 0.75, 3.25, 0, 1);
-      b.addBox(0, 0.85, -1.0, 1.6, 0.35, 0.75, 0, 1);
-      // Cast heavy box turret (part 1)
-      b.addBox(0, 1.18, -0.1, 1.58, 0.65, 1.75, 1, 0);
-      b.addBox(-0.4, 1.55, -0.25, 0.46, 0.18, 0.46, 1, 2);
-      // Long 120mm cannon (part 2)
-      b.addCylinder(0, 1.2, 1.5, 0.13, 0.11, 2.05, 8, 'Z', 2, 1);
-      b.addBox(0, 1.2, 2.42, 0.28, 0.24, 0.26, 2, 1); // Muzzle brake
+      // Crimson Rhino: Heavy sloped wedge prow, 5-wheel crimson assault chassis, cast turret + slotted muzzle brake
+      b.addTrapezoid(0, 0.52, 0.05, 1.78, 3.2, 1.6, 2.55, 0.72, -0.15, 0, 0);
+      b.addBox(0, 0.78, 1.38, 1.3, 0.16, 0.18, 0, 4); // Hazard bumper trim
+      b.addTrackAssembly(-1.08, 0.46, 0, 0.52, 0.76, 3.35, 5, 0);
+      b.addTrackAssembly(1.08, 0.46, 0, 0.52, 0.76, 3.35, 5, 0);
+      b.addCylinder(-0.5, 0.82, -1.55, 0.2, 0.2, 0.6, 8, 'X', 0, 1); // External fuel drums
+      b.addCylinder(0.5, 0.82, -1.55, 0.2, 0.2, 0.6, 8, 'X', 0, 1);
+      // Heavy sloped turret (part 1) + rangefinder + smoke pods
+      b.addTrapezoid(0, 1.18, -0.08, 1.66, 1.85, 1.28, 1.38, 0.62, -0.08, 1, 0);
+      b.addCylinder(-0.38, 1.56, -0.25, 0.26, 0.24, 0.18, 8, 'Y', 1, 1);
+      b.addBox(0.38, 1.48, 0.18, 0.24, 0.12, 0.22, 1, 2);
+      // 120mm heavy gun + muzzle brake (part 2)
+      b.addCylinder(0, 1.2, 1.55, 0.13, 0.11, 2.15, 8, 'Z', 2, 1);
+      b.addBox(0, 1.2, 2.52, 0.3, 0.24, 0.28, 2, 1);
+      break;
+    }
+
+    case 'apocalypse': {
+      // Mammoth Twin-Cannon Apocalypse Tank: 4 articulated quad track pods + twin 120mm guns + SAM pod
+      b.addTrapezoid(0, 0.62, 0, 2.25, 3.8, 1.98, 3.1, 0.82, -0.1, 0, 0);
+      b.addTrackAssembly(-1.32, 0.48, 1.0, 0.55, 0.72, 1.7, 3, 0);
+      b.addTrackAssembly(1.32, 0.48, 1.0, 0.55, 0.72, 1.7, 3, 0);
+      b.addTrackAssembly(-1.32, 0.48, -1.0, 0.55, 0.72, 1.7, 3, 0);
+      b.addTrackAssembly(1.32, 0.48, -1.0, 0.55, 0.72, 1.7, 3, 0);
+      b.addTrapezoid(0, 1.38, -0.15, 1.95, 2.1, 1.58, 1.58, 0.68, -0.1, 1, 0);
+      b.addBox(0.68, 1.65, -0.45, 0.5, 0.42, 0.72, 1, 1); // AA SAM pod
+      b.addBox(0, 1.72, 0.25, 0.42, 0.16, 0.26, 1, 2);
+      // Twin 120mm barrels
+      b.addCylinder(-0.34, 1.38, 1.7, 0.125, 0.11, 2.2, 8, 'Z', 2, 1);
+      b.addCylinder(0.34, 1.38, 1.7, 0.125, 0.11, 2.2, 8, 'Z', 2, 1);
+      b.addBox(-0.34, 1.38, 2.68, 0.26, 0.22, 0.24, 2, 1);
+      b.addBox(0.34, 1.38, 2.68, 0.26, 0.22, 0.24, 2, 1);
       break;
     }
 
     case 'harvester': {
-      // Heavy mining truck chassis + cargo hopper
-      b.addBox(0, 0.5, -0.2, 1.8, 0.65, 2.8, 0, 0);
-      b.addBox(-1.05, 0.45, -0.2, 0.45, 0.8, 3.0, 0, 1);
-      b.addBox(1.05, 0.45, -0.2, 0.45, 0.8, 3.0, 0, 1);
-      // Ore hopper bin (gold/ore accent tone 3) + cab
-      b.addBox(0, 1.15, -0.6, 1.65, 0.75, 1.7, 0, 3);
-      b.addBox(0, 1.15, 0.65, 1.45, 0.75, 0.9, 0, 0);
-      b.addBox(0, 1.25, 1.12, 1.2, 0.35, 0.15, 0, 2);
-      // Articulated front mining scoop/drum (part 2)
-      b.addBox(0, 0.55, 1.55, 1.9, 0.55, 0.75, 2, 1);
-      b.addCylinder(0, 0.55, 1.95, 0.35, 0.35, 1.8, 8, 'Y', 2, 3);
+      // Heavy Armed Ore Harvester with sloped hazard ore scoop & rotating crusher drum
+      b.addTrapezoid(0, 0.5, -0.2, 1.82, 2.9, 1.66, 2.6, 0.64, 0, 0, 0);
+      b.addTrackAssembly(-1.08, 0.46, -0.2, 0.46, 0.78, 3.05, 4, 0);
+      b.addTrackAssembly(1.08, 0.46, -0.2, 0.46, 0.78, 3.05, 4, 0);
+      b.addTrapezoid(0, 1.18, -0.65, 1.65, 1.75, 1.75, 1.9, 0.74, 0, 0, 3);
+      b.addTrapezoid(0, 1.16, 0.68, 1.5, 0.95, 1.32, 0.75, 0.76, -0.05, 0, 0);
+      b.addBox(0, 1.25, 1.12, 1.18, 0.32, 0.14, 0, 2);
+      // Articulated Hazard Front Scoop (part 2)
+      b.addTrapezoid(0, 0.56, 1.58, 2.05, 0.85, 1.92, 0.55, 0.56, -0.1, 2, 4);
+      b.addCylinder(0, 0.54, 1.98, 0.34, 0.34, 1.85, 8, 'X', 2, 1);
       break;
     }
 
     case 'mcv': {
-      // Massive 6-wheel mobile command trailer
-      b.addBox(0, 0.65, 0, 2.1, 0.8, 4.1, 0, 0);
-      b.addBox(-1.15, 0.48, -1.2, 0.38, 0.88, 1.1, 0, 1);
-      b.addBox(1.15, 0.48, -1.2, 0.38, 0.88, 1.1, 0, 1);
-      b.addBox(-1.15, 0.48, 0.1, 0.38, 0.88, 1.1, 0, 1);
-      b.addBox(1.15, 0.48, 0.1, 0.38, 0.88, 1.1, 0, 1);
-      b.addBox(-1.15, 0.48, 1.4, 0.38, 0.88, 1.0, 0, 1);
-      b.addBox(1.15, 0.48, 1.4, 0.38, 0.88, 1.0, 0, 1);
-      // Folded crane gantry & command cab
-      b.addBox(0, 1.45, -0.4, 1.85, 0.85, 2.4, 0, 3);
-      b.addBox(0, 1.4, 1.4, 1.9, 0.8, 1.1, 0, 0);
-      b.addBox(0, 1.55, 1.96, 1.5, 0.32, 0.12, 0, 2);
-      b.addBox(0, 2.05, -0.5, 0.6, 0.35, 2.2, 1, 1);
+      // Massive 6-Wheel Heavy Mobile Construction Vehicle
+      b.addTrapezoid(0, 0.65, 0, 2.15, 4.2, 1.95, 3.9, 0.78, 0, 0, 0);
+      for (const wz of [-1.3, 0.05, 1.4]) {
+        b.addCylinder(-1.18, 0.46, wz, 0.46, 0.46, 0.36, 10, 'X', 0, 1);
+        b.addCylinder(1.18, 0.46, wz, 0.46, 0.46, 0.36, 10, 'X', 0, 1);
+      }
+      b.addTrapezoid(0, 1.45, -0.45, 1.88, 2.45, 1.65, 2.15, 0.86, 0, 0, 4);
+      b.addTrapezoid(0, 1.4, 1.45, 1.92, 1.15, 1.65, 0.85, 0.82, -0.08, 0, 0);
+      b.addBox(0, 1.55, 1.96, 1.45, 0.28, 0.14, 0, 2);
+      b.addBox(0, 2.04, -0.5, 0.62, 0.34, 2.25, 1, 1);
       break;
     }
 
     case 'conyard': {
-      // 4x4 Construction Yard (8m x 8m footprint): concrete slab + command bunker + rotating industrial crane
-      b.addBox(0, 0.25, 0, 7.6, 0.5, 7.6, 0, 3);
-      b.addBox(-1.6, 1.45, -1.6, 3.6, 2.1, 3.6, 0, 0);
-      b.addBox(1.8, 1.1, 1.5, 3.0, 1.4, 3.2, 0, 1);
-      b.addBox(-1.6, 2.65, -1.6, 1.4, 0.45, 1.4, 0, 2);
-      // Rotating crane tower (part 1) + extending boom (part 2)
-      b.addCylinder(1.2, 2.2, -1.2, 0.55, 0.45, 3.2, 8, 'Y', 1, 3);
-      b.addBox(1.2, 3.9, 0.2, 0.7, 0.5, 4.2, 1, 0);
-      b.addBox(1.2, 3.3, 2.0, 0.35, 1.1, 0.35, 2, 2);
+      b.addTrapezoid(0, 0.26, 0, 7.8, 7.8, 7.4, 7.4, 0.52, 0, 0, 3);
+      b.addBox(0, 0.54, 0, 7.2, 0.08, 7.2, 0, 4);
+      b.addTrapezoid(-1.55, 1.55, -1.55, 3.8, 3.8, 3.1, 3.1, 2.2, 0, 0, 0);
+      b.addTrapezoid(1.85, 1.15, 1.5, 3.1, 3.3, 2.7, 2.9, 1.5, 0, 0, 1);
+      b.addBox(-1.55, 2.8, -1.55, 1.5, 0.45, 1.5, 0, 2);
+      b.addCylinder(1.2, 2.25, -1.2, 0.58, 0.44, 3.3, 8, 'Y', 1, 4);
+      b.addBox(1.2, 4.0, 0.25, 0.72, 0.52, 4.4, 1, 0);
+      b.addBox(1.2, 3.35, 2.1, 0.38, 1.15, 0.38, 2, 2);
       break;
     }
 
     case 'power_plant': {
-      // 2x2 Power Plant (4m x 4m): concrete base + dual glowing plasma turbines
-      b.addBox(0, 0.2, 0, 3.7, 0.4, 3.7, 0, 3);
-      b.addBox(0, 1.0, -0.8, 3.2, 1.4, 1.7, 0, 0);
-      b.addCylinder(-0.85, 1.5, 0.75, 0.65, 0.48, 2.2, 10, 'Y', 0, 1);
-      b.addCylinder(-0.85, 2.7, 0.75, 0.45, 0.45, 0.35, 10, 'Y', 0, 2);
-      b.addCylinder(0.85, 1.5, 0.75, 0.65, 0.48, 2.2, 10, 'Y', 0, 1);
-      b.addCylinder(0.85, 2.7, 0.75, 0.45, 0.45, 0.35, 10, 'Y', 0, 2);
+      b.addTrapezoid(0, 0.22, 0, 3.8, 3.8, 3.55, 3.55, 0.44, 0, 0, 3);
+      b.addTrapezoid(0, 1.02, -0.8, 3.25, 1.75, 2.85, 1.45, 1.4, 0, 0, 0);
+      for (const px of [-0.85, 0.85]) {
+        b.addCylinder(px, 1.35, 0.75, 0.68, 0.46, 1.8, 10, 'Y', 0, 1);
+        b.addCylinder(px, 2.35, 0.75, 0.46, 0.58, 0.65, 10, 'Y', 0, 1);
+        b.addCylinder(px, 2.75, 0.75, 0.44, 0.44, 0.25, 10, 'Y', 0, 2);
+      }
+      break;
+    }
+
+    case 'nuclear_reactor': {
+      const sx = 5.7, sz = 5.7;
+      b.addTrapezoid(0, 0.24, 0, sx, sz, sx * 0.94, sz * 0.94, 0.48, 0, 0, 3);
+      b.addBox(0, 0.52, 0, sx * 0.9, 0.08, sz * 0.9, 0, 4);
+      b.addCylinder(-0.6, 1.7, -0.5, 1.55, 1.25, 2.4, 12, 'Y', 0, 0);
+      b.addCylinder(-0.6, 3.05, -0.5, 1.25, 0.45, 0.55, 12, 'Y', 0, 1);
+      b.addCylinder(1.5, 1.65, 1.2, 0.85, 0.62, 2.3, 10, 'Y', 0, 1);
+      b.addCylinder(1.5, 2.88, 1.2, 0.56, 0.56, 0.3, 10, 'Y', 0, 2);
       break;
     }
 
     case 'refinery': {
-      // 3x3 Ore Refinery (6m x 6m): main smelter silo, ore ramp, conveyor tower
-      b.addBox(0, 0.2, 0, 5.6, 0.4, 5.6, 0, 3);
-      b.addBox(-1.1, 1.5, -1.0, 2.8, 2.4, 3.0, 0, 0);
-      b.addCylinder(1.4, 1.8, -1.1, 0.95, 0.85, 2.8, 10, 'Y', 0, 1);
-      b.addCylinder(1.4, 3.3, -1.1, 0.65, 0.65, 0.35, 10, 'Y', 0, 2);
-      b.addBox(0.2, 0.7, 1.6, 3.6, 0.6, 1.8, 0, 1); // Unload ramp
-      b.addBox(0.2, 1.15, 2.3, 3.2, 0.25, 0.35, 0, 3);
+      b.addTrapezoid(0, 0.22, 0, 5.7, 5.7, 5.4, 5.4, 0.44, 0, 0, 3);
+      b.addTrapezoid(-1.1, 1.5, -1.0, 2.9, 3.1, 2.45, 2.65, 2.45, 0, 0, 0);
+      b.addCylinder(1.4, 1.8, -1.1, 0.98, 0.82, 2.8, 10, 'Y', 0, 1);
+      b.addCylinder(1.4, 3.3, -1.1, 0.68, 0.68, 0.38, 10, 'Y', 0, 2);
+      b.addBox(0.2, 0.68, 1.65, 3.8, 0.55, 1.85, 0, 1);
+      b.addBox(0.2, 1.0, 2.45, 3.6, 0.22, 0.35, 0, 4);
       break;
     }
 
     case 'war_factory': {
-      // 4x3 War Factory (8m x 6m): armored assembly bay, open front hangar doors, twin overhead gantry cranes
-      b.addBox(0, 0.2, 0, 7.6, 0.4, 5.6, 0, 3);
-      b.addBox(0, 1.6, -1.1, 6.8, 2.6, 3.0, 0, 0);
+      b.addTrapezoid(0, 0.22, 0, 7.7, 5.7, 7.4, 5.4, 0.44, 0, 0, 3);
+      b.addTrapezoid(0, 1.65, -1.1, 6.9, 3.1, 6.1, 2.55, 2.65, 0, 0, 0);
       b.addBox(-2.5, 1.4, 1.1, 1.6, 2.2, 2.6, 0, 1);
       b.addBox(2.5, 1.4, 1.1, 1.6, 2.2, 2.6, 0, 1);
-      b.addBox(0, 2.35, 1.1, 3.8, 0.6, 2.4, 0, 0);
-      b.addBox(0, 2.95, -1.1, 2.2, 0.35, 1.4, 0, 2); // Roof bay hatch beacon
+      b.addBox(0, 2.38, 1.1, 3.8, 0.62, 2.4, 0, 0);
+      b.addBox(0, 0.48, 2.2, 3.6, 0.12, 1.1, 0, 4);
+      b.addBox(0, 3.05, -1.1, 2.3, 0.36, 1.5, 0, 2);
+      break;
+    }
+
+    case 'naval_yard': {
+      b.addBox(-2.7, 0.75, 0, 1.9, 1.2, 7.4, 0, 3);
+      b.addBox(2.7, 0.75, 0, 1.9, 1.2, 7.4, 0, 3);
+      b.addBox(0, 0.9, -2.9, 7.2, 1.4, 1.6, 0, 0);
+      b.addBox(-2.7, 1.5, 0, 0.6, 0.3, 6.8, 0, 4);
+      b.addBox(2.7, 1.5, 0, 0.6, 0.3, 6.8, 0, 4);
+      // Gantry crane bridge
+      b.addBox(0, 3.3, 0.8, 6.8, 0.55, 0.9, 0, 4);
+      b.addBox(-2.8, 2.1, 0.8, 0.45, 2.4, 0.55, 0, 1);
+      b.addBox(2.8, 2.1, 0.8, 0.45, 2.4, 0.55, 0, 1);
+      break;
+    }
+
+    case 'prism_tower': {
+      b.addTrapezoid(0, 0.2, 0, 1.9, 1.9, 1.7, 1.7, 0.4, 0, 0, 3);
+      b.addTrapezoid(0, 1.45, 0, 1.35, 1.35, 0.65, 0.65, 2.2, 0, 0, 0);
+      b.addCylinder(0, 2.95, 0, 0.36, 0.12, 0.85, 6, 'Y', 1, 2);
+      b.addBox(-0.48, 2.4, 0, 0.14, 0.65, 0.38, 1, 3);
+      b.addBox(0.48, 2.4, 0, 0.14, 0.65, 0.38, 1, 3);
+      break;
+    }
+
+    case 'tesla_coil': {
+      b.addTrapezoid(0, 0.2, 0, 1.9, 1.9, 1.7, 1.7, 0.4, 0, 0, 3);
+      b.addCylinder(0, 1.35, 0, 0.52, 0.32, 2.1, 10, 'Y', 0, 0);
+      for (const ry of [1.2, 1.75, 2.3]) {
+        b.addCylinder(0, ry, 0, 0.72, 0.72, 0.14, 12, 'Y', 0, 4);
+      }
+      b.addCylinder(0, 2.72, 0, 0.38, 0.38, 0.45, 10, 'Y', 1, 2);
       break;
     }
 
     default: {
-      // Clean parametric geometry for all remaining canonical units/buildings (Infantry, Air, Naval, Defenses)
+      // Parametric multi-part models for all remaining canonical units/buildings (Infantry, Air, Naval, Superweapons, Defenses)
       if (def?.isBuilding) {
-        const sx = (def.footprintW ?? 2) * 1.8;
-        const sz = (def.footprintH ?? 2) * 1.8;
-        b.addBox(0, 0.2, 0, sx, 0.4, sz, 0, 3);
+        const sx = (def.footprintW ?? 2) * 1.85;
+        const sz = (def.footprintH ?? 2) * 1.85;
+        b.addTrapezoid(0, 0.22, 0, sx, sz, sx * 0.94, sz * 0.94, 0.44, 0, 0, 3);
         if (def.category === 'defense') {
-          b.addCylinder(0, 0.9, 0, sx * 0.42, sx * 0.35, 1.3, 10, 'Y', 0, 1);
-          b.addBox(0, 1.8, 0, sx * 0.45, 0.55, sx * 0.45, 1, 0);
-          b.addCylinder(0, 1.85, sx * 0.35, 0.14, 0.12, 1.1, 8, 'Z', 2, 2);
+          b.addCylinder(0, 0.92, 0, sx * 0.44, sx * 0.34, 1.35, 10, 'Y', 0, 1);
+          b.addTrapezoid(0, 1.8, 0, sx * 0.5, sx * 0.5, sx * 0.38, sx * 0.38, 0.55, 0, 1, 0);
+          b.addCylinder(0, 1.85, sx * 0.36, 0.14, 0.12, 1.15, 8, 'Z', 2, 2);
         } else {
-          b.addBox(0, 1.35, 0, sx * 0.78, 2.1, sz * 0.78, 0, 0);
-          b.addCylinder(0, 2.6, 0, Math.min(sx, sz) * 0.22, Math.min(sx, sz) * 0.18, 0.9, 8, 'Y', 1, 2);
+          b.addTrapezoid(0, 1.35, 0, sx * 0.8, sz * 0.8, sx * 0.68, sz * 0.68, 2.1, 0, 0, 0);
+          b.addCylinder(0, 2.65, 0, Math.min(sx, sz) * 0.22, Math.min(sx, sz) * 0.16, 0.95, 8, 'Y', 1, 2);
         }
       } else if (def?.category === 'infantry') {
-        b.addBox(0, 0.55, 0, 0.5, 1.0, 0.45, 0, 0);
-        b.addBox(0, 1.2, 0, 0.36, 0.36, 0.36, 1, 2);
-        b.addCylinder(0.22, 0.72, 0.35, 0.06, 0.05, 0.7, 6, 'Z', 2, 1);
+        b.addTrapezoid(0, 0.55, 0, 0.52, 0.46, 0.44, 0.4, 0.98, 0, 0, 0);
+        b.addCylinder(0, 1.2, 0, 0.2, 0.18, 0.36, 8, 'Y', 1, 2);
+        b.addCylinder(0.22, 0.72, 0.36, 0.06, 0.05, 0.72, 6, 'Z', 2, 1);
       } else if (def?.category === 'air') {
-        b.addBox(0, 0, 0, 1.3, 0.9, 3.6, 0, 0);
-        b.addBox(0, 0.1, 0, 3.8, 0.18, 1.0, 0, 1);
-        b.addBox(0, 0.35, 1.2, 0.8, 0.35, 0.8, 0, 2);
+        if (def.id === 'kirov') {
+          b.addCylinder(0, 0.5, 0, 1.2, 1.2, 4.6, 12, 'Z', 0, 0);
+          b.addBox(0, -0.8, 0, 0.75, 0.6, 2.2, 0, 1);
+          b.addBox(0, 0.6, -2.0, 2.6, 0.15, 0.8, 0, 2);
+        } else {
+          b.addTrapezoid(0, 0, 0, 1.35, 3.7, 0.85, 3.1, 0.85, 0.1, 0, 0);
+          b.addTrapezoid(0, 0.08, -0.1, 3.9, 1.1, 3.5, 0.65, 0.16, -0.2, 0, 1);
+          b.addBox(0, 0.38, 1.15, 0.75, 0.32, 0.85, 0, 2);
+        }
       } else if (def?.category === 'naval') {
-        b.addBox(0, 0.55, 0, 2.0, 1.1, 5.2, 0, 0);
-        b.addBox(0, 1.35, -0.5, 1.3, 0.9, 1.6, 0, 1);
-        b.addBox(0, 1.25, 1.1, 0.8, 0.45, 0.8, 1, 0);
-        b.addCylinder(0, 1.3, 1.8, 0.1, 0.08, 1.2, 8, 'Z', 2, 2);
+        b.addTrapezoid(0, 0.56, 0, 2.15, 5.4, 2.45, 5.8, 1.1, 0.2, 0, 0);
+        b.addTrapezoid(0, 1.38, -0.5, 1.35, 1.7, 1.1, 1.35, 0.9, 0, 0, 1);
+        b.addTrapezoid(0, 1.25, 1.15, 0.85, 0.85, 0.68, 0.68, 0.45, 0, 1, 0);
+        b.addCylinder(0, 1.32, 1.85, 0.1, 0.08, 1.25, 8, 'Z', 2, 2);
       } else {
-        b.addBox(0, 0.5, 0, 1.4, 0.8, 2.0, 0, 0);
-        b.addCylinder(0, 0.95, 0.6, 0.1, 0.1, 1.0, 8, 'Z', 2, 1);
+        b.addTrapezoid(0, 0.48, 0, 1.5, 2.2, 1.32, 1.85, 0.68, 0, 0, 0);
+        b.addTrackAssembly(-0.85, 0.4, 0, 0.34, 0.55, 2.25, 3, 0);
+        b.addTrackAssembly(0.85, 0.4, 0, 0.34, 0.55, 2.25, 3, 0);
+        b.addTrapezoid(0, 0.98, -0.1, 1.1, 1.15, 0.85, 0.9, 0.46, 0, 1, 0);
+        b.addCylinder(0, 1.0, 0.85, 0.11, 0.095, 1.25, 8, 'Z', 2, 1);
       }
       break;
     }

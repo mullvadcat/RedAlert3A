@@ -287,6 +287,33 @@ export function validateBuildingPlacement(state, playerId, typeId, gx, gz) {
     }
   }
 
+  // Naval Yard open-sea check: must connect to >= 24 contiguous SEA cells (blocks landlocked pools)
+  if (isMarine) {
+    const visited = new Set();
+    const queue = [gz * MAP_SIZE + gx];
+    visited.add(queue[0]);
+    let head = 0;
+    while (head < queue.length && visited.size < 24) {
+      const cur = queue[head++];
+      const cx0 = cur % MAP_SIZE;
+      const cz0 = (cur - cx0) / MAP_SIZE;
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (let d = 0; d < 4; d++) {
+        const nx = cx0 + dirs[d][0];
+        const nz = cz0 + dirs[d][1];
+        if (nx < 0 || nx >= MAP_SIZE || nz < 0 || nz >= MAP_SIZE) continue;
+        const nIdx = nz * MAP_SIZE + nx;
+        if (!visited.has(nIdx) && map.terrain[nIdx] === TERRAIN.SEA) {
+          visited.add(nIdx);
+          queue.push(nIdx);
+        }
+      }
+    }
+    if (visited.size < 24) {
+      return { valid: false, reason: 'requires_open_sea' };
+    }
+  }
+
   // Build radius check: <= 18 cells from conyard center, or <= 8 cells (12 for naval_yard) from friendly land building edge
   const cx = gx + w * 0.5;
   const cz = gz + h * 0.5;

@@ -24,13 +24,33 @@ function getActiveWeapon(ent) {
   return def.weapon ?? null;
 }
 
+function countAdjacentTeslaTroopers(state, coil) {
+  let count = 0;
+  for (let i = 0; i < state.entities.length; i++) {
+    const ent = state.entities[i];
+    if (!ent.alive || ent.typeId !== 'tesla_trooper' || ent.playerId !== coil.playerId) continue;
+    if (ent.frozenByCount > 0 || ent.stunTicks > 0) continue;
+    if (Math.hypot(ent.x - coil.x, ent.z - coil.z) <= 4.5) {
+      count++;
+    }
+  }
+  return count;
+}
+
 function isWeaponOperational(state, attacker, weapon) {
   if (!weapon || !attacker.alive) return false;
   if (attacker.empTicks > 0 || attacker.frozenByCount > 0) return false;
   const def = ENTITY_DEFS[attacker.typeId];
   if (def?.requiresPower && state.players[attacker.playerId]?.isLowPower) {
+    // >= 2 friendly Tesla Troopers adjacent to a Tesla Coil override blackout shutdown!
+    if (attacker.typeId === 'tesla_coil' && countAdjacentTeslaTroopers(state, attacker) >= 2) {
+      attacker.overcharged = true;
+      return true;
+    }
+    attacker.overcharged = false;
     return false;
   }
+  attacker.overcharged = false;
   return true;
 }
 
@@ -86,7 +106,32 @@ export function applyDamage(state, target, rawDamage, damageType, attacker = nul
       z: target.z,
       scale: target.isBuilding ? 2.4 : 1.0
     });
+    const wasReactor = target.typeId === 'nuclear_reactor';
+    const rx = target.x;
+    const rz = target.z;
     removeEntity(state, target.id, 'destroyed');
+
+    // Nuclear Reactor destruction triggers thermal blast + persistent radiation zone (T2.2)
+    if (wasReactor) {
+      state.areaEffects.push({
+        id: state.nextAreaEffectId ? state.nextAreaEffectId++ : state.tickCount,
+        type: 'radiation',
+        kind: 'radiation',
+        x: rx,
+        z: rz,
+        radius: 8.0,
+        damagePerTick: 45 / 30,
+        expiryTick: state.tickCount + 450,
+        ownerPlayerId: killOwnerId ?? -1
+      });
+      const blastList = state.entities.filter((e) => e.alive && Math.hypot(e.x - rx, e.z - rz) <= 7.0);
+      for (let b = 0; b < blastList.length; b++) {
+        const near = blastList[b];
+        const dist = Math.hypot(near.x - rx, near.z - rz);
+        const falloff = Math.max(0.25, 1.0 - dist / 8.0);
+        applyDamage(state, near, 240 * falloff, 'HighExplosive', null, killOwnerId ?? null);
+      }
+    }
   }
   return finalDmg;
 }
@@ -163,7 +208,36 @@ function fireWeapon(state, attacker, target, weapon) {
   const basePerShot = (target.domain === 'AIR' && weapon.antiAirDamage)
     ? weapon.antiAirDamage
     : attacker.damage;
-  const rawTotal = basePerShot * burst;
+  let rawTotal = basePerShot * burst;
+
+  // Prism Tower convergence: up to 4 adjacent idle powered Prism Towers add +50% each (max 300%)
+  if (attacker.typeId === 'prism_tower') {
+    let supportCount = 0;
+    for (let i = 0; i < state.entities.length && supportCount < 4; i++) {
+      const other = state.entities[i];
+      if (!other.alive || other.id === attacker.id || other.typeId !== 'prism_tower') continue;
+      if (other.playerId !== attacker.playerId || other.empTicks > 0 || other.frozenByCount > 0) continue;
+      if (state.players[other.playerId]?.isLowPower || other.fireCooldownTicks > 6) continue;
+      if (Math.hypot(other.x - attacker.x, other.z - attacker.z) <= 12.0) {
+        supportCount++;
+        other.fireCooldownTicks = Math.max(other.fireCooldownTicks, 20);
+        other.turretYaw = Math.atan2(attacker.x - other.x, attacker.z - other.z);
+        state.events.push({
+          type: 'combat:fire',
+          attackerId: other.id,
+          attackerTypeId: other.typeId,
+          targetId: attacker.id,
+          x: other.x,
+          z: other.z,
+          tx: attacker.x,
+          tz: attacker.z,
+          damageType: 'Prism'
+        });
+      }
+    }
+    rawTotal *= 1 + 0.5 * supportCount;
+  }
+
   const mult = getArmorMultiplier(weapon.damageType, target, attacker);
   const expectedDmg = rawTotal * mult * (target.damageTakenMult ?? 1.0);
 
@@ -228,7 +302,37 @@ export function stepCombatAndProjectiles(state) {
 
     // Hold fire when idle harvester? Harvester still defends itself if enemy closes in!
     const target = selectTargetForEntity(state, ent, weapon);
-    if (!target) continue;
+    if (!target) {
+      // AA Turret can intercept in-flight V3 ballistic rockets within 24m
+      if (ent.typeId === 'aa_turret' && ent.fireCooldownTicks === 0) {
+        const aaRange = weapon.range ?? 24;
+        for (let pIdx = 0; pIdx < state.projectiles.length; pIdx++) {
+          const proj = state.projectiles[pIdx];
+          if (!proj.interceptable || proj.released || proj.intercepted) continue;
+          if (proj.attackerTeamId === ent.teamId) continue;
+          if (Math.hypot(proj.x - ent.x, proj.z - ent.z) <= aaRange) {
+            ent.fireCooldownTicks = ent.cooldownTicks || weapon.cooldownTicks;
+            ent.turretYaw = Math.atan2(proj.x - ent.x, proj.z - ent.z);
+            releaseProjectileReservation(state, proj);
+            proj.intercepted = true;
+            state.events.push({
+              type: 'combat:fire',
+              attackerId: ent.id,
+              attackerTypeId: ent.typeId,
+              targetId: null,
+              x: ent.x,
+              z: ent.z,
+              tx: proj.x,
+              tz: proj.z,
+              damageType: weapon.damageType
+            });
+            state.events.push({ type: 'fx:explosion', x: proj.x, y: proj.y, z: proj.z, scale: 0.7 });
+            break;
+          }
+        }
+      }
+      continue;
+    }
 
     // Attack-move pauses briefly to engage targets in range cleanly
     if (ent.orderType === 'ATTACK_MOVE' && ent.fireCooldownTicks === 0) {
@@ -243,6 +347,7 @@ export function stepCombatAndProjectiles(state) {
   let write = 0;
   for (let i = 0; i < projs.length; i++) {
     const p = projs[i];
+    if (p.intercepted) continue;
     p.prevX = p.x;
     p.prevY = p.y;
     p.prevZ = p.z;

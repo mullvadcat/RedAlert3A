@@ -145,7 +145,8 @@ export const ARMOR_MATRIX = {
   Prism:         { None: 1.25, HeavyInfantry: 0.90, Light: 1.15, Heavy: 0.80, SuperHeavy: 0.75, Air: 0.00 },
   Tesla:         { None: 1.60, HeavyInfantry: 0.85, Light: 1.20, Heavy: 1.00, SuperHeavy: 0.85, Air: 0.00 },
   Torpedo:       { None: 0.00, HeavyInfantry: 0.00, Light: 1.25, Heavy: 1.20, SuperHeavy: 1.10, Air: 0.00 },
-  Chrono:        { None: 1.00, HeavyInfantry: 1.00, Light: 1.00, Heavy: 1.00, SuperHeavy: 1.00, Air: 0.00 }
+  Chrono:        { None: 1.00, HeavyInfantry: 1.00, Light: 1.00, Heavy: 1.00, SuperHeavy: 1.00, Air: 0.00 },
+  Radiation:     { None: 1.50, HeavyInfantry: 0.90, Light: 0.70, Heavy: 0.55, SuperHeavy: 0.25, Air: 0.00 }
 };
 
 // Direct target overrides (do NOT multiply with base matrix cell).
