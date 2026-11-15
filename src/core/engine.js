@@ -316,6 +316,7 @@ export function populateBenchM1Scenario(state) {
 
   const baseOffsetsP0 = [
     ['conyard', 38, 120], ['power_plant', 44, 118], ['power_plant', 44, 122],
+    ['power_plant', 44, 126], ['power_plant', 44, 130],
     ['refinery', 48, 116], ['refinery', 48, 122], ['war_factory', 42, 128],
     ['war_factory', 48, 128], ['barracks', 38, 128], ['airforce_radar', 36, 120],
     ['service_depot', 38, 134]
@@ -326,6 +327,7 @@ export function populateBenchM1Scenario(state) {
 
   const baseOffsetsP1 = [
     ['conyard', 206, 120], ['power_plant', 212, 118], ['power_plant', 212, 122],
+    ['power_plant', 212, 126], ['power_plant', 212, 130],
     ['refinery', 200, 116], ['refinery', 200, 122], ['war_factory', 204, 128],
     ['war_factory', 210, 128], ['barracks', 200, 128], ['airforce_radar', 215, 120],
     ['service_depot', 204, 134]

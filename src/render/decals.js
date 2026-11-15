@@ -41,11 +41,17 @@ void main() {
   float typeId = vParams.y;
   float alpha = vParams.z;
   if (typeId < 0.5) {
-    // Crater scorch decal
-    float ring = smoothstep(1.0, 0.55, r);
-    float rim = smoothstep(0.62, 0.72, r) * smoothstep(0.95, 0.78, r);
-    vec3 col = mix(vec3(0.06, 0.05, 0.04), vec3(0.24, 0.19, 0.14), rim);
-    outColor = vec4(col, ring * 0.85 * alpha);
+    // Organic irregular scorched crater decal (non-uniform angular rim & dark soot pit)
+    float ang = atan(p.y, p.x);
+    float jagged = 0.84 + 0.10 * sin(ang * 5.0 + vParams.x * 3.0) + 0.06 * cos(ang * 11.0 - vParams.x * 5.0);
+    float nr = r / jagged;
+    if (nr > 1.0) discard;
+    float pit = smoothstep(0.68, 0.12, nr);
+    float rim = smoothstep(0.56, 0.72, nr) * smoothstep(0.98, 0.76, nr);
+    float fade = smoothstep(1.0, 0.42, nr);
+    vec3 col = mix(vec3(0.04, 0.035, 0.03), vec3(0.16, 0.12, 0.09), rim);
+    col = mix(col, vec3(0.02, 0.018, 0.016), pit * 0.7);
+    outColor = vec4(col, fade * (0.48 + 0.22 * pit) * alpha);
   } else if (typeId < 1.5) {
     // Dual tank tread imprint
     float treadX = abs(abs(p.x) - 0.55);

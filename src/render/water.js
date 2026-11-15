@@ -134,27 +134,35 @@ void main() {
   float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
   float spec = pow(max(dot(N, H), 0.0), 140.0) * 1.8;
 
-  vec3 shallowCol = vec3(0.08, 0.34, 0.42);
-  vec3 deepCol = vec3(0.03, 0.11, 0.22);
-  vec3 skyReflect = vec3(0.36, 0.56, 0.78);
+  vec3 shallowCol = vec3(0.05, 0.22, 0.30);
+  vec3 deepCol = vec3(0.015, 0.06, 0.14);
+  vec3 skyReflect = vec3(0.24, 0.40, 0.62);
   vec3 baseCol = mix(shallowCol, deepCol, smoothstep(0.0, 2.8, depth));
 
-  // Shoreline surf foam where 0 < depth < 0.95m
-  float foamBand = smoothstep(1.0, 0.02, depth);
+  // Subtle shoreline surf foam where 0 < depth < 0.7m
+  float foamBand = smoothstep(0.72, 0.02, depth);
   float foamRipple = sin(depth * 14.0 - uTime * 3.2) * 0.5 + 0.5;
-  float foam = foamBand * (0.45 + 0.55 * foamRipple);
+  float foam = foamBand * (0.35 + 0.65 * foamRipple);
 
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0025, uShadowTexelSize);
 
-  vec3 lit = mix(baseCol, skyReflect, fresnel * 0.72) * (0.42 + 0.75 * NdotL * mix(0.45, 1.0, shadow));
-  lit += vec3(1.0, 0.95, 0.85) * spec * shadow;
-  lit = mix(lit, vec3(0.86, 0.92, 0.96), foam * 0.55);
+  vec3 lit = mix(baseCol, skyReflect, fresnel * 0.65) * (0.34 + 0.72 * NdotL * mix(0.40, 1.0, shadow));
+  lit += vec3(0.95, 0.90, 0.80) * spec * shadow;
+  lit = mix(lit, vec3(0.72, 0.80, 0.86), foam * 0.44);
 
-  float fogVis = mix(texture(uFogTex, uv).r, 1.0, uNoFog);
+  float fogTexel = 1.0 / 256.0;
+  float fogSample = (
+    texture(uFogTex, uv).r * 2.0 +
+    texture(uFogTex, uv + vec2(fogTexel, 0.0)).r +
+    texture(uFogTex, uv - vec2(fogTexel, 0.0)).r +
+    texture(uFogTex, uv + vec2(0.0, fogTexel)).r +
+    texture(uFogTex, uv - vec2(0.0, fogTexel)).r
+  ) * (1.0 / 6.0);
+  float fogVis = mix(fogSample, 1.0, uNoFog);
   lit *= fogVis;
 
-  float alpha = mix(0.68, 0.94, smoothstep(0.02, 1.6, depth));
+  float alpha = mix(0.72, 0.96, smoothstep(0.02, 1.6, depth));
   outColor = vec4(lit, alpha);
 }`;
 

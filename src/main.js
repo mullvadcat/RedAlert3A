@@ -209,8 +209,16 @@ function bootstrap() {
     uiState.cursorMode = 'default';
     uiState.pendingPower = null;
     hideChoicePrompt();
+    pipeline.clearTransientVisuals();
     pipeline.syncTerrainMap(state.map, 0, true);
     pipeline.shadowSys.invalidateCache();
+    if (nextState.mode !== 'bench' && nextState.mode !== 'bench_m1') {
+      uiState.isBench = false;
+      if (benchOverlay) {
+        benchOverlay.destroy();
+        benchOverlay = null;
+      }
+    }
     sidebarUI.setState(state);
     minimapUI.setState(state);
     inputCtrl.setState(state);
@@ -509,7 +517,7 @@ function bootstrap() {
 
     const panel = document.createElement('div');
     panel.id = 'gallery-panel';
-    panel.style.cssText = 'position:fixed;top:12px;left:12px;z-index:50;background:rgba(10,16,26,0.9);border:1px solid #3c5472;padding:12px;border-radius:6px;color:#e8eef6;font:12px/1.4 sans-serif;max-width:340px;';
+    panel.style.cssText = 'position:fixed;top:56px;left:12px;z-index:50;background:rgba(10,16,26,0.9);border:1px solid #3c5472;padding:12px;border-radius:6px;color:#e8eef6;font:12px/1.4 sans-serif;max-width:340px;';
 
     const titleEl = document.createElement('div');
     titleEl.style.cssText = 'font-weight:700;font-size:13px;margin-bottom:4px;color:#62d2ff;';
@@ -654,7 +662,7 @@ function bootstrap() {
     mixer,
     dialogueCtrl,
     lobbyCtrl,
-    benchOverlay,
+    get benchOverlay() { return benchOverlay; },
     telemetry,
     gallery: galleryCtrl,
     setQualityPreset: applyQualityPreset,
@@ -669,7 +677,7 @@ function bootstrap() {
       return;
     }
 
-    const frameStartMs = performance.now();
+    const rawFrameMs = Math.max(1.0, Math.min(120.0, nowMs - prevTimeMs));
     const dtSec = Math.min(0.1, Math.max(0, (nowMs - prevTimeMs) * 0.001));
     prevTimeMs = nowMs;
     const elapsedSec = nowMs * 0.001;
@@ -737,7 +745,7 @@ function bootstrap() {
 
     if (benchOverlay) {
       benchOverlay.recordFrame({
-        frameMs: Math.max(0.1, performance.now() - frameStartMs),
+        frameMs: rawFrameMs,
         simMs: simStepMs,
         drawCalls: telemetry.drawCalls,
         activeUnits: telemetry.activeEntities

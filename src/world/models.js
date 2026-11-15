@@ -93,7 +93,15 @@ ${PCSS_GLSL}
 
 void main() {
   vec2 fogUv = clamp(vWorldPos.xz / uWorldSize, 0.0, 1.0);
-  float fogVis = mix(texture(uFogTex, fogUv).r, 1.0, uNoFog);
+  float fogTexel = 1.0 / 256.0;
+  float fogSample = (
+    texture(uFogTex, fogUv).r * 2.0 +
+    texture(uFogTex, fogUv + vec2(fogTexel, 0.0)).r +
+    texture(uFogTex, fogUv - vec2(fogTexel, 0.0)).r +
+    texture(uFogTex, fogUv + vec2(0.0, fogTexel)).r +
+    texture(uFogTex, fogUv - vec2(0.0, fogTexel)).r
+  ) * (1.0 / 6.0);
+  float fogVis = mix(fogSample, 1.0, uNoFog);
   if (fogVis < 0.09) discard;
 
   int teamIdx = clamp(int(vUnitState.w + 0.5), 0, 3);
@@ -108,37 +116,37 @@ void main() {
   float roughness = mat.b;
 
   if (vTone < 0.5) {
-    // Tone 0: Faction painted military armor with machined panel seam grid
+    // Tone 0: Faction painted military armor with crisp machined panel seam grid
     vec2 seam = abs(fract(vUv * vec2(3.0, 3.0)) - 0.5);
-    float panelEdge = smoothstep(0.45, 0.495, max(seam.x, seam.y));
-    vec3 oliveSteel = mix(vec3(0.24, 0.27, 0.31), teamCol * 0.85, 0.58);
-    baseCol = oliveSteel * (0.88 + detail.r * 0.32 - detail.g * 0.20) * (1.0 - panelEdge * 0.28);
+    float panelEdge = smoothstep(0.44, 0.495, max(seam.x, seam.y));
+    vec3 oliveSteel = mix(vec3(0.16, 0.19, 0.23), teamCol * 0.78, 0.60);
+    baseCol = oliveSteel * (0.82 + detail.r * 0.38 - detail.g * 0.24) * (1.0 - panelEdge * 0.34);
   } else if (vTone < 1.5) {
     // Tone 1: Dark gunmetal, tracks & tires with tread rib pattern
-    float treadRib = 0.86 + 0.14 * step(0.45, fract(vUv.y * 8.0));
-    baseCol = vec3(0.11, 0.12, 0.14) * (0.82 + detail.r * 0.28) * treadRib;
-    roughness = clamp(roughness + 0.2, 0.0, 1.0);
+    float treadRib = 0.82 + 0.18 * step(0.45, fract(vUv.y * 8.0));
+    baseCol = vec3(0.08, 0.09, 0.11) * (0.80 + detail.r * 0.30) * treadRib;
+    roughness = clamp(roughness + 0.16, 0.0, 1.0);
   } else if (vTone < 2.5) {
     // Tone 2: Glowing energy core / optical visor / plasma vent
-    baseCol = mix(teamCol * 1.48, vec3(0.95, 0.86, 0.42), 0.28);
+    baseCol = mix(teamCol * 1.55, vec3(0.95, 0.86, 0.42), 0.26);
     metallic = 0.2;
-    roughness = 0.16;
+    roughness = 0.14;
   } else if (vTone < 3.5) {
     // Tone 3: Reinforced concrete plinth / copper coil / metallic trim
-    baseCol = vec3(0.47, 0.46, 0.44) * (0.86 + detail.r * 0.24);
-    metallic = 0.15;
-    roughness = 0.82;
+    baseCol = vec3(0.36, 0.35, 0.34) * (0.84 + detail.r * 0.28);
+    metallic = 0.18;
+    roughness = 0.78;
   } else {
     // Tone 4: Industrial yellow/black chevron hazard stripes
     float stripe = step(0.5, fract((vWorldPos.x + vWorldPos.z) * 1.65));
-    baseCol = mix(vec3(0.12, 0.12, 0.13), vec3(0.92, 0.68, 0.12), stripe);
-    metallic = 0.3;
-    roughness = 0.55;
+    baseCol = mix(vec3(0.09, 0.09, 0.10), vec3(0.90, 0.64, 0.10), stripe);
+    metallic = 0.32;
+    roughness = 0.52;
   }
 
   // < 50% HP charred battle-damage mask
   float dmgMask = smoothstep(0.55, 0.12, hpRatio) * smoothstep(0.32, 0.72, detail.r + detail.b * 0.35);
-  baseCol = mix(baseCol, vec3(0.05, 0.04, 0.04), dmgMask * 0.85);
+  baseCol = mix(baseCol, vec3(0.04, 0.035, 0.035), dmgMask * 0.85);
   roughness = mix(roughness, 0.92, dmgMask);
 
   vec3 N = normalize(vNormal);
@@ -147,22 +155,22 @@ void main() {
   vec3 H = normalize(V + L);
 
   float NdotL = max(dot(N, L), 0.0);
-  float specPow = mix(18.0, 96.0, 1.0 - roughness);
-  float spec = pow(max(dot(N, H), 0.0), specPow) * mix(0.25, 1.0, metallic);
+  float specPow = mix(20.0, 108.0, 1.0 - roughness);
+  float spec = pow(max(dot(N, H), 0.0), specPow) * mix(0.30, 1.15, metallic);
 
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
-  vec3 ambient = baseCol * (0.36 + 0.16 * max(N.y, 0.0)) * detail.a;
-  vec3 direct = (baseCol * 1.15 + vec3(spec)) * NdotL * mix(0.32, 1.0, shadow);
+  vec3 ambient = baseCol * (0.24 + 0.14 * max(N.y, 0.0)) * detail.a;
+  vec3 direct = (baseCol * 1.28 + vec3(spec)) * NdotL * mix(0.26, 1.0, shadow);
 
   // Height-adaptive faction Fresnel rim silhouette (subtle at 14m close-up, crisp at 60-80m macro view)
   float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.2);
-  float rimScale = mix(0.22, 1.25, smoothstep(16.0, 68.0, uCamHeight));
+  float rimScale = mix(0.20, 1.15, smoothstep(16.0, 68.0, uCamHeight));
   vec3 rim = teamCol * fresnel * rimScale;
 
   // Low-HP ember pulse + Tone 2 emissive boost
-  vec3 emissive = (vTone > 1.5 && vTone < 2.5) ? baseCol * 0.65 : vec3(0.0);
+  vec3 emissive = (vTone > 1.5 && vTone < 2.5) ? baseCol * 0.72 : vec3(0.0);
   if (hpRatio < 0.35) {
     emissive += vec3(0.9, 0.25, 0.04) * (1.0 - hpRatio / 0.35) * 0.35 * dmgMask;
   }
@@ -435,14 +443,19 @@ function buildProceduralGeometryData(typeId) {
 
   switch (typeId) {
     case 'grizzly': {
-      // Abyssal Grizzly: Sloped NATO hull, armored skirted 4-wheel tracks, chamfered turret, bore evacuator
+      // Abyssal Grizzly: Sloped NATO hull, armored skirted 4-wheel tracks, ERA cheek turret, bore evacuator
       b.addTrapezoid(0, 0.48, 0.05, 1.52, 2.85, 1.38, 2.25, 0.62, -0.15, 0, 0);
       b.addBox(0, 0.72, 1.25, 1.15, 0.14, 0.16, 0, 2); // Tactical headlight bar
+      b.addBox(-0.95, 0.56, 0, 0.14, 0.34, 2.85, 0, 0); // Armored side skirts
+      b.addBox(0.95, 0.56, 0, 0.14, 0.34, 2.85, 0, 0);
       b.addTrackAssembly(-0.92, 0.42, 0, 0.46, 0.66, 3.05, 4, 0);
       b.addTrackAssembly(0.92, 0.42, 0, 0.46, 0.66, 3.05, 4, 0);
       b.addBox(0, 0.82, -1.0, 1.32, 0.25, 0.62, 0, 1); // Rear louver deck
-      // Chamfered turret (part 1) + optic cupola + coax
+      // Chamfered turret (part 1) + optic cupola + bustle rack + coax
       b.addTrapezoid(0, 1.06, -0.1, 1.48, 1.65, 1.12, 1.18, 0.52, -0.1, 1, 0);
+      b.addBox(0, 1.1, -1.02, 1.08, 0.34, 0.36, 1, 1); // Turret bustle stowage rack
+      b.addBox(-0.62, 1.06, 0.22, 0.26, 0.28, 0.62, 1, 0); // Left composite cheek module
+      b.addBox(0.62, 1.06, 0.22, 0.26, 0.28, 0.62, 1, 0); // Right composite cheek module
       b.addCylinder(0.32, 1.38, -0.25, 0.24, 0.22, 0.18, 8, 'Y', 1, 1);
       b.addBox(0.32, 1.42, -0.05, 0.22, 0.1, 0.14, 1, 2); // Optic glow
       // 105mm stabilized cannon (part 2)
@@ -453,19 +466,24 @@ function buildProceduralGeometryData(typeId) {
     }
 
     case 'rhino': {
-      // Crimson Rhino: Heavy sloped wedge prow, 5-wheel crimson assault chassis, cast turret + slotted muzzle brake
+      // Crimson Rhino: Heavy sloped wedge prow, 5-wheel crimson assault chassis, cast turret + ERA + slotted muzzle brake
       b.addTrapezoid(0, 0.52, 0.05, 1.78, 3.2, 1.6, 2.55, 0.72, -0.15, 0, 0);
       b.addBox(0, 0.78, 1.38, 1.3, 0.16, 0.18, 0, 4); // Hazard bumper trim
+      b.addBox(-1.12, 0.62, 0, 0.16, 0.38, 3.1, 0, 0); // Heavy reactive side skirts
+      b.addBox(1.12, 0.62, 0, 0.16, 0.38, 3.1, 0, 0);
       b.addTrackAssembly(-1.08, 0.46, 0, 0.52, 0.76, 3.35, 5, 0);
       b.addTrackAssembly(1.08, 0.46, 0, 0.52, 0.76, 3.35, 5, 0);
       b.addCylinder(-0.5, 0.82, -1.55, 0.2, 0.2, 0.6, 8, 'X', 0, 1); // External fuel drums
       b.addCylinder(0.5, 0.82, -1.55, 0.2, 0.2, 0.6, 8, 'X', 0, 1);
       // Heavy sloped turret (part 1) + rangefinder + smoke pods
       b.addTrapezoid(0, 1.18, -0.08, 1.66, 1.85, 1.28, 1.38, 0.62, -0.08, 1, 0);
+      b.addBox(-0.68, 1.18, 0.3, 0.32, 0.32, 0.68, 1, 1); // ERA armor blocks
+      b.addBox(0.68, 1.18, 0.3, 0.32, 0.32, 0.68, 1, 1);
       b.addCylinder(-0.38, 1.56, -0.25, 0.26, 0.24, 0.18, 8, 'Y', 1, 1);
       b.addBox(0.38, 1.48, 0.18, 0.24, 0.12, 0.22, 1, 2);
       // 120mm heavy gun + muzzle brake (part 2)
       b.addCylinder(0, 1.2, 1.55, 0.13, 0.11, 2.15, 8, 'Z', 2, 1);
+      b.addCylinder(0, 1.2, 1.25, 0.165, 0.165, 0.38, 8, 'Z', 2, 0);
       b.addBox(0, 1.2, 2.52, 0.3, 0.24, 0.28, 2, 1);
       break;
     }

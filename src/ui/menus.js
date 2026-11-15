@@ -22,12 +22,23 @@ export function createLobbyMenu(uiState, options = {}) {
   let profile = options.profile ?? createDefaultCampaignProfile();
   let activeTab = options.initialTab === 'campaign' ? 'campaign' : 'skirmish';
 
-  // Top-bar clickable Lobby pill
+  // Top-bar clickable Lobby & 3D Armory Gallery pills
   const btnOpen = document.createElement('button');
   btnOpen.id = 'btn-open-lobby';
   btnOpen.type = 'button';
   btnOpen.className = 'hud-pill hud-btn-pill';
   topBarEl.appendChild(btnOpen);
+
+  const isGalleryMode =
+    typeof window !== 'undefined' && window.location.search.includes('show=gallery');
+  const btnGallery = document.createElement('button');
+  btnGallery.id = 'btn-open-gallery';
+  btnGallery.type = 'button';
+  btnGallery.className = 'hud-pill hud-btn-pill';
+  btnGallery.addEventListener('click', () => {
+    window.location.href = isGalleryMode ? './' : './?show=gallery';
+  });
+  topBarEl.appendChild(btnGallery);
 
   // Modal Overlay
   const modal = document.createElement('div');
@@ -213,6 +224,7 @@ export function createLobbyMenu(uiState, options = {}) {
 
   function applyTranslations() {
     btnOpen.textContent = t('menu.lobbyBtn');
+    btnGallery.textContent = t(isGalleryMode ? 'menu.galleryExitBtn' : 'menu.galleryBtn');
     titleEl.textContent = activeTab === 'campaign' ? t('menu.campaignTab') : t('menu.skirmish');
     btnTabSkirmish.textContent = t('menu.skirmishTab');
     btnTabCampaign.textContent = t('menu.campaignTab');

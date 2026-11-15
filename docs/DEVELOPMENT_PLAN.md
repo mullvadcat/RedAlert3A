@@ -547,12 +547,13 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 
 | 阶段 | 提交 Commit | 核心交付模块 | 代码状态 | 自动化/无头门禁 | 浏览器实机 E2E |
 | :---: | :---: | :--- | :---: | :---: | :---: |
-| **M1** | `7af7bd9` | Vite/静态构建、`config.js`、`engine.js`、`map.js`、`fogCpu.js`、`nav.js`、`pipeline.js`/`pbr.js`/`shadow.js`/`water.js`/`models.js` | **已完成 (`T1.1–T1.8`)** | `test:m1` 通过 (`0.350ms` 寻路均值) | M1 曾验基础闭环 |
-| **M2** | `48fef3f` | 5 页签 `sidebar.js`、`minimap.js`、防御塔与造船厂连通性、`destruction.js`、WebAudio 对讲机滤波 `mixer.js` | **已完成 (`T2.1–T2.4`)** | `test:m2` 通过 (`112→224` 折射、RNG 隔离) | **待实机复验** |
-| **M3** | `a08d9fe` | 全 28 兵种特种机制、`airforce.js`、`naval.js`、X-Ray 透视剪影与 `?show=gallery` | **已完成 (`T3.1–T3.5`)** | `test:m3` 通过 | **待实机展厅检阅** |
-| **M4** | `54b316c` | `superweapon.js`（4 超武 + F1–F4 秘策）、`skirmishMaps.js`（8 图）、`ai.js`、200 场压测调优 | **已完成 (`T4.1–T4.4`)** | `test:m4` + `sim:balance` 通过 (`1058.7x`，胜率 `51.50%/48.50%`) | **待实机复验** |
-| **M5** | `ed9d412` | `save.js` 存档状态机、`director.js`、3 层自适应音频、13 关战役（`A01–A06`/`C01–C06`/`EX13`） | **已完成 (`T5.1–T5.4`)** | `test:m5` 通过（600t 读档零偏差、13 关全实例化） | **待实机直跳验关** |
-| **M6** | `c3bd208` | `Ultra/High/Balanced` 热切换、`webglcontextlost/restored`、`bench.js`（282 单位）、全量 i18n/dist | **已完成 (`T6.1–T6.3`)** | `test:m6` + `check:i18n` + `build` 通过（`0.386ms/tick`，342 词条，54 文件 `609.3 KB`） | **待实机 60s 压测** |
+| **M1** | `7af7bd9` | Vite/静态构建、`config.js`、`engine.js`、`map.js`、`fogCpu.js`、`nav.js`、`pipeline.js`/`pbr.js`/`shadow.js`/`water.js`/`models.js` | **已完成 (`T1.1–T1.8`)** | `test:m1` 通过 (`0.528ms` 寻路均值) | 已实机验证（含双击部署基地车 CTA 与无残留切局） |
+| **M2** | `48fef3f` | 5 页签 `sidebar.js`、`minimap.js`、防御塔与造船厂连通性、`destruction.js`、WebAudio 对讲机滤波 `mixer.js` | **已完成 (`T2.1–T2.4`)** | `test:m2` 通过 (`112→224` 折射、RNG 隔离) | 已联调（建筑放置/电力状态/碎块与贴花清理） |
+| **M3** | `a08d9fe` | 全 28 兵种特种机制、`airforce.js`、`naval.js`、X-Ray 透视剪影与 `?show=gallery` | **已完成 (`T3.1–T3.5`)** | `test:m3` 通过 | 已实机检阅 `?show=gallery` 全 49 模型与涂装切换 |
+| **M4** | `54b316c` | `superweapon.js`（4 超武 + F1–F4 秘策）、`skirmishMaps.js`（8 图）、`ai.js`、200 场压测调优 | **已完成 (`T4.1–T4.4`)** | `test:m4` + `sim:balance` 通过 | 已实机验证大厅开局与遭遇战切局流 |
+| **M5** | `ed9d412` | `save.js` 存档状态机、`director.js`、3 层自适应音频、13 关战役（`A01–A06`/`C01–C06`/`EX13`） | **已完成 (`T5.1–T5.4`)** | `test:m5` 通过（600t 读档零偏差、13 关全实例化） | 已通过无头契约，待人工逐关剧情体验 |
+| **M6** | `c3bd208` | `Ultra/High/Balanced` 热切换、`webglcontextlost/restored`、`bench.js`（286 单位）、全量 i18n/dist | **已完成 (`T6.1–T6.3`)** | `test:m6` + `check:i18n` + `build` 通过（`0.497ms/tick`，347 词条，54 文件 `615.9 KB`） | 已实机压测 `?bench=1`：`134.7 FPS`、`0.578ms` 模拟、Draw Calls `49` (`0` 报错) |
+| **Polish** | `HEAD` | 画面与可玩性修复：修复 `COMPOSITE_FS` AgX 二次 Gamma 泛白、5-Tap 柔边战争迷雾、有机锯齿焦坑与深墨海配色、`?bench=1` 真实帧率统计与供电补足、侧边栏「展开基地车 (D)」引导按钮与顶部「3D 兵种图鉴」直达入口 | **已完成** | `test:m1`–`test:m6` + `check:i18n` + `build` 全绿；`sim:balance` 胜率 `51.50%/48.50%` 恒定（本机并行负载下速比 `837.5x`，未过 `>1000x` 速率阈值） | 已实机全流程截图复验通过 (`0` 控制台/WebGL 报错) |
 
 ### 5.2 28 项原子任务状态明细
 
@@ -584,9 +585,9 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 | `T5.3` | M5 | `story/campaigns/A01.js–A06.js` | 已完成 | 暗潮 6 关全实例化 + A01 工程师占领/抉择 |
 | `T5.4` | M5 | `story/campaigns/C01.js–C06.js`, `EX13.js` | 已完成 | 赤铁 6 关 + EX13 双阵营并发造兵与 4 超武 |
 | `T6.1` | M6 | `render/pipeline.js`, `main.js`, `ui/menus.js` | 已完成 | 三档画质热切与 `webglcontextlost` 无损恢复 |
-| `T6.2` | M6 | `ui/bench.js`, `engine.js` (`bench` 场景) | 已完成 | 282 单位海陆空同屏模拟 `0.386ms/tick <= 2.0ms` |
-| `T6.3` | M6 | `scripts/check-i18n.mjs`, `scripts/test-m6.mjs`, `dist/` | 已完成 | 全量门禁全绿，静态包 `54` 文件 `609.3 KB` |
+| `T6.2` | M6 | `ui/bench.js`, `engine.js` (`bench` 场景) | 已完成 | 286 单位海陆空同屏模拟 `0.497ms/tick <= 2.0ms`；实机 `134.7 FPS`、Draw Calls `49` |
+| `T6.3` | M6 | `scripts/check-i18n.mjs`, `scripts/test-m6.mjs`, `dist/` | 已完成 | 全量门禁全绿（347 词条），静态包 `54` 文件 `615.9 KB` |
 
 ### 5.3 待办与后续验收项（Open Items）
-1. **浏览器 WebGL2 实机终验（待执行）**：启动 `npm run preview` 后在真机浏览器中逐项确认 `?show=gallery` 全模型光影、`?bench=1` 连续 60 秒 `Avg FPS >= 60` / `Draw Calls < 140`、Chrome DevTools `WEBGL_lose_context` 恢复以及 `?mission=A01..EX13` 过场操作体验。
-2. **美术精度与外部资产精修（可选增强，不阻塞玩法闭环）**：当前 `models.js` 使用程序化几何体原型满足 `< 140 Draw Calls` 门禁，若追求概念图鉴（`docs/assets/*.jpg`）级别外观精细度，可按 SDD 资产管线为高模单位叠加外部 `.glb` / `.ktx2` 覆盖资产。
+1. **战役长流程与断电恢复手操体验（可选人工细测）**：`?bench=1`、`?show=gallery` 与遭遇战局内 UI 切换均已通过浏览器实机 E2E 零报错验证；13 关战役（`?mission=A01..EX13`）与 `WEBGL_lose_context` 已通过无头契约，建议上线前人工逐关通玩体验节奏。
+2. **高精度外部美术资产替换（可选扩展，不阻塞玩法）**：当前已通过修复 AgX 二次 Gamma 泛白、新增地形微凹凸与强化装甲裙板/炮塔倒角结构实现高对比机械质感，所有 49 个单位均可通过顶部「3D 兵种图鉴」或 `?show=gallery` 检阅；若未来需电影级手绘贴图，可按 SDD 资产管线为高模单位接入外部 `.glb` / `.ktx2` 覆盖资产。

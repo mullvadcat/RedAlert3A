@@ -372,5 +372,10 @@ export default {
   'bench.quality': '当前画质',
   'bench.elapsed': '采样时长',
   'bench.pass': '达标',
-  'bench.warn': '需关注'
+  'bench.warn': '需关注',
+  'menu.galleryBtn': '3D 兵种图鉴',
+  'menu.galleryExitBtn': '返回实战',
+  'sidebar.deployMcvHint': '尚未展开建造厂：请先部署机动基地车以解锁建筑与兵种科技树。',
+  'sidebar.deployMcvCta': '立即展开基地车 (D)',
+  'sidebar.needBuildingHint': '当前分页尚未解锁，请先在「主建 Q」建造对应兵营/战车工厂/船厂或升级科技。'
 };

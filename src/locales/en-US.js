@@ -372,5 +372,10 @@ export default {
   'bench.quality': 'Quality',
   'bench.elapsed': 'Elapsed',
   'bench.pass': 'PASS',
-  'bench.warn': 'WARN'
+  'bench.warn': 'WARN',
+  'menu.galleryBtn': '3D Armory',
+  'menu.galleryExitBtn': 'Exit Armory',
+  'sidebar.deployMcvHint': 'No Construction Yard active: deploy your MCV first to unlock the tech tree.',
+  'sidebar.deployMcvCta': 'Deploy MCV Now (D)',
+  'sidebar.needBuildingHint': 'No units unlocked in this tab yet — construct the required Barracks / Factory / Yard in Main Q.'
 };

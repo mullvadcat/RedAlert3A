@@ -209,21 +209,21 @@ void main() {
   vec4 detail = texture(uDetailTex, tileUv);
 
   float slope = 1.0 - max(vNormal.y, 0.0);
-  vec3 grassCol = vec3(0.24, 0.30, 0.18) * (0.82 + 0.36 * detail.r);
-  vec3 earthCol = vec3(0.28, 0.24, 0.19) * (0.85 + 0.30 * detail.g);
-  vec3 rockCol  = vec3(0.26, 0.27, 0.30) * (0.80 + 0.40 * detail.b);
-  vec3 sandCol  = vec3(0.38, 0.35, 0.26) * (0.88 + 0.24 * detail.r);
-  vec3 deckCol  = vec3(0.32, 0.35, 0.39) * (0.88 + 0.24 * detail.b);
+  vec3 grassCol = vec3(0.14, 0.21, 0.11) * (0.76 + 0.48 * detail.r);
+  vec3 earthCol = vec3(0.18, 0.14, 0.10) * (0.78 + 0.44 * detail.g);
+  vec3 rockCol  = vec3(0.17, 0.18, 0.21) * (0.74 + 0.52 * detail.b);
+  vec3 sandCol  = vec3(0.27, 0.23, 0.16) * (0.80 + 0.40 * detail.r);
+  vec3 deckCol  = vec3(0.22, 0.25, 0.29) * (0.80 + 0.40 * detail.b);
 
   float elev = vWorldPos.y;
-  vec3 albedo = mix(grassCol, earthCol, smoothstep(0.35, 0.72, detail.g));
+  vec3 albedo = mix(grassCol, earthCol, smoothstep(0.32, 0.74, detail.g));
   albedo = mix(sandCol, albedo, smoothstep(-0.35, 0.85, elev));
   albedo = mix(albedo, rockCol, smoothstep(0.18, 0.48, slope));
 
   // Bridges painted clearly as reinforced steel/concrete decks
   if (splat.a > 0.5) {
-    float stripe = step(0.88, fract(vWorldPos.z * 0.5)) * 0.22;
-    albedo = deckCol + vec3(stripe * 0.65, stripe * 0.45, 0.0);
+    float stripe = step(0.88, fract(vWorldPos.z * 0.5)) * 0.18;
+    albedo = deckCol + vec3(stripe * 0.55, stripe * 0.38, 0.0);
   }
 
   // Ore vein glow on surface (Red crystal vs Violet crystal)
@@ -241,9 +241,11 @@ void main() {
   // Subtle tactical world grid overlay for RTS spatial clarity
   vec2 cellGrid = abs(fract(vWorldPos.xz / 2.0 - 0.5) - 0.5) / max(fwidth(vWorldPos.xz / 2.0), vec2(0.001));
   float gridLine = 1.0 - min(min(cellGrid.x, cellGrid.y), 1.0);
-  albedo = mix(albedo, albedo * 1.18 + vec3(0.03), gridLine * 0.16);
+  albedo = mix(albedo, albedo * 1.12 + vec3(0.015), gridLine * (0.07 + 0.08 * splat.a));
 
-  vec3 N = normalize(vNormal);
+  // Micro-bump surface normal perturbation from baked PBR detail
+  float hDet = detail.r * 0.55 + detail.g * 0.45;
+  vec3 N = normalize(vNormal + vec3(dFdx(hDet), 0.0, dFdy(hDet)) * -1.4);
   vec3 L = normalize(uLightDir);
   vec3 V = normalize(uCamPos - vWorldPos);
   vec3 H = normalize(V + L);
@@ -253,13 +255,21 @@ void main() {
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
   float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.08 * shadow;
-  vec3 skyAmbient = vec3(0.22, 0.26, 0.33);
+  vec3 skyAmbient = vec3(0.14, 0.18, 0.24);
   vec3 sunColor = vec3(1.18, 1.08, 0.94);
 
-  vec3 lit = albedo * (skyAmbient + sunColor * NdotL * shadow) + vec3(spec) + emissive;
+  vec3 lit = albedo * (skyAmbient + sunColor * NdotL * mix(0.32, 1.0, shadow)) + vec3(spec) + emissive;
 
-  // Dual-channel GPU Fog of War
-  float fogVis = mix(texture(uFogTex, vUv).r, 1.0, uNoFog);
+  // 5-tap softened GPU Fog of War to eliminate 256x256 block edges
+  float fogTexel = 1.0 / 256.0;
+  float fogSample = (
+    texture(uFogTex, vUv).r * 2.0 +
+    texture(uFogTex, vUv + vec2(fogTexel, 0.0)).r +
+    texture(uFogTex, vUv - vec2(fogTexel, 0.0)).r +
+    texture(uFogTex, vUv + vec2(0.0, fogTexel)).r +
+    texture(uFogTex, vUv - vec2(0.0, fogTexel)).r
+  ) * (1.0 / 6.0);
+  float fogVis = mix(fogSample, 1.0, uNoFog);
   lit *= fogVis;
 
   outColor = vec4(lit, 1.0);
@@ -443,13 +453,13 @@ void main() {
   vec3 scene = texture(uSceneTex, vUv).rgb;
   vec3 bloom = texture(uBloomTex, vUv).rgb;
   vec3 hdr = (scene + bloom * uBloomStrength) * uExposure;
+  // agxToneMap already curves into display-referred space; avoid double-gamma lift
   vec3 mapped = agxToneMap(hdr);
 
   // Subtle tactical edge vignette for HUD contrast
   vec2 centered = vUv - 0.5;
-  float vig = 1.0 - dot(centered, centered) * 0.24;
-  vec3 srgb = pow(clamp(mapped * vig, 0.0, 1.0), vec3(1.0 / 2.2));
-  outColor = vec4(srgb, 1.0);
+  float vig = 1.0 - dot(centered, centered) * 0.22;
+  outColor = vec4(clamp(mapped * vig, 0.0, 1.0), 1.0);
 }`;
 
 function buildTerrainMesh(gl, map) {
@@ -1309,6 +1319,13 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     return quality;
   }
 
+  function clearTransientVisuals() {
+    decalPool?.clear?.();
+    debrisSys.chunks.length = 0;
+    transientFx.length = 0;
+    gpuFog?.reset?.();
+  }
+
   return {
     gl,
     info: rendererInfo,
@@ -1319,6 +1336,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     get shadowSys() { return shadowSys; },
     get gpuFog() { return gpuFog; },
     pushTransientFx,
+    clearTransientVisuals,
     syncTerrainMap,
     setQuality,
     setQualityPreset: setQuality,

@@ -291,6 +291,30 @@ export function createSidebarUI(initialState, uiState, handlers) {
   }
   const swRowPool = new Map();
 
+  // Helpful empty-grid CTA & MCV quick-deploy overlay inside #sidebar-grid-wrap
+  const emptyCtaEl = document.createElement('div');
+  emptyCtaEl.className = 'sidebar-empty-cta';
+  emptyCtaEl.hidden = true;
+  emptyCtaEl.style.display = 'none';
+  const emptyHintEl = document.createElement('div');
+  const btnDeployMcvCta = document.createElement('button');
+  btnDeployMcvCta.type = 'button';
+  btnDeployMcvCta.id = 'btn-deploy-mcv-cta';
+  btnDeployMcvCta.className = 'sidebar-cta-btn';
+  btnDeployMcvCta.hidden = true;
+  btnDeployMcvCta.addEventListener('click', () => {
+    const mcv = state.entities.find((e) => e.alive && e.playerId === 0 && e.typeId === 'mcv');
+    if (mcv) {
+      handlers.enqueue({ playerId: 0, type: 'DEPLOY', entityIds: [mcv.id] });
+      uiState.activeTab = 'main';
+    }
+  });
+  emptyCtaEl.appendChild(emptyHintEl);
+  emptyCtaEl.appendChild(btnDeployMcvCta);
+  if (dom.gridCanvas && dom.gridCanvas.parentNode) {
+    dom.gridCanvas.parentNode.appendChild(emptyCtaEl);
+  }
+
   function applyStaticTranslations() {
     document.documentElement.lang = getLocale();
     document.title = t('app.title');
@@ -389,6 +413,26 @@ export function createSidebarUI(initialState, uiState, handlers) {
     const w = dom.gridCanvas.width;
     const h = dom.gridCanvas.height;
     gridCtx.clearRect(0, 0, w, h);
+
+    if (displayedItems.length === 0) {
+      const hasConyard = state.entities.some((e) => e.alive && e.playerId === 0 && e.typeId === 'conyard');
+      const mcv = !hasConyard
+        ? state.entities.find((e) => e.alive && e.playerId === 0 && e.typeId === 'mcv')
+        : null;
+      emptyCtaEl.hidden = false;
+      emptyCtaEl.style.display = 'flex';
+      if (mcv) {
+        emptyHintEl.textContent = t('sidebar.deployMcvHint');
+        btnDeployMcvCta.textContent = t('sidebar.deployMcvCta');
+        btnDeployMcvCta.hidden = false;
+      } else {
+        emptyHintEl.textContent = t('sidebar.needBuildingHint');
+        btnDeployMcvCta.hidden = true;
+      }
+      return;
+    }
+    emptyCtaEl.hidden = true;
+    emptyCtaEl.style.display = 'none';
 
     const accent = FACTIONS[player.factionId]?.color ?? PLAYER_COLORS[0].hex;
 
