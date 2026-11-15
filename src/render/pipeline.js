@@ -862,14 +862,15 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     }
   }
 
-  // RTS Camera (52° default pitch clamped 38°~68°, FOV=42°, height 14m~80m)
+  // RTS Camera (52° default pitch clamped 38°~68°, FOV=42° or 16° classic isometric, height 14m~80m)
   const camState = {
     targetX: 88,
     targetZ: 256,
     yaw: 0,
     pitchRad: (52 * Math.PI) / 180,
     height: 46,
-    fovRad: (42 * Math.PI) / 180
+    fovRad: (42 * Math.PI) / 180,
+    isoMode: false
   };
   const camPos = new Float32Array(3);
   const camRight = new Float32Array([1, 0, 0]);
@@ -881,10 +882,19 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
 
   function updateCameraMatrices() {
     const aspect = Math.max(0.1, viewportW / Math.max(1, viewportH));
-    const horiz = camState.height / Math.tan(camState.pitchRad);
+    // Maintain identical visible ground span when switching into narrow-FOV classic isometric mode
+    const baseTan = Math.tan((42 * Math.PI) / 360);
+    const curTan = Math.tan(camState.fovRad * 0.5);
+    const fovScale = baseTan / Math.max(0.05, curTan);
+    const effHeight = camState.height * fovScale;
+    const horiz = effHeight / Math.tan(camState.pitchRad);
     camPos[0] = camState.targetX + Math.sin(camState.yaw) * horiz;
-    camPos[1] = camState.height;
+    camPos[1] = effHeight;
     camPos[2] = camState.targetZ + Math.cos(camState.yaw) * horiz;
+
+    const camDist = Math.hypot(horiz, effHeight);
+    const nearClip = Math.max(1.0, camDist * 0.22);
+    const farClip = Math.max(520.0, camDist + 360.0);
 
     mat4LookAt(
       viewMat,
@@ -892,7 +902,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       camState.targetX, 1.5, camState.targetZ,
       0, 1, 0
     );
-    mat4Perspective(projMat, camState.fovRad, aspect, 1.0, 520.0);
+    mat4Perspective(projMat, camState.fovRad, aspect, nearClip, farClip);
     mat4Multiply(viewProjMat, projMat, viewMat);
     mat4Invert(invViewProjMat, viewProjMat);
 
@@ -961,6 +971,18 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     get height() { return camState.height; },
     get yaw() { return camState.yaw; },
     get pitchDeg() { return (camState.pitchRad * 180) / Math.PI; },
+    get isoMode() { return camState.isoMode; },
+    toggleIsoMode() {
+      camState.isoMode = !camState.isoMode;
+      camState.fovRad = ((camState.isoMode ? 16 : 42) * Math.PI) / 180;
+      if (camState.isoMode && Math.abs(camState.yaw) < 0.01) {
+        camState.yaw = Math.PI * 0.25;
+      } else if (!camState.isoMode && Math.abs(camState.yaw - Math.PI * 0.25) < 0.05) {
+        camState.yaw = 0;
+      }
+      updateCameraMatrices();
+      return camState.isoMode;
+    },
     pan(screenDx, screenDz) {
       const cy = Math.cos(camState.yaw);
       const sy = Math.sin(camState.yaw);
@@ -994,8 +1016,9 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       camState.pitchRad = Math.max((38 * Math.PI) / 180, Math.min((68 * Math.PI) / 180, camState.pitchRad + dPitchRad));
     },
     resetOrientation() {
-      camState.yaw = 0;
+      camState.yaw = camState.isoMode ? Math.PI * 0.25 : 0;
       camState.pitchRad = (52 * Math.PI) / 180;
+      updateCameraMatrices();
     },
     jumpTo(x, z) {
       camState.targetX = Math.max(10, Math.min(WORLD_SIZE - 10, x));
@@ -1471,6 +1494,9 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       if (state?.fogGrids) {
         gpuFog.updateFromCpu(state.fogGrids[playerId] ?? state.fogGrids[0], noFog);
       }
+    },
+    get modelFactory() {
+      return modelFactory;
     },
     renderFrame,
     dispose() {

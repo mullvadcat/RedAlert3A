@@ -7,9 +7,11 @@ import { CELL_SIZE, MAP_SIZE, worldToGrid } from '../world/map.js';
 import { isEntityTargetable } from '../gameplay/fogCpu.js';
 import { canBoardTransport } from '../gameplay/entities.js';
 import { validateBuildingPlacement } from '../gameplay/production.js';
+import { computeTacticalCursor, createCursorManager } from './cursors.js';
 
 export function createInputController(canvas, initialState, uiState, pipeline, sidebarUI, enqueue) {
   let state = initialState;
+  const cursorMgr = createCursorManager(canvas);
   const selectionBoxEl = document.getElementById('selection-box');
   const victoryModalEl = document.getElementById('victory-modal');
   const keysDown = new Set();
@@ -194,6 +196,11 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
       toggleLocale();
       return;
     }
+    if (e.code === KEYMAP_DEFAULTS.toggleIsoCam) {
+      const isoOn = pipeline.camera.toggleIsoMode();
+      sidebarUI.setStatusNotice(isoOn ? 'hud.status.isoCamOn' : 'hud.status.isoCamOff', 3.0);
+      return;
+    }
 
     // Commander Doctrines F1..F4
     const doctrineHotkeys = {
@@ -246,7 +253,7 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
     rightDragStart = null;
     isMiddlePan = false;
     isMiddleOrbit = false;
-    canvas.style.cursor = '';
+    cursorMgr.reset();
   });
 
   document.addEventListener('mouseleave', () => {
@@ -370,7 +377,7 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
       lastMiddleY = e.clientY;
       isMiddleOrbit = e.altKey;
       isMiddlePan = !e.altKey;
-      canvas.style.cursor = 'grabbing';
+      cursorMgr.set('grabbing');
       return;
     }
 
@@ -536,7 +543,7 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
     if (rightDragStart) {
       if (!rightDragStart.active && Math.hypot(e.clientX - rightDragStart.x, e.clientY - rightDragStart.y) > 5) {
         rightDragStart.active = true;
-        canvas.style.cursor = 'grabbing';
+        cursorMgr.set('grabbing');
       }
       if (rightDragStart.active) {
         if (rightDragStart.orbit) {
@@ -554,6 +561,13 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
 
     if (uiState.placementTypeId) {
       updatePlacementPreview(e.clientX, e.clientY);
+    }
+
+    if (!dragStart && pointerInsideViewport && !pointerOverInteractiveUi) {
+      const hoverWorld = pipeline.camera.screenToWorld(e.clientX, e.clientY, 1.6);
+      cursorMgr.set(computeTacticalCursor(state, uiState, hoverWorld, findEntityAtWorld));
+    } else if (pointerOverInteractiveUi) {
+      cursorMgr.reset();
     }
 
     if (dragStart) {
@@ -576,12 +590,12 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
     if (e.button === 1) {
       isMiddlePan = false;
       isMiddleOrbit = false;
-      canvas.style.cursor = '';
+      cursorMgr.reset();
     }
     if (e.button === 2 && rightDragStart) {
       const rDrag = rightDragStart;
       rightDragStart = null;
-      canvas.style.cursor = '';
+      cursorMgr.reset();
       if (rDrag.active) {
         suppressNextContextMenu = true;
       } else {

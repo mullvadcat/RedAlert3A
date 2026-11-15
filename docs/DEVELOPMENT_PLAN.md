@@ -553,7 +553,9 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 | **M4** | `54b316c` | `superweapon.js`（4 超武 + F1–F4 秘策）、`skirmishMaps.js`（8 图）、`ai.js`、200 场压测调优 | **已完成 (`T4.1–T4.4`)** | `test:m4` + `sim:balance` 通过 | 已实机验证大厅开局与遭遇战切局流 |
 | **M5** | `ed9d412` | `save.js` 存档状态机、`director.js`、3 层自适应音频、13 关战役（`A01–A06`/`C01–C06`/`EX13`） | **已完成 (`T5.1–T5.4`)** | `test:m5` 通过（600t 读档零偏差、13 关全实例化） | 已通过无头契约，待人工逐关剧情体验 |
 | **M6** | `c3bd208` | `Ultra/High/Balanced` 热切换、`webglcontextlost/restored`、`bench.js`（286 单位）、全量 i18n/dist | **已完成 (`T6.1–T6.3`)** | `test:m6` + `check:i18n` + `build` 通过（`0.497ms/tick`，347 词条，54 文件 `615.9 KB`） | 已实机压测 `?bench=1`：`134.7 FPS`、`0.578ms` 模拟、Draw Calls `49` (`0` 报错) |
-| **Polish** | `HEAD` | 画面与可玩性修复：修复 `COMPOSITE_FS` AgX 二次 Gamma 泛白、5-Tap 柔边战争迷雾、有机锯齿焦坑与深墨海配色、`?bench=1` 真实帧率统计与供电补足、侧边栏「展开基地车 (D)」引导按钮与顶部「3D 兵种图鉴」直达入口 | **已完成** | `test:m1`–`test:m6` + `check:i18n` + `build` 全绿；`sim:balance` 胜率 `51.50%/48.50%` 恒定（本机并行负载下速比 `837.5x`，未过 `>1000x` 速率阈值） | 已实机全流程截图复验通过 (`0` 控制台/WebGL 报错) |
+| **Polish** | `16c1df5` | 画面与可玩性修复：修复 `COMPOSITE_FS` AgX 二次 Gamma 泛白、5-Tap 柔边战争迷雾、有机锯齿焦坑与深墨海配色、`?bench=1` 真实帧率统计与供电补足、侧边栏「展开基地车 (D)」引导按钮与顶部「3D 兵种图鉴」直达入口 | **已完成** | `test:m1`–`test:m6` + `check:i18n` + `build` 全绿；`sim:balance` 胜率 `51.50%/48.50%` 恒定 | 已实机全流程截图复验通过 (`0` 控制台/WebGL 报错) |
+| **Visual Parity** | `75b7cd4` | RA2 视觉对齐与地面生态重铸：`src/render/props.js` 植被/岩石装饰、晴朗日照地形与深钴海浪对比、2 阶细分化爆裂球与残血建筑黑烟、核心建筑/采矿车/MCV/基洛夫高精度结构 | **已完成** | `test:m1`–`test:m6` + `check:i18n` + `build` 全绿 (`49` 实体几何验证通过) | 已完成核心高模替换与渲染验证 |
+| **RA2Web Opt (P0–P3)** | `HEAD` | 借鉴 OpenRA2/RA2Web 可落地体验：`ui/cursors.js` 情境 SVG 战术光标、`V` 键经典窄 FOV 等距相机切换、Shader 金属拼缝/百叶窗微细节、11 个残余低模海空/中立模型升级、`core/replay.js` 确定性指令回放与 `1x/2x/4x` 播放条、`config.js` 规则 JSON 热补丁、`?show=gallery` 本地 `.glb` 拖放热替换与 IndexedDB (`v2`) 持久化 | **已完成** | `test:m1`–`test:m6` + `check:i18n`（373 词条）+ `build`（56 JS 模块 / 60 文件 `734.1 KB`）+ 180t 回放零偏差与 `.glb`/规则补丁全测通过 | 待浏览器实机按 `V` / 拖放 `.glb` 与导出回放目视复验 |
 
 ### 5.2 28 项原子任务状态明细
 
@@ -590,4 +592,4 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 
 ### 5.3 待办与后续验收项（Open Items）
 1. **战役长流程与断电恢复手操体验（可选人工细测）**：`?bench=1`、`?show=gallery` 与遭遇战局内 UI 切换均已通过浏览器实机 E2E 零报错验证；13 关战役（`?mission=A01..EX13`）与 `WEBGL_lose_context` 已通过无头契约，建议上线前人工逐关通玩体验节奏。
-2. **高精度外部美术资产替换（可选扩展，不阻塞玩法）**：当前已通过修复 AgX 二次 Gamma 泛白、新增地形微凹凸与强化装甲裙板/炮塔倒角结构实现高对比机械质感，所有 49 个单位均可通过顶部「3D 兵种图鉴」或 `?show=gallery` 检阅；若未来需电影级手绘贴图，可按 SDD 资产管线为高模单位接入外部 `.glb` / `.ktx2` 覆盖资产。
+2. **外部高精度 `.glb` / 规则补丁在线扩展（已内置浏览器本地热替换工坊）**：49 个单位与建筑已全部完成高精程序化重构（最低顶点数 `612`），且现已支持在大厅导入自定义平衡 JSON 补丁，以及在 `?show=gallery` 页面直接拖放 `<unit_id>.glb` 热替换并自动持久化至 IndexedDB；待浏览器实机进行 `V` 键等距视角、情境光标、回放播放与 `.glb` 拖放目视体验。

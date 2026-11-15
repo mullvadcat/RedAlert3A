@@ -9,14 +9,18 @@ import { MAP_SIZE, compileMap } from '../world/map.js';
 
 export const SAVE_SCHEMA_VERSION = 1;
 const DB_NAME = 'redalert3a_save_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROFILE = 'profile';
 const STORE_CHECKPOINTS = 'checkpoints';
+const STORE_REPLAYS = 'replays';
+const STORE_MODELS = 'models';
 const DIFFICULTY_RANK = { easy: 1, normal: 2, hard: 3 };
 
 // Headless Node / fallback in-memory store when IndexedDB is unavailable
 const memoryProfileStore = new Map();
 const memoryCheckpointStore = new Map();
+const memoryReplayStore = new Map();
+const memoryModelStore = new Map();
 
 function encodeUint8Base64(u8) {
   if (typeof Buffer !== 'undefined') {
@@ -356,10 +360,148 @@ function openDatabase() {
       if (!db.objectStoreNames.contains(STORE_CHECKPOINTS)) {
         db.createObjectStore(STORE_CHECKPOINTS, { keyPath: 'slotId' });
       }
+      if (!db.objectStoreNames.contains(STORE_REPLAYS)) {
+        db.createObjectStore(STORE_REPLAYS, { keyPath: 'replayId' });
+      }
+      if (!db.objectStoreNames.contains(STORE_MODELS)) {
+        db.createObjectStore(STORE_MODELS, { keyPath: 'typeId' });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function runStoreTx(storeName, mode, operation, memoryFallback) {
+  const db = await openDatabase();
+  if (!db) return memoryFallback();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const store = tx.objectStore(storeName);
+    const resultHolder = { value: undefined };
+    const req = operation(store);
+    if (req) {
+      req.onsuccess = () => {
+        resultHolder.value = req.result;
+      };
+    }
+    tx.oncomplete = () => resolve(resultHolder.value);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveReplayToDb(replayId = 'latest', replayData) {
+  const record = {
+    replayId,
+    updatedAt: Date.now(),
+    payload: structuredClone(replayData)
+  };
+  await runStoreTx(
+    STORE_REPLAYS,
+    'readwrite',
+    (store) => store.put(record),
+    () => {
+      memoryReplayStore.set(replayId, structuredClone(record));
+      return true;
+    }
+  );
+  return record;
+}
+
+export async function loadReplayFromDb(replayId = 'latest') {
+  const record = await runStoreTx(
+    STORE_REPLAYS,
+    'readonly',
+    (store) => store.get(replayId),
+    () => {
+      const hit = memoryReplayStore.get(replayId);
+      return hit ? structuredClone(hit) : null;
+    }
+  );
+  return record?.payload ?? null;
+}
+
+export async function listReplaysFromDb() {
+  const records = await runStoreTx(
+    STORE_REPLAYS,
+    'readonly',
+    (store) => store.getAll(),
+    () => Array.from(memoryReplayStore.values()).map((r) => structuredClone(r))
+  );
+  return (records ?? [])
+    .map((r) => ({
+      replayId: r.replayId,
+      updatedAt: r.updatedAt,
+      mapId: r.payload?.mapId ?? null,
+      missionId: r.payload?.missionId ?? null,
+      endTick: r.payload?.endTick ?? 0,
+      commandCount: r.payload?.commands?.length ?? 0
+    }))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+export async function saveCustomGlbModel(typeId, arrayBuffer, meta = {}) {
+  const bytes = arrayBuffer instanceof Uint8Array
+    ? new Uint8Array(arrayBuffer)
+    : new Uint8Array(arrayBuffer);
+  const copyBuf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const record = {
+    typeId,
+    fileName: meta.fileName || `${typeId}.glb`,
+    byteLength: copyBuf.byteLength,
+    updatedAt: Date.now(),
+    buffer: copyBuf
+  };
+  await runStoreTx(
+    STORE_MODELS,
+    'readwrite',
+    (store) => store.put(record),
+    () => {
+      memoryModelStore.set(typeId, {
+        ...record,
+        buffer: copyBuf.slice(0)
+      });
+      return true;
+    }
+  );
+  return record;
+}
+
+export async function loadAllCustomGlbModels() {
+  const records = await runStoreTx(
+    STORE_MODELS,
+    'readonly',
+    (store) => store.getAll(),
+    () => Array.from(memoryModelStore.values()).map((r) => ({
+      ...r,
+      buffer: r.buffer.slice(0)
+    }))
+  );
+  return records ?? [];
+}
+
+export async function deleteCustomGlbModel(typeId) {
+  await runStoreTx(
+    STORE_MODELS,
+    'readwrite',
+    (store) => store.delete(typeId),
+    () => {
+      memoryModelStore.delete(typeId);
+      return true;
+    }
+  );
+}
+
+export async function clearCustomGlbModels() {
+  await runStoreTx(
+    STORE_MODELS,
+    'readwrite',
+    (store) => store.clear(),
+    () => {
+      memoryModelStore.clear();
+      return true;
+    }
+  );
 }
 
 export async function saveCampaignProfile(profile) {

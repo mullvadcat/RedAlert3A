@@ -1,17 +1,36 @@
 // Browser Runtime Entrypoint & Fixed 30 Hz Accumulator Bridge (L1 App Shell).
 // Connects pure simulation core, WebGL2 rendering pipeline, Sidebar/Minimap UI, and Input Controller.
 
-import { CANONICAL_ENTITY_IDS, ENTITY_DEFS, TICK_DT } from './core/config.js';
+import {
+  applyRulePatch,
+  CANONICAL_ENTITY_IDS,
+  ENTITY_DEFS,
+  getActiveRulePatch,
+  resetRulePatch,
+  TICK_DT
+} from './core/config.js';
 import { createGameState, enqueueCommand, stepSimulation } from './core/engine.js';
 import { initI18n, onLocaleChange, t } from './core/i18n.js';
 import { createAudioMixer } from './core/mixer.js';
 import {
+  createReplayPlaybackController,
+  createReplayRecorder,
+  REPLAY_FILE_EXT,
+  validateReplayData
+} from './core/replay.js';
+import {
+  clearCustomGlbModels,
   createDefaultCampaignProfile,
+  deleteCustomGlbModel,
+  loadAllCustomGlbModels,
   loadCampaignProfile,
   loadCheckpointFromDb,
+  loadReplayFromDb,
   recordMissionVictory,
   saveCampaignProfile,
-  saveCheckpointToDb
+  saveCheckpointToDb,
+  saveCustomGlbModel,
+  saveReplayToDb
 } from './core/save.js';
 import { createDialogueController } from './story/dialogue.js';
 import { resolveDirectorChoice } from './story/director.js';
@@ -63,10 +82,12 @@ function bootstrap() {
   setLoadingProgress(55, 'loading.bakingPbr');
 
   const isGallery = flags.show === 'gallery';
+  const initialSeed = 1337;
 
   let state = createGameState({
     mode: isGallery ? 'gallery' : (flags.mission ? 'campaign' : (flags.bench ? 'bench_m1' : 'skirmish')),
     missionId: flags.mission,
+    seed: initialSeed,
     populateDefault: !isGallery,
     fastBuild: flags.fastBuild || isGallery,
     noFog: flags.noFog,
@@ -141,7 +162,58 @@ function bootstrap() {
     }
   }
 
-  const enqueue = (cmd) => enqueueCommand(state, cmd);
+  const rawEnqueue = (cmd) => enqueueCommand(state, cmd);
+  let replayPlayback = null;
+
+  function createRecorderForState(gameState, extraMeta = {}) {
+    return createReplayRecorder({
+      mode: gameState.mode,
+      mapId: extraMeta.mapId ?? gameState.map?.id ?? 'harbor',
+      missionId: gameState.missionId ?? extraMeta.missionId ?? null,
+      seed: extraMeta.seed ?? initialSeed,
+      initialCredits: extraMeta.initialCredits ?? gameState.players?.[0]?.credits ?? 10000,
+      difficulty: gameState.difficulty ?? 'normal',
+      playerSlotCount: gameState.players?.length ?? 2,
+      humanFactionId: gameState.players?.[0]?.factionId ?? 'abyssal',
+      aiFactionId: gameState.players?.[1]?.factionId ?? 'crimson',
+      players: gameState.players?.map((p) => ({
+        playerId: p.playerId,
+        teamId: p.teamId,
+        factionId: p.factionId,
+        isHuman: Boolean(p.isHuman),
+        aiDifficulty: p.aiDifficulty ?? null,
+        credits: p.credits
+      })),
+      skirmishFairStart: Boolean(gameState.skirmishFairStart),
+      fastBuild: Boolean(gameState.fastBuild),
+      noFog: Boolean(gameState.noFog),
+      rulePatch: getActiveRulePatch()
+    });
+  }
+
+  let replayRecorder = isGallery ? null : createRecorderForState(state, { mapId: flags.mapId || state.map?.id, seed: initialSeed });
+  const enqueue = (cmd) => {
+    if (replayPlayback) return;
+    if (replayRecorder) replayRecorder.recordCommand(state.tickCount, cmd);
+    return rawEnqueue(cmd);
+  };
+
+  // Restore persisted user-dropped custom .glb models from IndexedDB
+  loadAllCustomGlbModels()
+    .then((records) => {
+      const mf = pipeline.modelFactory;
+      if (!mf || !Array.isArray(records)) return;
+      for (let i = 0; i < records.length; i++) {
+        const rec = records[i];
+        if (!rec?.typeId || !rec?.buffer) continue;
+        try {
+          mf.loadGlbBufferOverride(rec.typeId, rec.buffer, { fileName: rec.fileName });
+        } catch {
+          // Ignore stale/corrupt local custom GLB entry
+        }
+      }
+    })
+    .catch(() => {});
   const mixer = createAudioMixer();
   const dialogueCtrl = createDialogueController();
   const sidebarUI = createSidebarUI(state, uiState, { enqueue });
@@ -232,28 +304,154 @@ function bootstrap() {
     accumulator = 0;
   }
 
+  // Replay playback floating control bar (hidden outside replay playback)
+  const replayBarEl = document.createElement('div');
+  replayBarEl.id = 'replay-hud-bar';
+  replayBarEl.hidden = true;
+  replayBarEl.style.cssText = 'position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:55;display:flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(10,16,28,0.92);border:1px solid #38bdf8;border-radius:6px;color:#e2e8f0;font:12px/1.2 sans-serif;';
+  const replayLabelEl = document.createElement('span');
+  const btnReplayPause = document.createElement('button');
+  btnReplayPause.type = 'button';
+  const btnReplaySpeed = document.createElement('button');
+  btnReplaySpeed.type = 'button';
+  const btnReplayExit = document.createElement('button');
+  btnReplayExit.type = 'button';
+  for (const b of [btnReplayPause, btnReplaySpeed, btnReplayExit]) {
+    b.style.cssText = 'padding:3px 8px;background:#1e293b;border:1px solid #475569;border-radius:4px;color:#f1f5f9;cursor:pointer;font-size:11px;';
+  }
+  replayBarEl.appendChild(replayLabelEl);
+  replayBarEl.appendChild(btnReplayPause);
+  replayBarEl.appendChild(btnReplaySpeed);
+  replayBarEl.appendChild(btnReplayExit);
+  document.body.appendChild(replayBarEl);
+
+  function syncReplayHudBar() {
+    replayBarEl.hidden = !replayPlayback;
+    if (!replayPlayback) return;
+    const prog = replayPlayback.progress;
+    replayLabelEl.textContent = t('replay.hudLabel', {
+      speed: replayPlayback.speed,
+      tick: state.tickCount,
+      endTick: prog.endTick
+    });
+    btnReplayPause.textContent = t(replayPlayback.paused ? 'replay.resumeBtn' : 'replay.pauseBtn');
+    btnReplaySpeed.textContent = t('replay.speedBtn', { speed: replayPlayback.speed });
+    btnReplayExit.textContent = t('replay.exitBtn');
+  }
+
+  btnReplayPause.addEventListener('click', () => {
+    if (!replayPlayback) return;
+    replayPlayback.togglePause();
+    syncReplayHudBar();
+  });
+  btnReplaySpeed.addEventListener('click', () => {
+    if (!replayPlayback) return;
+    replayPlayback.cycleSpeed();
+    syncReplayHudBar();
+  });
+  btnReplayExit.addEventListener('click', () => {
+    replayPlayback = null;
+    syncReplayHudBar();
+  });
+  onLocaleChange(syncReplayHudBar);
+
+  function startReplayPlayback(rawReplay) {
+    const check = validateReplayData(rawReplay);
+    if (!check.ok || !check.data) {
+      sidebarUI.setStatusNotice('hud.status.replayInvalid', 4.0);
+      return false;
+    }
+    const data = check.data;
+    if (data.rulePatch) {
+      applyRulePatch(data.rulePatch);
+    } else {
+      resetRulePatch();
+    }
+    const nextState = createGameState({
+      mode: data.mode,
+      missionId: data.missionId,
+      mapBlueprint: data.mapId ? getSkirmishMapById(data.mapId) : undefined,
+      players: data.players ?? undefined,
+      seed: data.seed,
+      startingCredits: data.initialCredits,
+      factionId: data.humanFactionId,
+      aiDifficulty: data.difficulty,
+      skirmishFairStart: data.skirmishFairStart,
+      fastBuild: data.fastBuild,
+      noFog: data.noFog
+    });
+    replayPlayback = null;
+    replayRecorder = null;
+    applyLoadedGameState(nextState, true);
+    replayPlayback = createReplayPlaybackController(data);
+    syncReplayHudBar();
+    sidebarUI.setStatusNotice('hud.status.replayStarted', 5.0);
+    return true;
+  }
+
+  function exportCurrentReplay() {
+    const payload = replayPlayback
+      ? replayPlayback.replay
+      : (replayRecorder ? (replayRecorder.finalize(state.tickCount, state.winnerTeamId), replayRecorder.toJSON()) : null);
+    if (!payload) {
+      sidebarUI.setStatusNotice('hud.status.replayNone', 4.0);
+      return false;
+    }
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${payload.missionId || payload.mapId || 'match'}-tick${payload.endTick}${REPLAY_FILE_EXT}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    sidebarUI.setStatusNotice('hud.status.replayExported', 4.0);
+    return true;
+  }
+
   function launchSkirmishMatch(cfg) {
-    applyLoadedGameState(createGameState({
+    replayPlayback = null;
+    syncReplayHudBar();
+    const matchSeed = cfg.seed ?? (((Date.now() ^ 0x9e3779b9) >>> 0) || 1337);
+    const nextState = createGameState({
       mode: 'skirmish',
       mapBlueprint: cfg.mapBlueprint,
       players: cfg.players,
+      seed: matchSeed,
       startingCredits: cfg.startingCredits,
       factionId: cfg.factionId,
       aiDifficulty: cfg.aiDifficulty,
       skirmishFairStart: cfg.skirmishFairStart ?? true,
       fastBuild: flags.fastBuild,
       noFog: flags.noFog
-    }), true);
+    });
+    applyLoadedGameState(nextState, true);
+    replayRecorder = createRecorderForState(nextState, {
+      mapId: cfg.mapBlueprint?.id ?? nextState.map?.id,
+      seed: matchSeed,
+      initialCredits: cfg.startingCredits
+    });
   }
 
   function launchCampaignMission(missionId, aiDifficulty) {
-    applyLoadedGameState(createGameState({
+    replayPlayback = null;
+    syncReplayHudBar();
+    const matchSeed = ((Date.now() ^ 0x517cc1b7) >>> 0) || 1337;
+    const nextState = createGameState({
       mode: 'campaign',
       missionId,
+      seed: matchSeed,
       aiDifficulty: aiDifficulty || 'normal',
       fastBuild: flags.fastBuild,
       noFog: flags.noFog
-    }), true);
+    });
+    applyLoadedGameState(nextState, true);
+    replayRecorder = createRecorderForState(nextState, {
+      missionId,
+      seed: matchSeed
+    });
   }
 
   let benchOverlay = null;
@@ -305,9 +503,38 @@ function bootstrap() {
     onLoadCheckpoint: async () => {
       const cp = (await loadCheckpointFromDb('manual')) ?? (await loadCheckpointFromDb('autosave'));
       if (cp?.state) {
+        replayPlayback = null;
+        replayRecorder = null;
+        syncReplayHudBar();
         applyLoadedGameState(cp.state, false);
         lobbyCtrl.close();
       }
+    },
+    onPlayLatestReplay: async () => {
+      const saved = await loadReplayFromDb('latest');
+      if (!saved) {
+        sidebarUI.setStatusNotice('hud.status.replayNone', 4.0);
+        return false;
+      }
+      return startReplayPlayback(saved);
+    },
+    onExportReplay: exportCurrentReplay,
+    onImportReplay: (raw) => startReplayPlayback(raw),
+    onImportRulePatch: (raw) => {
+      if (!raw) {
+        sidebarUI.setStatusNotice('hud.status.rulePatchInvalid', 4.0);
+        return;
+      }
+      try {
+        const res = applyRulePatch(raw);
+        sidebarUI.setStatusNotice('hud.status.rulePatchApplied', 4.5, { count: res.appliedUnits.length });
+      } catch {
+        sidebarUI.setStatusNotice('hud.status.rulePatchInvalid', 4.0);
+      }
+    },
+    onResetRulePatch: () => {
+      resetRulePatch();
+      sidebarUI.setStatusNotice('hud.status.rulePatchReset', 4.0);
     }
   });
 
@@ -485,7 +712,11 @@ function bootstrap() {
       } else if (ev.type === 'director:choicePrompt') {
         showChoicePrompt(ev);
       } else if (ev.type === 'match:ended' || ev.type === 'match:victory') {
-        if (state.mode === 'campaign' && state.missionId && ev.winnerTeamId === 0) {
+        if (!replayPlayback && replayRecorder) {
+          replayRecorder.finalize(state.tickCount, ev.winnerTeamId);
+          saveReplayToDb('latest', replayRecorder.toJSON()).catch(() => {});
+        }
+        if (!replayPlayback && state.mode === 'campaign' && state.missionId && ev.winnerTeamId === 0) {
           campaignProfile = recordMissionVictory(campaignProfile, state.missionId);
           saveCampaignProfile(campaignProfile);
           lobbyCtrl.setProfile(campaignProfile);
@@ -636,14 +867,94 @@ function bootstrap() {
     mkBtn('gallery.damage', toggleDamage);
     mkBtn('gallery.action', triggerAction);
     mkBtn('gallery.collapse', triggerCollapse);
+    const glbStatusEl = document.createElement('div');
+    glbStatusEl.style.cssText = 'margin-top:8px;font-size:11px;color:#93c5fd;line-height:1.35;';
+
+    const glbFileInput = document.createElement('input');
+    glbFileInput.type = 'file';
+    glbFileInput.accept = '.glb';
+    glbFileInput.hidden = true;
+    panel.appendChild(glbFileInput);
+
+    const resolveDropTypeId = (fileName) => {
+      const stem = String(fileName || '').replace(/\.glb$/i, '').toLowerCase();
+      if (CANONICAL_ENTITY_IDS.includes(stem)) return stem;
+      return state.entities[focusIndex]?.typeId || CANONICAL_ENTITY_IDS[0];
+    };
+
+    const installCustomGlbFile = async (file, explicitTypeId = null) => {
+      if (!file || !/\.glb$/i.test(file.name)) {
+        glbStatusEl.textContent = t('gallery.glbInvalidStatus');
+        return false;
+      }
+      const typeId = explicitTypeId || resolveDropTypeId(file.name);
+      const mf = pipeline.modelFactory;
+      if (!mf || !typeId) {
+        glbStatusEl.textContent = t('gallery.glbInvalidStatus');
+        return false;
+      }
+      try {
+        const buf = await file.arrayBuffer();
+        const geom = mf.loadGlbBufferOverride(typeId, buf, { fileName: file.name });
+        await saveCustomGlbModel(typeId, buf, { fileName: file.name });
+        focusEntity(typeId);
+        glbStatusEl.textContent = t('gallery.glbLoadedStatus', { typeId, verts: geom.vertexCount });
+        return true;
+      } catch {
+        glbStatusEl.textContent = t('gallery.glbInvalidStatus');
+        return false;
+      }
+    };
+
     mkBtn('gallery.overview', () => {
       pipeline.camera.jumpTo(256, 256);
       pipeline.camera.zoom(68 - pipeline.camera.height);
     });
+    mkBtn('gallery.uploadGlb', () => glbFileInput.click());
+    mkBtn('gallery.resetModel', async () => {
+      const ent = state.entities[focusIndex];
+      const mf = pipeline.modelFactory;
+      if (!ent || !mf) return;
+      mf.restoreProceduralModel(ent.typeId);
+      await deleteCustomGlbModel(ent.typeId);
+      glbStatusEl.textContent = t('gallery.dropGlbHint');
+    });
+    mkBtn('gallery.resetAllModels', async () => {
+      const mf = pipeline.modelFactory;
+      if (!mf) return;
+      for (const loadedId of mf.glbLoadedTypes) {
+        mf.restoreProceduralModel(loadedId);
+      }
+      await clearCustomGlbModels();
+      glbStatusEl.textContent = t('gallery.dropGlbHint');
+    });
 
+    glbFileInput.addEventListener('change', async () => {
+      const file = glbFileInput.files?.[0];
+      glbFileInput.value = '';
+      if (!file) return;
+      const focusedType = state.entities[focusIndex]?.typeId;
+      await installCustomGlbFile(file, focusedType);
+    });
+
+    canvas.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    canvas.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files?.[0];
+      if (file) await installCustomGlbFile(file);
+    });
+
+    panel.appendChild(glbStatusEl);
     document.body.appendChild(panel);
-    onLocaleChange(refreshGalleryLabels);
+    onLocaleChange(() => {
+      refreshGalleryLabels();
+      glbStatusEl.textContent = t('gallery.dropGlbHint');
+    });
     refreshGalleryLabels();
+    glbStatusEl.textContent = t('gallery.dropGlbHint');
 
     galleryCtrl = {
       entityCount: state.entities.length,
@@ -651,7 +962,8 @@ function bootstrap() {
       toggleFaction,
       toggleDamage,
       triggerAction,
-      triggerCollapse
+      triggerCollapse,
+      installCustomGlbFile
     };
   }
 
@@ -668,7 +980,12 @@ function bootstrap() {
     setQualityPreset: applyQualityPreset,
     enqueueCommand: enqueue,
     stepSimulation: () => stepSimulation(state),
-    getEntityDef: (id) => ENTITY_DEFS[id] ?? null
+    getEntityDef: (id) => ENTITY_DEFS[id] ?? null,
+    replay: {
+      exportCurrent: exportCurrentReplay,
+      startPlayback: startReplayPlayback,
+      get isPlaying() { return Boolean(replayPlayback); }
+    }
   };
 
   function frameLoop(nowMs) {
@@ -701,6 +1018,33 @@ function bootstrap() {
         ent.prevZ = ent.z;
         ent.recoil *= Math.pow(0.05, dtSec);
       }
+    } else if (replayPlayback) {
+      if (!replayPlayback.paused) {
+        const speedMult = replayPlayback.speed;
+        accumulator += dtSec * speedMult;
+        let steps = 0;
+        const maxSteps = 5 * speedMult;
+        const simT0 = performance.now();
+        while (accumulator >= TICK_DT && steps < maxSteps) {
+          if (replayPlayback.isFinished(state.tickCount)) {
+            accumulator = 0;
+            break;
+          }
+          replayPlayback.feedTickCommands(state, rawEnqueue);
+          stepSimulation(state);
+          consumeSimulationEvents(elapsedSec);
+          accumulator -= TICK_DT;
+          steps++;
+        }
+        if (steps > 0) {
+          simStepMs = (performance.now() - simT0) / steps;
+        }
+        if (steps === maxSteps && accumulator > TICK_DT) {
+          accumulator = 0;
+        }
+      }
+      syncReplayHudBar();
+      mixer.updateCombatIntensity(state, dtSec);
     } else {
       accumulator += dtSec;
       let steps = 0;

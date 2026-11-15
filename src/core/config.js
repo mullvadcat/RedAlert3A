@@ -69,6 +69,7 @@ export const KEYMAP_DEFAULTS = {
   doctrine3: 'F3',
   doctrine4: 'F4',
   toggleLocale: 'KeyL',
+  toggleIsoCam: 'KeyV',
   homeBase: 'KeyH',
   jumpAlert: 'Space',
   cancel: 'Escape'
@@ -534,4 +535,133 @@ export function getUnitDamageStats(typeId, veterancyRank = 0) {
     sight: (def?.sight ?? 10) + vet.sightBonus,
     damageTakenMult: vet.damageTakenMult
   };
+}
+
+const RULE_PATCH_FIELDS = Object.freeze({
+  cost: { min: 0, max: 50000, integer: true },
+  buildTimeSec: { min: 0.5, max: 600, integer: false },
+  hp: { min: 1, max: 100000, integer: true },
+  speed: { min: 0, max: 60, integer: false },
+  sight: { min: 1, max: 40, integer: false },
+  power: { min: -1000, max: 1000, integer: true }
+});
+
+const WEAPON_PATCH_FIELDS = Object.freeze({
+  damage: { min: 0, max: 50000, integer: false },
+  range: { min: 0.5, max: 60, integer: false },
+  cooldownTicks: { min: 1, max: 600, integer: true },
+  splashRadius: { min: 0, max: 20, integer: false }
+});
+
+const BASE_ENTITY_SNAPSHOT = Object.freeze(
+  Object.fromEntries(
+    CANONICAL_ENTITY_IDS.map((id) => {
+      const def = ENTITY_DEFS[id];
+      const snap = {};
+      for (const k of Object.keys(RULE_PATCH_FIELDS)) {
+        if (k in def) snap[k] = def[k];
+      }
+      if (def.weapon) {
+        snap.weapon = {};
+        for (const wk of Object.keys(WEAPON_PATCH_FIELDS)) {
+          if (wk in def.weapon) snap.weapon[wk] = def.weapon[wk];
+        }
+      }
+      return [id, snap];
+    })
+  )
+);
+
+let activeRulePatch = null;
+
+function clampStat(val, spec) {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return null;
+  const clamped = Math.min(spec.max, Math.max(spec.min, num));
+  return spec.integer ? Math.round(clamped) : Number(clamped.toFixed(3));
+}
+
+export function resetRulePatch() {
+  for (const id of CANONICAL_ENTITY_IDS) {
+    const def = ENTITY_DEFS[id];
+    const snap = BASE_ENTITY_SNAPSHOT[id];
+    if (!def || !snap) continue;
+    for (const k of Object.keys(RULE_PATCH_FIELDS)) {
+      if (k in snap) def[k] = snap[k];
+    }
+    if (snap.weapon && def.weapon) {
+      for (const wk of Object.keys(WEAPON_PATCH_FIELDS)) {
+        if (wk in snap.weapon) def.weapon[wk] = snap.weapon[wk];
+      }
+    }
+  }
+  activeRulePatch = null;
+  return true;
+}
+
+export function applyRulePatch(rawPatch) {
+  if (!rawPatch || typeof rawPatch !== 'object' || Array.isArray(rawPatch)) {
+    throw new Error('Rule patch must be a JSON object.');
+  }
+  resetRulePatch();
+
+  const unitMap = rawPatch.units && typeof rawPatch.units === 'object' && !Array.isArray(rawPatch.units)
+    ? rawPatch.units
+    : rawPatch;
+
+  const appliedUnits = [];
+  const warnings = [];
+  const cleanPatch = {};
+
+  for (const [typeId, changes] of Object.entries(unitMap)) {
+    if (typeId === '__proto__' || typeId === 'constructor' || typeId === 'prototype') continue;
+    if (!Object.hasOwn(ENTITY_DEFS, typeId)) {
+      warnings.push(`Unknown entity type skipped: ${typeId}`);
+      continue;
+    }
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) continue;
+
+    const def = ENTITY_DEFS[typeId];
+    const unitOut = {};
+
+    for (const [field, spec] of Object.entries(RULE_PATCH_FIELDS)) {
+      if (!Object.hasOwn(changes, field)) continue;
+      const safeVal = clampStat(changes[field], spec);
+      if (safeVal === null) continue;
+      def[field] = safeVal;
+      unitOut[field] = safeVal;
+    }
+
+    if (changes.weapon && typeof changes.weapon === 'object' && !Array.isArray(changes.weapon)) {
+      if (!def.weapon) {
+        warnings.push(`Entity ${typeId} has no weapon block; weapon overrides skipped.`);
+      } else {
+        const weaponOut = {};
+        for (const [wField, wSpec] of Object.entries(WEAPON_PATCH_FIELDS)) {
+          if (!Object.hasOwn(changes.weapon, wField)) continue;
+          const safeVal = clampStat(changes.weapon[wField], wSpec);
+          if (safeVal === null) continue;
+          def.weapon[wField] = safeVal;
+          weaponOut[wField] = safeVal;
+        }
+        if (Object.keys(weaponOut).length > 0) unitOut.weapon = weaponOut;
+      }
+    }
+
+    if (Object.keys(unitOut).length > 0) {
+      cleanPatch[typeId] = unitOut;
+      appliedUnits.push(typeId);
+    }
+  }
+
+  activeRulePatch = appliedUnits.length > 0 ? cleanPatch : null;
+  return {
+    appliedUnits,
+    activePatch: getActiveRulePatch(),
+    warnings
+  };
+}
+
+export function getActiveRulePatch() {
+  return activeRulePatch ? structuredClone(activeRulePatch) : null;
 }

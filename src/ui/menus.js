@@ -175,6 +175,44 @@ export function createLobbyMenu(uiState, options = {}) {
   actions.appendChild(btnClose);
   card.appendChild(actions);
 
+  // Replay & Custom Balance Workbench row
+  const labSection = document.createElement('div');
+  labSection.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid #2b425f;';
+  const labTitle = document.createElement('div');
+  labTitle.style.cssText = 'font-size:11px;color:#8faac9;margin-bottom:6px;';
+  labSection.appendChild(labTitle);
+
+  const labActions = document.createElement('div');
+  labActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+  const mkLabBtn = (id) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = id;
+    btn.style.cssText = 'font-size:11px;padding:4px 8px;';
+    labActions.appendChild(btn);
+    return btn;
+  };
+  const btnPlayReplay = mkLabBtn('btn-play-replay');
+  const btnExportReplay = mkLabBtn('btn-export-replay');
+  const btnImportReplay = mkLabBtn('btn-import-replay');
+  const btnLoadRulePatch = mkLabBtn('btn-load-rule-patch');
+  const btnResetRulePatch = mkLabBtn('btn-reset-rule-patch');
+
+  const replayFileInput = document.createElement('input');
+  replayFileInput.type = 'file';
+  replayFileInput.accept = '.json,.ra3arep.json';
+  replayFileInput.hidden = true;
+
+  const ruleFileInput = document.createElement('input');
+  ruleFileInput.type = 'file';
+  ruleFileInput.accept = '.json';
+  ruleFileInput.hidden = true;
+
+  labSection.appendChild(labActions);
+  labSection.appendChild(replayFileInput);
+  labSection.appendChild(ruleFileInput);
+  card.appendChild(labSection);
+
   viewportEl.appendChild(modal);
 
   function renderCampaignList() {
@@ -232,6 +270,12 @@ export function createLobbyMenu(uiState, options = {}) {
     btnSaveCp.textContent = t('menu.saveCheckpoint');
     btnLoadCp.textContent = t('menu.loadCheckpoint');
     btnClose.textContent = t('menu.resume');
+    labTitle.textContent = t('menu.replayLabTitle');
+    btnPlayReplay.textContent = t('menu.playLatestReplay');
+    btnExportReplay.textContent = t('menu.exportReplay');
+    btnImportReplay.textContent = t('menu.importReplay');
+    btnLoadRulePatch.textContent = t('menu.loadRulePatch');
+    btnResetRulePatch.textContent = t('menu.resetRulePatch');
 
     for (const lbl of formEl.querySelectorAll('.lobby-label')) {
       lbl.textContent = t(lbl.dataset.i18n);
@@ -283,6 +327,43 @@ export function createLobbyMenu(uiState, options = {}) {
       options.onLoadCheckpoint();
       close();
     }
+  });
+  btnPlayReplay.addEventListener('click', async () => {
+    if (typeof options.onPlayLatestReplay === 'function') {
+      const ok = await options.onPlayLatestReplay();
+      if (ok) close();
+    }
+  });
+  btnExportReplay.addEventListener('click', () => {
+    if (typeof options.onExportReplay === 'function') options.onExportReplay();
+  });
+  btnImportReplay.addEventListener('click', () => replayFileInput.click());
+  replayFileInput.addEventListener('change', async () => {
+    const file = replayFileInput.files?.[0];
+    replayFileInput.value = '';
+    if (!file || typeof options.onImportReplay !== 'function') return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const ok = await options.onImportReplay(parsed);
+      if (ok) close();
+    } catch {
+      options.onImportReplay(null);
+    }
+  });
+  btnLoadRulePatch.addEventListener('click', () => ruleFileInput.click());
+  ruleFileInput.addEventListener('change', async () => {
+    const file = ruleFileInput.files?.[0];
+    ruleFileInput.value = '';
+    if (!file || typeof options.onImportRulePatch !== 'function') return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      options.onImportRulePatch(parsed);
+    } catch {
+      options.onImportRulePatch(null);
+    }
+  });
+  btnResetRulePatch.addEventListener('click', () => {
+    if (typeof options.onResetRulePatch === 'function') options.onResetRulePatch();
   });
 
   mapSelect.addEventListener('change', syncModeOptionsWithMap);

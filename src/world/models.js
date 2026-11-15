@@ -5,7 +5,7 @@
 import { CANONICAL_ENTITY_IDS, ENTITY_DEFS, FACTIONS, PLAYER_COLORS } from '../core/config.js';
 import { MAP_SIZE, worldToGrid } from './map.js';
 import { PCSS_GLSL } from '../render/shadow.js';
-import { fetchAndParseGlb } from './glbLoader.js';
+import { fetchAndParseGlb, parseGlbGeometry } from './glbLoader.js';
 
 const FLOATS_PER_VERT = 10;
 const FLOATS_PER_INST = 20;
@@ -118,10 +118,13 @@ void main() {
   float glassFactor = 0.0;
 
   if (vTone < 0.5) {
-    // Tone 0: Primary dark gunsteel / titanium chassis armor (concept-art silhouette steel, subtle 16% faction tint)
+    // Tone 0: Gunsteel / architectural armor plate + industrial panel seams & subtle louver vents on vertical facades
     vec3 gunSteel = mix(vec3(0.20, 0.22, 0.26), teamCol * 0.65, 0.16);
+    float wallMask = 1.0 - smoothstep(0.25, 0.65, abs(vNormal.y));
+    float seamGrid = 1.0 - 0.14 * max(step(0.92, fract(vWorldPos.x * 1.2 + vWorldPos.z * 1.2)), step(0.90, fract(vWorldPos.y * 1.4)));
+    float louver = 1.0 - 0.12 * wallMask * step(0.65, fract(vWorldPos.y * 5.0));
     float microGrain = 0.90 + detail.r * 0.18 - detail.g * 0.08;
-    baseCol = gunSteel * microGrain;
+    baseCol = gunSteel * microGrain * seamGrid * louver;
     metallic = clamp(metallic + 0.18, 0.0, 0.96);
     roughness = clamp(roughness * 0.85, 0.18, 0.75);
   } else if (vTone < 1.5) {
@@ -136,8 +139,11 @@ void main() {
     metallic = 0.15;
     roughness = 0.12;
   } else if (vTone < 3.5) {
-    // Tone 3: Brushed titanium alloy trim / concrete plinth / copper coil
-    baseCol = vec3(0.42, 0.40, 0.37) * (0.88 + detail.r * 0.18);
+    // Tone 3: Brushed alloy trim / concrete plinth with slab block mortar lines
+    float slabX = step(0.94, fract(vWorldPos.x * 0.75));
+    float slabZ = step(0.94, fract(vWorldPos.z * 0.75));
+    float mortar = 1.0 - 0.18 * max(slabX, slabZ);
+    baseCol = vec3(0.42, 0.40, 0.37) * (0.88 + detail.r * 0.18) * mortar;
     metallic = 0.36;
     roughness = 0.58;
   } else if (vTone < 4.5) {
@@ -153,11 +159,15 @@ void main() {
     metallic = 0.55;
     roughness = 0.34;
   } else if (vTone < 6.5) {
-    // Tone 6: Reflective tinted glass cockpit canopy & prism crystal refraction
-    baseCol = mix(vec3(0.04, 0.14, 0.22), teamCol * 0.55, 0.38);
-    metallic = 0.42;
-    roughness = 0.07;
-    glassFactor = 1.0;
+    // Tone 6: Reflective tinted glass cockpit canopy & illuminated architectural window panes
+    float mullionX = step(0.88, fract((vWorldPos.x + vWorldPos.z) * 2.2));
+    float mullionY = step(0.86, fract(vWorldPos.y * 2.6));
+    float frame = max(mullionX, mullionY);
+    vec3 paneCol = mix(vec3(0.04, 0.16, 0.25), teamCol * 0.58 + vec3(0.05, 0.12, 0.18), 0.42);
+    baseCol = mix(paneCol, vec3(0.09, 0.11, 0.14), frame * 0.85);
+    metallic = mix(0.45, 0.60, frame);
+    roughness = mix(0.06, 0.45, frame);
+    glassFactor = 1.0 - frame * 0.85;
   } else {
     // Tone 7: Woven tactical khaki / sandbags / cloth uniform
     baseCol = vec3(0.36, 0.32, 0.22) * (0.86 + detail.r * 0.22);
@@ -1280,14 +1290,25 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'nighthawk': {
-      b.addTrapezoid(0, 0.1, 0.05, 1.48, 3.75, 1.12, 3.25, 0.84, 0.1, 0, 1); // Matte stealth fuselage
-      b.addSweptWing(-1, -0.68, 0.06, -0.1, 0.98, 1.05, 0.55, 0.35, 0, 0.16, 0, 0);
-      b.addSweptWing(1, 0.68, 0.06, -0.1, 0.98, 1.05, 0.55, 0.35, 0, 0.16, 0, 0);
-      b.addBeveledBox(0, 0.3, 1.4, 0.82, 0.36, 0.82, 0.08, 0, 6); // Angled stealth windshield
-      // Rotor hub (part 1)
-      b.addCylinder(0, 0.78, 0, 0.26, 0.26, 0.44, 12, 'Y', 1, 3);
-      b.addBox(0, 0.96, 0, 4.5, 0.06, 0.22, 1, 1);
-      b.addBox(0, 0.96, 0, 0.22, 0.06, 4.5, 1, 1);
+      // Faceted stealth transport helicopter: twin-turbine nacelles, FLIR chin pod, tail boom + 4-blade swept rotor
+      b.addTrapezoid(0, 0.14, 0.12, 1.52, 3.65, 1.14, 3.15, 0.88, 0.12, 0, 1);
+      b.addBeveledBox(0, 0.34, 1.48, 0.86, 0.38, 0.88, 0.08, 0, 6);
+      b.addCapsule(0, -0.34, 1.62, 0.16, 0.14, 'Y', 10, 1, 2); // Chin FLIR turret
+      // Tail boom & canted stealth tail fin + tail rotor
+      b.addTrapezoid(0, 0.24, -2.18, 0.42, 1.65, 0.24, 1.45, 0.38, 0, 0, 1);
+      b.addBox(0, 0.66, -2.85, 0.10, 0.88, 0.56, 0, 5);
+      b.addBox(-0.22, 0.72, -2.92, 0.06, 0.78, 0.14, 0, 3);
+      // Twin side turbine pods & stub weapon wings
+      b.addSweptWing(-1, -0.68, 0.12, -0.1, 1.05, 1.05, 0.55, 0.35, 0, 0.16, 0, 0);
+      b.addSweptWing(1, 0.68, 0.12, -0.1, 1.05, 1.05, 0.55, 0.35, 0, 0.16, 0, 0);
+      for (const sx of [-0.95, 0.95]) {
+        b.addCapsule(sx, 0.48, -0.25, 0.22, 0.95, 'Z', 10, 0, 0);
+        b.addCylinder(sx, 0.48, -0.88, 0.14, 0.12, 0.18, 8, 'Z', 0, 2);
+      }
+      // Articulated 4-blade swept main rotor hub (part 1)
+      b.addCylinder(0, 0.78, 0.05, 0.28, 0.26, 0.46, 12, 'Y', 1, 3);
+      b.addBox(0, 0.98, 0.05, 4.75, 0.06, 0.24, 1, 1);
+      b.addBox(0, 0.98, 0.05, 0.24, 0.06, 4.75, 1, 1);
       break;
     }
 
@@ -1322,79 +1343,129 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'hover_transport': {
-      b.addTrapezoid(0, 0.38, 0, 2.95, 5.25, 2.65, 4.75, 0.64, 0, 0, 1); // Dark rubber air-cushion skirt
-      b.addBeveledBox(0, 0.86, 0, 2.38, 0.34, 4.38, 0.05, 0, 0);
-      b.addBeveledBox(-1.08, 1.24, -0.3, 0.36, 0.5, 3.65, 0.05, 0, 5);
-      b.addBeveledBox(1.08, 1.24, -0.3, 0.36, 0.5, 3.65, 0.05, 0, 5);
-      b.addBeveledBox(0, 1.38, -1.78, 2.12, 0.84, 0.88, 0.06, 0, 0);
-      b.addBox(0, 1.48, -1.32, 1.72, 0.28, 0.08, 0, 6);
-      b.addBox(0, 1.05, 2.2, 1.9, 0.65, 0.18, 0, 4); // Bow ramp
+      b.addTrapezoid(0, 0.38, 0, 3.05, 5.35, 2.75, 4.85, 0.66, 0, 0, 1); // Heavy rubber air-cushion skirt
+      b.addBeveledBox(0, 0.88, 0, 2.45, 0.36, 4.45, 0.06, 0, 0);
+      b.addBeveledBox(-1.12, 1.26, -0.3, 0.38, 0.52, 3.7, 0.05, 0, 5);
+      b.addBeveledBox(1.12, 1.26, -0.3, 0.38, 0.52, 3.7, 0.05, 0, 5);
+      b.addBeveledBox(0, 1.44, -1.8, 2.18, 0.9, 0.92, 0.06, 0, 0);
+      b.addBeveledBox(0, 1.54, -1.32, 1.76, 0.32, 0.12, 0.02, 0, 6);
+      // Twin shrouded rear propulsion fans + bow articulated loading ramp
+      for (const sx of [-0.95, 0.95]) {
+        b.addTorus(sx, 1.48, -2.35, 0.36, 0.08, 14, 8, Math.PI * 0.5, 0, 0, 3);
+        b.addCylinder(sx, 1.48, -2.35, 0.12, 0.12, 0.25, 8, 'Z', 1, 2);
+      }
+      b.addBox(0, 1.05, 2.25, 1.98, 0.72, 0.22, 0, 4);
       break;
     }
 
     case 'dolphin': {
-      // Smooth bio-mechanical Dolphin hydro-hull + dorsal sonic dish
-      b.addLathe(0, 0.52, 0, [[-1.9, 0.05], [-1.0, 0.44], [0.2, 0.62], [1.25, 0.42], [2.1, 0.04]], 14, 'Z', 0, 0);
-      b.addBox(0, 0.98, -0.25, 0.12, 0.62, 0.78, 0, 5); // Blue dorsal fin
-      b.addCylinder(0, 1.06, 0.52, 0.36, 0.12, 0.3, 12, 'Y', 2, 2); // Sonic emitter
+      // Smooth bio-mechanical Dolphin hydro-hull + pectoral hydrofoils + dorsal sonic dish
+      b.addLathe(0, 0.54, 0, [
+        [-2.05, 0.04], [-1.35, 0.32], [-0.4, 0.58], [0.45, 0.64], [1.35, 0.44], [2.15, 0.04]
+      ], 16, 'Z', 0, 0);
+      b.addSweptWing(-1, -0.45, 0.44, 0.25, 0.78, 0.52, 0.22, 0.36, -0.1, 0.10, 0, 5);
+      b.addSweptWing(1, 0.45, 0.44, 0.25, 0.78, 0.52, 0.22, 0.36, -0.1, 0.10, 0, 5);
+      b.addTrapezoid(0, 0.56, -2.02, 1.25, 0.48, 0.52, 0.26, 0.10, 0, 0, 5); // Tail fluke
+      b.addBeveledBox(0, 1.04, -0.25, 0.14, 0.68, 0.82, 0.04, 0, 5);
+      b.addTorus(0, 1.06, 0.52, 0.34, 0.07, 16, 8, 0.35, 0, 1, 3);
+      b.addCapsule(0, 1.08, 0.58, 0.18, 0.06, 'Y', 12, 2, 2); // Glowing sonic dish emitter
       break;
     }
 
     case 'sea_scorpion': {
-      b.addTrapezoid(0, 0.54, 0, 2.25, 4.85, 1.88, 4.25, 0.92, 0.1, 0, 0);
-      b.addTrapezoid(0, 1.26, -0.75, 1.28, 1.5, 0.96, 1.18, 0.74, 0, 0, 5);
-      b.addBox(0, 1.42, -0.1, 0.9, 0.22, 0.1, 0, 6);
-      b.addCylinder(0, 1.94, -0.9, 0.12, 0.08, 0.82, 8, 'Y', 1, 3);
-      b.addCylinder(0, 1.18, 0.98, 0.6, 0.48, 0.42, 12, 'Y', 1, 0);
-      b.addCylinder(-0.18, 1.28, 1.68, 0.095, 0.08, 1.18, 10, 'Z', 2, 1);
-      b.addCylinder(0.18, 1.28, 1.68, 0.095, 0.08, 1.18, 10, 'Z', 2, 1);
+      b.addTrapezoid(0, 0.56, 0, 2.38, 5.05, 1.98, 4.45, 0.96, 0.12, 0, 0);
+      b.addBeveledBox(-1.12, 0.58, -0.25, 0.32, 0.62, 3.9, 0.04, 0, 5);
+      b.addBeveledBox(1.12, 0.58, -0.25, 0.32, 0.62, 3.9, 0.04, 0, 5);
+      b.addTrapezoid(0, 1.32, -0.82, 1.38, 1.62, 1.04, 1.24, 0.82, 0, 0, 5);
+      b.addBeveledBox(0, 1.48, -0.05, 0.98, 0.26, 0.14, 0.02, 0, 6);
+      b.addCylinder(0, 2.02, -0.95, 0.14, 0.09, 0.92, 10, 'Y', 1, 3);
+      b.addBeveledBox(0, 2.52, -0.95, 0.82, 0.26, 0.16, 0.03, 1, 3);
+      // Forward armored flak cupola (part 1) + twin auto-cannons (part 2)
+      b.addCylinder(0, 1.24, 1.05, 0.68, 0.52, 0.48, 12, 'Y', 1, 0);
+      for (const bx of [-0.20, 0.20]) {
+        b.addCylinder(bx, 1.32, 1.78, 0.10, 0.085, 1.28, 10, 'Z', 2, 1);
+        b.addCylinder(bx, 1.32, 2.42, 0.125, 0.115, 0.14, 10, 'Z', 2, 3);
+      }
       break;
     }
 
     case 'aegis': {
-      // Sleek Naval Cruiser: dark steel flared bow + blue deck trim + SPY phased-array bridge + VLS launcher
-      b.addTrapezoid(0, 0.64, 0, 2.32, 5.9, 1.94, 5.2, 1.1, 0.28, 0, 0);
-      b.addBeveledBox(0, 1.18, 0.1, 1.75, 0.12, 4.4, 0.04, 0, 5);
-      b.addTrapezoid(0, 1.62, -0.25, 1.48, 2.1, 1.08, 1.58, 1.08, 0, 0, 0);
-      b.addBeveledBox(0, 2.3, -0.4, 0.96, 0.56, 0.96, 0.06, 0, 3); // SPY phased-array superstructure
-      b.addBox(0, 2.34, 0.1, 0.7, 0.28, 0.06, 0, 6); // Bridge window
-      b.addTrapezoid(0, 1.36, 1.62, 0.94, 0.94, 0.72, 0.72, 0.5, 0, 1, 5);
-      b.addCylinder(-0.18, 1.56, 2.04, 0.1, 0.09, 1.14, 10, 'Z', 2, 3);
-      b.addCylinder(0.18, 1.56, 2.04, 0.1, 0.09, 1.14, 10, 'Z', 2, 3);
+      // Sleek Aegis Guided-Missile Cruiser: stealth superstructure, 4-face SPY radar panels, forward & aft VLS grids
+      b.addTrapezoid(0, 0.66, 0, 2.42, 6.15, 2.02, 5.45, 1.15, 0.30, 0, 0);
+      b.addBeveledBox(0, 1.22, 0.1, 1.85, 0.14, 4.65, 0.04, 0, 5);
+      // Forward & Aft VLS missile launch cells
+      b.addBeveledBox(0, 1.34, 1.68, 1.05, 0.28, 1.05, 0.03, 0, 4);
+      b.addBeveledBox(0, 1.34, -2.05, 1.15, 0.28, 1.25, 0.03, 0, 4);
+      // Multi-tier SPY phased-array bridge tower + twin lattice masts
+      b.addTrapezoid(0, 1.68, -0.25, 1.56, 2.25, 1.18, 1.72, 1.18, 0, 0, 0);
+      b.addBeveledBox(0, 2.42, -0.35, 1.08, 0.64, 1.08, 0.08, 0, 3);
+      b.addBeveledBox(0, 2.42, 0.20, 0.82, 0.34, 0.10, 0.02, 0, 6);
+      b.addCylinder(0, 3.22, -0.55, 0.16, 0.08, 1.15, 8, 'Y', 1, 3);
+      b.addBeveledBox(0, 3.75, -0.55, 0.98, 0.24, 0.22, 0.03, 1, 2);
+      // Twin SAM launcher turret (part 1 & 2)
+      b.addTrapezoid(0, 1.58, 1.62, 0.88, 0.88, 0.68, 0.68, 0.48, 0, 1, 5);
+      b.addCylinder(-0.20, 1.78, 2.08, 0.11, 0.095, 1.22, 10, 'Z', 2, 3);
+      b.addCylinder(0.20, 1.78, 2.08, 0.11, 0.095, 1.22, 10, 'Z', 2, 3);
       break;
     }
 
     case 'typhoon': {
-      // Smooth hydrodynamic Typhoon Attack Submarine
-      b.addLathe(0, 0.48, 0, [[-3.15, 0.05], [-2.2, 0.72], [0.2, 0.94], [2.1, 0.88], [3.05, 0.32], [3.3, 0.03]], 16, 'Z', 0, 1);
-      b.addTrapezoid(0, 1.28, 0.35, 0.56, 1.52, 0.44, 1.14, 0.92, 0, 0, 0); // Conning sail
-      b.addBox(0, 1.45, 0.35, 0.48, 0.18, 0.95, 0, 5); // Crimson sail insignia band
-      b.addCylinder(0, 1.9, 0.45, 0.08, 0.07, 0.54, 8, 'Y', 1, 3);
+      // Smooth hydrodynamic Typhoon Attack Submarine with sail dive planes, periscopes & shrouded propulsor
+      b.addLathe(0, 0.50, 0, [
+        [-3.25, 0.04], [-2.45, 0.68], [-0.4, 0.96], [1.85, 0.92], [2.95, 0.42], [3.4, 0.03]
+      ], 16, 'Z', 0, 1);
+      b.addTrapezoid(0, 1.32, 0.35, 0.58, 1.62, 0.46, 1.22, 0.98, 0, 0, 0); // Conning tower sail
+      b.addBeveledBox(0, 1.48, 0.35, 0.50, 0.20, 1.02, 0.03, 0, 5);
+      b.addSweptWing(-1, -0.26, 1.38, 0.35, 0.62, 0.38, 0.20, 0.15, 0, 0.08, 0, 1); // Sail fairwater planes
+      b.addSweptWing(1, 0.26, 1.38, 0.35, 0.62, 0.38, 0.20, 0.15, 0, 0.08, 0, 1);
+      b.addCylinder(-0.08, 1.98, 0.55, 0.07, 0.06, 0.68, 8, 'Y', 1, 3); // Periscope mast
+      b.addCylinder(0.10, 1.92, 0.25, 0.06, 0.05, 0.58, 8, 'Y', 1, 2); // Radar snorkel
+      // Aft cruciform hydroplanes + shrouded pump-jet ring
+      b.addBox(0, 0.50, -2.85, 1.55, 0.10, 0.48, 0, 5);
+      b.addBox(0, 0.50, -2.85, 0.10, 1.45, 0.48, 0, 5);
+      b.addTorus(0, 0.50, -3.22, 0.32, 0.07, 14, 8, Math.PI * 0.5, 0, 0, 3);
       break;
     }
 
     case 'carrier': {
-      b.addTrapezoid(0, 0.72, 0, 2.95, 7.0, 2.65, 6.5, 1.28, 0.2, 0, 0);
-      b.addBeveledBox(0, 1.46, 0, 3.75, 0.24, 7.05, 0.06, 0, 1); // Flight deck
-      b.addBox(0, 1.59, 0, 0.34, 0.04, 6.45, 0, 4); // Runway stripes
-      b.addBeveledBox(-1.72, 1.46, 0, 0.18, 0.24, 6.6, 0.03, 0, 5);
-      b.addTrapezoid(1.18, 2.18, -0.45, 0.96, 1.95, 0.76, 1.42, 1.28, 0, 0, 0); // Island bridge
-      b.addBox(1.18, 2.45, 0.32, 0.65, 0.26, 0.08, 0, 6);
-      b.addBox(1.18, 2.98, -0.45, 0.48, 0.34, 0.48, 1, 5);
+      // Abyssal Pact Supercarrier: Raked hull, overhanging angled flight deck, catapult markings, 2 deck jets & radar island
+      b.addTrapezoid(0, 0.72, 0, 3.05, 7.1, 2.75, 6.6, 1.3, 0.22, 0, 0);
+      b.addBeveledBox(0, 1.48, 0, 3.95, 0.28, 7.2, 0.07, 0, 1); // Cantilevered armored flight deck
+      b.addBox(0, 1.64, 0, 0.36, 0.04, 6.65, 0, 4); // Catapult centerline hazard stripe
+      b.addBeveledBox(-1.82, 1.48, 0, 0.22, 0.28, 6.8, 0.03, 0, 5);
+      b.addBeveledBox(1.82, 1.48, 0, 0.22, 0.28, 6.8, 0.03, 0, 5);
+      // 2 Parked Stormhawk deck fighters on port bow/aft staging spots
+      for (const pz of [-1.85, 1.95]) {
+        b.addBeveledBox(-0.88, 1.74, pz, 0.24, 0.14, 0.92, 0.03, 0, 5);
+        b.addSweptWing(-1, -0.96, 1.72, pz - 0.1, 0.48, 0.42, 0.16, 0.28, 0, 0.05, 0, 0);
+        b.addSweptWing(1, -0.80, 1.72, pz - 0.1, 0.48, 0.42, 0.16, 0.28, 0, 0.05, 0, 0);
+      }
+      // Starboard island bridge with panoramic glass cab & phased-array radar lattice mast
+      b.addTrapezoid(1.24, 2.24, -0.45, 1.02, 2.05, 0.80, 1.48, 1.38, 0, 0, 0);
+      b.addBeveledBox(1.24, 2.52, 0.36, 0.72, 0.32, 0.12, 0.02, 0, 6);
+      b.addCylinder(1.24, 3.28, -0.45, 0.18, 0.10, 0.95, 8, 'Y', 1, 3);
+      b.addBeveledBox(1.24, 3.82, -0.45, 0.95, 0.26, 0.22, 0.03, 1, 2);
       break;
     }
 
     case 'dreadnought': {
-      b.addTrapezoid(0, 0.7, 0, 2.6, 6.6, 2.28, 5.9, 1.2, 0.28, 0, 0);
-      b.addBeveledBox(0, 1.28, 0.2, 2.0, 0.14, 4.9, 0.04, 0, 5); // Crimson armored deck
-      b.addTrapezoid(0, 1.66, -0.5, 1.78, 2.25, 1.38, 1.78, 0.96, 0, 0, 0);
-      b.addBox(0, 1.95, 0.42, 1.15, 0.24, 0.08, 0, 6);
-      // Heavy aft cruise missile VLS silos
-      b.addBeveledBox(-0.5, 1.78, -1.92, 0.7, 0.98, 1.48, 0.05, 2, 5);
-      b.addBeveledBox(0.5, 1.78, -1.92, 0.7, 0.98, 1.48, 0.05, 2, 5);
-      b.addTrapezoid(0, 1.48, 1.54, 1.18, 1.22, 0.9, 0.98, 0.56, 0, 1, 5);
-      b.addCylinder(-0.24, 1.54, 2.34, 0.125, 0.1, 1.38, 10, 'Z', 2, 1);
-      b.addCylinder(0.24, 1.54, 2.34, 0.125, 0.1, 1.38, 10, 'Z', 2, 1);
+      // Crimson Dreadnought Missile Battleship: heavy raked hull, armored superstructure, twin V3 vertical silos & main cannon turret
+      b.addTrapezoid(0, 0.72, 0, 2.72, 6.8, 2.38, 6.1, 1.24, 0.30, 0, 0);
+      b.addBeveledBox(0, 1.32, 0.2, 2.08, 0.16, 5.1, 0.04, 0, 5);
+      // Multi-tier command citadel + glass bridge + comms mast
+      b.addTrapezoid(0, 1.76, -0.45, 1.85, 2.35, 1.42, 1.85, 1.08, 0, 0, 0);
+      b.addBeveledBox(0, 2.48, -0.45, 1.15, 0.48, 1.15, 0.06, 0, 1);
+      b.addBeveledBox(0, 2.05, 0.48, 1.22, 0.28, 0.12, 0.02, 0, 6);
+      b.addCylinder(0, 3.15, -0.65, 0.14, 0.08, 1.05, 8, 'Y', 0, 3);
+      // Heavy twin aft ballistic missile silos with blast deflectors (part 2)
+      for (const mx of [-0.54, 0.54]) {
+        b.addBeveledBox(mx, 1.84, -1.96, 0.76, 1.06, 1.56, 0.06, 2, 5);
+        b.addCylinder(mx, 2.44, -1.85, 0.22, 0.18, 0.38, 10, 'Y', 2, 4);
+      }
+      // Forward armored dual 155mm naval turret (part 1 & 2)
+      b.addTrapezoid(0, 1.54, 1.62, 1.26, 1.32, 0.96, 1.05, 0.62, 0, 1, 5);
+      b.addCylinder(-0.26, 1.60, 2.46, 0.135, 0.11, 1.48, 10, 'Z', 2, 1);
+      b.addCylinder(0.26, 1.60, 2.46, 0.135, 0.11, 1.48, 10, 'Z', 2, 1);
       break;
     }
 
@@ -1515,27 +1586,49 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'oil_derrick': {
-      b.addTrapezoid(0, 0.2, 0, 3.8, 3.8, 3.5, 3.5, 0.4, 0, 0, 3);
-      b.addTrapezoid(0, 1.65, -0.45, 1.85, 1.85, 0.55, 0.55, 2.65, 0, 0, 4); // Lattice tower
-      b.addBox(0, 2.85, 0.25, 0.42, 0.36, 2.4, 1, 1); // Walking beam
-      b.addCylinder(1.05, 0.95, 0.95, 0.55, 0.55, 1.1, 10, 'Y', 0, 0);
+      addConcretePad(b, 3.9, 3.9, 0.42, 0.90, true);
+      // 4-legged open lattice steel derrick frame + top crown block
+      for (const [lx, lz] of [[-0.85, -1.15], [0.85, -1.15], [-0.85, 0.35], [0.85, 0.35]]) {
+        b.addLimb([lx, 0.42, lz], [lx * 0.28, 3.15, lz * 0.28 - 0.35], 0.10, 0.07, 6, 0, 4);
+      }
+      b.addBeveledBox(0, 3.18, -0.45, 0.65, 0.28, 0.65, 0.04, 0, 1);
+      // Reciprocating pumpjack walking beam & horsehead + wellhead valve
+      b.addBeveledBox(0, 3.45, 0.2, 0.46, 0.36, 2.45, 0.05, 1, 1);
+      b.addBeveledBox(0, 3.35, 1.38, 0.52, 0.72, 0.36, 0.06, 1, 4);
+      b.addCylinder(0, 1.65, 1.38, 0.08, 0.08, 2.4, 8, 'Y', 0, 3);
+      // Pressurized crude storage tank + transfer pipes + flare stack beacon
+      b.addCapsule(1.12, 0.98, 0.85, 0.56, 0.85, 'Z', 12, 0, 0);
+      b.addLimb([0, 0.95, 1.38], [1.12, 0.95, 1.2], 0.12, 0.12, 6, 0, 3);
+      b.addCylinder(-1.35, 1.95, -1.25, 0.10, 0.07, 3.1, 8, 'Y', 0, 1);
+      b.addCapsule(-1.35, 3.55, -1.25, 0.18, 0.05, 'Y', 8, 0, 2);
       break;
     }
 
     case 'hospital': {
-      b.addTrapezoid(0, 0.22, 0, 5.7, 5.7, 5.4, 5.4, 0.44, 0, 0, 3);
-      b.addTrapezoid(0, 1.25, 0, 4.4, 3.8, 4.1, 3.5, 1.7, 0, 0, 0);
-      b.addBox(0, 2.22, 0, 1.6, 0.22, 0.45, 0, 4); // Cross marker
-      b.addBox(0, 2.22, 0, 0.45, 0.22, 1.6, 0, 4);
-      b.addCylinder(1.4, 2.45, -1.1, 0.32, 0.26, 0.55, 8, 'Y', 1, 2);
+      addConcretePad(b, 5.8, 5.8, 0.44, 0.90, false);
+      addVaultedHall(b, -0.45, 0.44, -0.25, 3.85, 3.65, 2.05, 4, 0, 3);
+      b.addBeveledBox(-0.45, 1.12, 1.72, 2.25, 1.35, 0.85, 0.06, 0, 6);
+      // Illuminated medical cross roof emblem + medevac helipad + rotating ambulance beacon
+      b.addBeveledBox(-0.45, 2.55, -0.25, 1.65, 0.22, 0.48, 0.03, 0, 4);
+      b.addBeveledBox(-0.45, 2.55, -0.25, 0.48, 0.22, 1.65, 0.03, 0, 4);
+      b.addBeveledBox(1.85, 0.48, 1.15, 1.65, 0.08, 1.65, 0.02, 0, 4);
+      b.addCylinder(1.85, 2.25, -1.35, 0.28, 0.22, 0.55, 8, 'Y', 1, 2);
       break;
     }
 
     case 'tech_airport': {
-      b.addTrapezoid(0, 0.2, 0, 5.7, 5.7, 5.4, 5.4, 0.4, 0, 0, 3);
-      b.addBox(-0.6, 0.46, 0, 3.2, 0.12, 4.6, 0, 4);
-      b.addTrapezoid(1.75, 1.5, -1.35, 1.35, 1.35, 0.95, 0.95, 2.2, 0, 0, 0);
-      b.addCylinder(1.75, 2.9, -1.35, 0.72, 0.18, 0.38, 8, 'Z', 1, 2);
+      addConcretePad(b, 5.8, 5.8, 0.42, 0.94, false);
+      // Asphalt airstrip runway + yellow centerline markings + approach beacons
+      b.addBeveledBox(-0.95, 0.46, 0, 2.65, 0.10, 5.15, 0.02, 0, 1);
+      b.addBox(-0.95, 0.52, 0, 0.34, 0.03, 4.75, 0, 4);
+      for (const bz of [-2.2, 0, 2.2]) {
+        b.addBox(-2.22, 0.56, bz, 0.22, 0.16, 0.22, 0, 2);
+      }
+      // Vaulted service hangar + glass control tower + rotating radar dish (part 1)
+      addVaultedHall(b, 1.55, 0.42, 0.95, 2.05, 2.55, 1.55, 3, 0, 3);
+      b.addTrapezoid(1.65, 1.48, -1.45, 1.45, 1.45, 1.05, 1.05, 2.15, 0, 0, 0);
+      b.addBeveledBox(1.65, 2.55, -1.45, 1.25, 0.48, 1.25, 0.04, 0, 6);
+      b.addBeveledBox(1.65, 3.12, -1.45, 1.15, 0.36, 0.24, 0.04, 1, 2);
       break;
     }
 
@@ -1646,9 +1739,30 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     batch.indexType = geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
   }
 
+  function applyGeometryOverride(typeId, sourceLabel, geom) {
+    glbCache.set(typeId, { url: sourceLabel, vertexCount: geom.vertexCount, indexCount: geom.indexCount });
+    const existing = meshes.get(typeId);
+    if (existing) {
+      uploadGeometryToBatch(existing, geom);
+    } else {
+      getOrCreateBatch(typeId, geom);
+    }
+    return geom;
+  }
+
   async function loadGlbOverride(typeId, url, options = {}) {
     const geom = await fetchAndParseGlb(url, options);
-    glbCache.set(typeId, { url, vertexCount: geom.vertexCount, indexCount: geom.indexCount });
+    return applyGeometryOverride(typeId, url, geom);
+  }
+
+  function loadGlbBufferOverride(typeId, arrayBuffer, options = {}) {
+    const geom = parseGlbGeometry(arrayBuffer, options);
+    return applyGeometryOverride(typeId, options.fileName || `idb:${typeId}.glb`, geom);
+  }
+
+  function restoreProceduralModel(typeId) {
+    glbCache.delete(typeId);
+    const geom = buildProceduralGeometryData(typeId);
     const existing = meshes.get(typeId);
     if (existing) {
       uploadGeometryToBatch(existing, geom);
@@ -1964,6 +2078,8 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     renderMainPass,
     renderXRayPass,
     loadGlbOverride,
+    loadGlbBufferOverride,
+    restoreProceduralModel,
     get glbLoadedTypes() {
       return Array.from(glbCache.keys());
     },
