@@ -1,3 +1,4 @@
 {
+  "note": "Drop textured .glb models (e.g. from Tripo3D / Meshy / Hunyuan3D) into assets/models/<id>.glb and map id -> ./assets/models/<id>.glb below, or drag-and-drop .glb directly inside ?show=gallery.",
   "models": {}
 }

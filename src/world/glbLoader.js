@@ -121,6 +121,87 @@ function inferToneFromMaterial(mat) {
   return 0;
 }
 
+function decodeDataUri(uri) {
+  if (typeof uri !== 'string' || !uri.startsWith('data:')) return null;
+  const commaIdx = uri.indexOf(',');
+  if (commaIdx < 0) return null;
+  const meta = uri.slice(5, commaIdx);
+  const mimeType = meta.split(';')[0] || 'image/png';
+  const payload = uri.slice(commaIdx + 1);
+  if (!meta.includes(';base64')) return null;
+  if (typeof atob === 'function') {
+    const bin = atob(payload);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, mimeType };
+  }
+  if (typeof Buffer !== 'undefined') {
+    return { bytes: new Uint8Array(Buffer.from(payload, 'base64')), mimeType };
+  }
+  return null;
+}
+
+function readGlbImageBytes(json, arrayBuffer, binOffset, imgDef) {
+  if (!imgDef) return null;
+  if (imgDef.bufferView !== undefined) {
+    const bv = json.bufferViews?.[imgDef.bufferView];
+    if (!bv) return null;
+    const start = binOffset + (bv.byteOffset ?? 0);
+    const len = bv.byteLength ?? 0;
+    if (start < 0 || start + len > arrayBuffer.byteLength || len <= 0) return null;
+    return {
+      bytes: new Uint8Array(arrayBuffer.slice(start, start + len)),
+      mimeType: imgDef.mimeType || 'image/png'
+    };
+  }
+  if (imgDef.uri) {
+    return decodeDataUri(imgDef.uri);
+  }
+  return null;
+}
+
+function extractEmbeddedBaseColorImage(json, arrayBuffer, binOffset, firstTexMaterialIdx) {
+  const materials = Array.isArray(json.materials) ? json.materials : [];
+  const candidates = [];
+  if (firstTexMaterialIdx >= 0 && materials[firstTexMaterialIdx]) {
+    candidates.push(materials[firstTexMaterialIdx]);
+  }
+  for (let i = 0; i < materials.length; i++) {
+    if (i !== firstTexMaterialIdx && materials[i]) candidates.push(materials[i]);
+  }
+
+  for (const matDef of candidates) {
+    const pbr = matDef?.pbrMetallicRoughness;
+    const texIdx = pbr?.baseColorTexture?.index;
+    if (texIdx === undefined) continue;
+    const texDef = json.textures?.[texIdx];
+    const imgIdx = texDef?.source;
+    const imgDef = imgIdx !== undefined ? json.images?.[imgIdx] : null;
+    const decoded = readGlbImageBytes(json, arrayBuffer, binOffset, imgDef);
+    if (decoded) {
+      const f = Array.isArray(pbr?.baseColorFactor) ? pbr.baseColorFactor : [1, 1, 1, 1];
+      return {
+        bytes: decoded.bytes,
+        mimeType: decoded.mimeType,
+        baseColorFactor: [f[0] ?? 1, f[1] ?? 1, f[2] ?? 1, f[3] ?? 1]
+      };
+    }
+  }
+
+  // Fallback: if an image exists without an explicit baseColorTexture link
+  if (Array.isArray(json.images) && json.images.length > 0) {
+    const decoded = readGlbImageBytes(json, arrayBuffer, binOffset, json.images[0]);
+    if (decoded) {
+      return {
+        bytes: decoded.bytes,
+        mimeType: decoded.mimeType,
+        baseColorFactor: [1, 1, 1, 1]
+      };
+    }
+  }
+  return null;
+}
+
 export function parseGlbGeometry(arrayBuffer, options = {}) {
   const view = new DataView(arrayBuffer);
   if (view.byteLength < 20) throw new Error('GLB too small');
@@ -154,6 +235,7 @@ export function parseGlbGeometry(arrayBuffer, options = {}) {
   const outVerts = [];
   const outIdx = [];
   let vertCount = 0;
+  let firstTexMaterialIdx = -1;
 
   const nodes = json.nodes ?? [];
   const scenes = json.scenes ?? [];
@@ -186,6 +268,9 @@ export function parseGlbGeometry(arrayBuffer, options = {}) {
           : null;
 
         const matDef = prim.material !== undefined ? json.materials?.[prim.material] : null;
+        if (firstTexMaterialIdx < 0 && matDef?.pbrMetallicRoughness?.baseColorTexture?.index !== undefined) {
+          firstTexMaterialIdx = prim.material;
+        }
         const tone = inferToneFromMaterial(matDef);
 
         const baseVert = vertCount;
@@ -250,12 +335,14 @@ export function parseGlbGeometry(arrayBuffer, options = {}) {
   }
 
   const useUint32 = vertCount > 65535;
+  const albedoImage = extractEmbeddedBaseColorImage(json, arrayBuffer, binOffset, firstTexMaterialIdx);
   return {
     vertices: new Float32Array(outVerts),
     indices: useUint32 ? new Uint32Array(outIdx) : new Uint16Array(outIdx),
     useUint32,
     indexCount: outIdx.length,
-    vertexCount: vertCount
+    vertexCount: vertCount,
+    albedoImage
   };
 }
 

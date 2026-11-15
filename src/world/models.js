@@ -86,6 +86,9 @@ uniform sampler2D uDetailTex;
 uniform sampler2D uMaterialTex;
 uniform sampler2D uShadowMap;
 uniform sampler2D uFogTex;
+uniform sampler2D uAlbedoTex;
+uniform float uHasAlbedoTex;
+uniform vec4 uAlbedoTint;
 uniform vec3 uTeamColors[4];
 
 out vec4 outColor;
@@ -153,12 +156,13 @@ void main() {
     metallic = 0.30;
     roughness = 0.48;
   } else if (vTone < 5.5) {
-    // Tone 5: Crisp faction metallic armor coat (CMC pauldrons, cuirass, turret chevrons, trim)
-    vec3 trimSteel = mix(teamCol * 0.96, teamCol * 0.56 + vec3(0.04, 0.05, 0.08), detail.g * 0.42);
+    // Tone 5: Rich faction cobalt/crimson painted armor coat (M1 helmet, flak plates, pauldrons, trim)
+    vec3 saturatedTeam = pow(clamp(teamCol, 0.0, 1.0), vec3(1.26));
+    vec3 trimSteel = mix(saturatedTeam * 0.86, saturatedTeam * 0.44 + vec3(0.02, 0.03, 0.06), detail.g * 0.42);
     float armorSeam = 1.0 - 0.14 * step(0.92, fract(vWorldPos.y * 2.4 + (vWorldPos.x + vWorldPos.z) * 1.1));
-    baseCol = trimSteel * (0.90 + detail.r * 0.20) * armorSeam;
-    metallic = 0.72;
-    roughness = 0.26;
+    baseCol = trimSteel * (0.90 + detail.r * 0.16) * armorSeam;
+    metallic = 0.56;
+    roughness = 0.30;
   } else if (vTone < 6.5) {
     // Tone 6: Reflective tinted glass cockpit canopy & illuminated architectural window panes
     float mullionX = step(0.88, fract((vWorldPos.x + vWorldPos.z) * 2.2));
@@ -183,12 +187,31 @@ void main() {
     baseCol = vec3(0.84, 0.62, 0.09) * (0.90 + detail.r * 0.18) * seam;
     metallic = 0.52;
     roughness = 0.34;
-  } else {
+  } else if (vTone < 9.5) {
     // Tone 9: Warm Brushed Copper & Ordnance Brass (Tesla coils & cartridge belts)
     float wind = 0.86 + 0.14 * step(0.42, fract(vWorldPos.y * 18.0 + vUv.y * 6.0));
     baseCol = vec3(0.82, 0.45, 0.16) * (0.90 + detail.r * 0.16) * wind;
     metallic = 0.86;
     roughness = 0.22;
+  } else if (vTone < 10.5) {
+    // Tone 10: Natural matte warm human skin (exposed face, jaw, muscular forearms)
+    baseCol = vec3(0.76, 0.54, 0.42) * (0.95 + detail.r * 0.08);
+    metallic = 0.0;
+    roughness = 0.80;
+  } else {
+    // Tone 11: Deep tactical BDU combat twill (navy/crimson utility pants & sleeves)
+    float weaveX = step(0.5, fract((vWorldPos.x + vWorldPos.z) * 16.0));
+    float weaveY = step(0.5, fract(vWorldPos.y * 16.0));
+    float twill = 0.92 + 0.08 * mix(weaveX, weaveY, 0.5);
+    baseCol = mix(vec3(0.075, 0.115, 0.205), teamCol * 0.34, 0.42) * (0.90 + detail.r * 0.14) * twill;
+    metallic = 0.04;
+    roughness = 0.86;
+  }
+
+  if (uHasAlbedoTex > 0.5) {
+    baseCol = texture(uAlbedoTex, vUv).rgb * uAlbedoTint.rgb;
+    metallic = 0.18;
+    roughness = 0.58;
   }
 
   // < 50% HP charred battle-damage mask
@@ -198,7 +221,7 @@ void main() {
 
   // Derivative micro-normal relief from baked PBR normal XY + edge-highlight crispness
   vec3 N = normalize(vNormal);
-  vec2 nPerturb = (mat.rg - 0.5) * mix(0.28, 0.05, glassFactor);
+  vec2 nPerturb = (mat.rg - 0.5) * mix(0.28, 0.05, max(glassFactor, uHasAlbedoTex));
   vec3 dp1 = dFdx(vWorldPos);
   vec3 dp2 = dFdy(vWorldPos);
   vec2 duv1 = dFdx(vUv);
@@ -862,31 +885,31 @@ function addMarineArmor(b, { deployed = false } = {}) {
       b.addCylinder(Math.sin(sAng) * 0.94, 0.23, Math.cos(sAng) * 0.94 - 0.04, 0.024, 0.020, 0.46, 6, 'Y', 0, 1);
     }
 
-    // Left leg braced forward cleanly (dark tactical BDU pants Tone 1 + brown/khaki combat boot + knee pad)
-    b.addBox(-0.20, 0.028, 0.26, 0.165, 0.056, 0.31, 0, 1); // Grounded boot sole y=0
-    b.addTrapezoid(-0.20, 0.10, 0.26, 0.155, 0.27, 0.13, 0.18, 0.10, -0.02, 0, 7);
-    b.addLimb([-0.20, 0.14, 0.23], [-0.20, 0.42, 0.21], 0.088, 0.095, 10, 0, 1);
-    b.addBeveledBox(-0.20, 0.42, 0.30, 0.12, 0.12, 0.08, 0.025, 0, 0);
-    b.addLimb([-0.20, 0.42, 0.21], [-0.15, torsoBaseY - 0.02, -0.04], 0.10, 0.108, 10, 0, 1);
+    // Left leg braced forward cleanly (deep navy BDU pants Tone 11 + dark tactical boot + knee pad)
+    b.addBox(-0.20, 0.025, 0.26, 0.145, 0.050, 0.28, 0, 1); // Grounded boot sole y=0
+    b.addTrapezoid(-0.20, 0.095, 0.25, 0.135, 0.24, 0.115, 0.16, 0.095, -0.02, 0, 1);
+    b.addLimb([-0.20, 0.14, 0.23], [-0.20, 0.42, 0.21], 0.084, 0.092, 10, 0, 11);
+    b.addBeveledBox(-0.20, 0.42, 0.30, 0.115, 0.115, 0.075, 0.025, 0, 0);
+    b.addLimb([-0.20, 0.42, 0.21], [-0.15, torsoBaseY - 0.02, -0.04], 0.096, 0.105, 10, 0, 11);
 
     // Right leg kneeling squarely on ground (y = 0)
-    b.addLimb([0.16, torsoBaseY - 0.02, -0.04], [0.22, 0.12, 0.05], 0.108, 0.098, 10, 0, 1);
-    b.addBeveledBox(0.22, 0.085, 0.08, 0.12, 0.13, 0.12, 0.025, 0, 0);
-    b.addLimb([0.22, 0.10, 0.02], [0.21, 0.075, -0.34], 0.088, 0.082, 10, 0, 1);
-    b.addBeveledBox(0.21, 0.095, -0.42, 0.155, 0.18, 0.10, 0.02, 0, 7);
+    b.addLimb([0.16, torsoBaseY - 0.02, -0.04], [0.22, 0.12, 0.05], 0.105, 0.095, 10, 0, 11);
+    b.addBeveledBox(0.22, 0.085, 0.08, 0.115, 0.12, 0.11, 0.025, 0, 0);
+    b.addLimb([0.22, 0.10, 0.02], [0.21, 0.075, -0.34], 0.084, 0.080, 10, 0, 11);
+    b.addBeveledBox(0.21, 0.090, -0.41, 0.138, 0.16, 0.095, 0.02, 0, 1);
   } else {
-    // Agile Tactical Stance: grounded combat boots + dark BDU cargo trousers + cargo pockets
+    // Agile Tactical Stance: grounded combat boots + deep navy BDU cargo trousers + cargo pockets
     const legs = [
-      { x: -0.17, z: 0.04, side: -1 },
-      { x: 0.17, z: -0.04, side: 1 }
+      { x: -0.165, z: 0.04, side: -1 },
+      { x: 0.165, z: -0.04, side: 1 }
     ];
     for (const { x, z, side } of legs) {
-      b.addBox(x, 0.028, z + 0.04, 0.16, 0.056, 0.31, 0, 1); // Boot sole grounded y=0
-      b.addTrapezoid(x, 0.105, z + 0.04, 0.15, 0.27, 0.125, 0.17, 0.10, -0.02, 0, 7);
-      b.addLimb([x, 0.14, z], [x * 0.96, 0.45, z * 0.5], 0.085, 0.092, 10, 0, 1);
-      b.addBeveledBox(x, 0.44, z * 0.6 + 0.085, 0.115, 0.11, 0.075, 0.022, 0, 0); // Knee pad
-      b.addLimb([x * 0.96, 0.45, z * 0.5], [x * 0.85, 0.79, 0], 0.095, 0.105, 10, 0, 1);
-      b.addBeveledBox(x + side * 0.085, 0.60, z * 0.35, 0.055, 0.14, 0.11, 0.015, 0, 0); // Thigh cargo pocket
+      b.addBox(x, 0.024, z + 0.04, 0.135, 0.048, 0.27, 0, 1); // Boot sole grounded y=0
+      b.addTrapezoid(x, 0.095, z + 0.03, 0.125, 0.23, 0.105, 0.145, 0.095, -0.02, 0, 1);
+      b.addLimb([x, 0.14, z], [x * 0.96, 0.45, z * 0.5], 0.082, 0.090, 10, 0, 11);
+      b.addBeveledBox(x, 0.44, z * 0.6 + 0.082, 0.11, 0.105, 0.07, 0.022, 0, 0); // Knee pad
+      b.addLimb([x * 0.96, 0.45, z * 0.5], [x * 0.85, 0.79, 0], 0.092, 0.102, 10, 0, 11);
+      b.addBeveledBox(x + side * 0.082, 0.60, z * 0.35, 0.052, 0.135, 0.105, 0.015, 0, 11); // Thigh cargo pocket
     }
   }
 
@@ -897,11 +920,11 @@ function addMarineArmor(b, { deployed = false } = {}) {
   }
 
   // === 2. Agile Tactical Flak Vest, Star Shoulder Patches, M1 Helmet & Arms (partId = 1) ===
-  // Tailored tactical vest (Tone 5 blue) over slate BDU tunic (Tone 0)
-  b.addTrapezoid(0, torsoBaseY + 0.18, 0, 0.34, 0.22, 0.44, 0.26, 0.36, 0.02, 1, 0);
-  b.addTrapezoid(0, torsoBaseY + 0.19, 0.01, 0.36, 0.24, 0.42, 0.27, 0.32, 0.02, 1, 5);
-  b.addBeveledBox(-0.10, torsoBaseY + 0.23, 0.14, 0.12, 0.12, 0.05, 0.015, 1, 0); // Vest mag pouches
-  b.addBeveledBox(0.10, torsoBaseY + 0.23, 0.14, 0.12, 0.12, 0.05, 0.015, 1, 0);
+  // Tailored cobalt tactical vest (Tone 5 blue) over deep navy BDU tunic (Tone 11)
+  b.addTrapezoid(0, torsoBaseY + 0.18, 0, 0.33, 0.21, 0.42, 0.25, 0.36, 0.02, 1, 11);
+  b.addTrapezoid(0, torsoBaseY + 0.19, 0.01, 0.35, 0.23, 0.40, 0.26, 0.31, 0.02, 1, 5);
+  b.addBeveledBox(-0.10, torsoBaseY + 0.23, 0.14, 0.115, 0.115, 0.048, 0.015, 1, 11); // Vest mag pouches
+  b.addBeveledBox(0.10, torsoBaseY + 0.23, 0.14, 0.115, 0.115, 0.048, 0.015, 1, 11);
   // Compact khaki tactical field rucksack (NO heavy CMC thrusters)
   b.addBeveledBox(0, torsoBaseY + 0.19, -0.17, 0.26, 0.28, 0.12, 0.03, 1, 7);
   b.addBeveledBox(0, torsoBaseY + 0.30, -0.18, 0.22, 0.08, 0.10, 0.02, 1, 1);
@@ -909,29 +932,31 @@ function addMarineArmor(b, { deployed = false } = {}) {
   // Fitted Tactical Short-Sleeve Shoulders with Gold Star Emblem (Tone 8) & Silver Trim (Tone 3)
   const shY = torsoBaseY + 0.29;
   for (const side of [-1, 1]) {
-    b.addBeveledBox(side * 0.245, shY - 0.02, 0, 0.12, 0.15, 0.18, 0.03, 1, 5);
-    b.addBeveledBox(side * 0.255, shY - 0.085, 0, 0.125, 0.032, 0.17, 0.008, 1, 3); // Sleeve band trim
-    b.addBox(side * 0.312, shY - 0.01, 0, 0.018, 0.065, 0.065, 1, 8); // Gold star chevron badge
+    b.addBeveledBox(side * 0.24, shY - 0.02, 0, 0.115, 0.145, 0.17, 0.03, 1, 5);
+    b.addBeveledBox(side * 0.25, shY - 0.085, 0, 0.12, 0.030, 0.165, 0.008, 1, 3); // Sleeve band trim
+    b.addBox(side * 0.304, shY - 0.01, 0, 0.018, 0.062, 0.062, 1, 8); // Gold star chevron badge
   }
 
-  // Open-Face M1 Steel Combat Helmet + Exposed Face & Chinstrap (NO enclosed SC2 glass dome!)
+  // Open-Face M1 Steel Combat Helmet + Natural Skin Face (Tone 10) & Sealed Crown Apex
   const headY = torsoBaseY + 0.49;
-  b.addCapsule(0, headY - 0.01, 0.02, 0.115, 0.05, 'Y', 12, 1, 7); // Sun-tanned tactical face
-  b.addBeveledBox(0, headY - 0.06, 0.02, 0.20, 0.04, 0.18, 0.01, 1, 1); // Chinstrap & collar
-  b.addBox(0, headY + 0.02, 0.122, 0.14, 0.032, 0.03, 1, 1); // Brow shadow / eye line
-  // Iconic flanged blue M1 steel combat helmet bowl + rim lip
-  b.addLathe(0, headY + 0.035, 0, [
-    [-0.03, 0.168], [0.025, 0.160], [0.075, 0.142], [0.12, 0.095], [0.145, 0.02]
-  ], 14, 'Y', 1, 5);
-  b.addCylinder(0, headY + 0.01, 0.015, 0.172, 0.168, 0.028, 14, 'Y', 1, 5); // M1 helmet brim
+  b.addCapsule(0, headY - 0.08, 0.01, 0.072, 0.045, 'Y', 10, 1, 10); // Neck column
+  b.addCapsule(0, headY - 0.01, 0.02, 0.112, 0.055, 'Y', 14, 1, 10); // Warm human head & face
+  b.addBox(0, headY - 0.02, 0.126, 0.032, 0.042, 0.028, 1, 10); // Sculpted nose ridge
+  b.addBeveledBox(0, headY - 0.065, 0.025, 0.19, 0.034, 0.17, 0.01, 1, 1); // Chinstrap & collar
+  b.addBox(0, headY + 0.02, 0.118, 0.135, 0.028, 0.028, 1, 1); // Brow shadow / eyes
+  // Sealed deep cobalt M1 steel combat helmet bowl (crown closed to r=0.0 so zero pinhole!)
+  b.addLathe(0, headY + 0.032, 0, [
+    [-0.032, 0.165], [0.025, 0.158], [0.075, 0.138], [0.118, 0.090], [0.140, 0.035], [0.148, 0.0]
+  ], 16, 'Y', 1, 5);
+  b.addCylinder(0, headY + 0.008, 0.016, 0.168, 0.164, 0.026, 16, 'Y', 1, 5); // M1 helmet brim
 
-  // Lean Muscular Tactical Forearms (rolled sleeves) + Dark Combat Gloves cradling gun
+  // Lean Muscular Tactical Forearms (Tone 10 skin) + Dark Combat Gloves (Tone 1) cradling gun
   const gunY = torsoBaseY + 0.04;
   const gx = deployed ? 0.16 : 0.14;
-  b.addLimb([0.26, shY - 0.06, 0], [0.27, gunY - 0.01, 0.08], 0.068, 0.060, 8, 1, 7);
-  b.addLimb([0.27, gunY - 0.01, 0.08], [gx + 0.02, gunY, 0.24], 0.060, 0.052, 8, 1, 1); // Right gloved grip
-  b.addLimb([-0.26, shY - 0.06, 0], [-0.18, gunY - 0.03, 0.24], 0.068, 0.060, 8, 1, 7);
-  b.addLimb([-0.18, gunY - 0.03, 0.24], [gx - 0.06, gunY, 0.48], 0.060, 0.052, 8, 1, 1); // Left gloved grip
+  b.addLimb([0.25, shY - 0.06, 0], [0.265, gunY - 0.01, 0.08], 0.064, 0.056, 10, 1, 10);
+  b.addLimb([0.265, gunY - 0.01, 0.08], [gx + 0.02, gunY, 0.24], 0.056, 0.048, 8, 1, 1); // Right gloved grip
+  b.addLimb([-0.25, shY - 0.06, 0], [-0.18, gunY - 0.03, 0.24], 0.064, 0.056, 10, 1, 10);
+  b.addLimb([-0.18, gunY - 0.03, 0.24], [gx - 0.06, gunY, 0.48], 0.056, 0.048, 8, 1, 1); // Left gloved grip
 
   // === 3. Weapon (partId = 2 -> recoils cleanly along -Z) ===
   if (deployed) {
@@ -1024,7 +1049,7 @@ function addTrooperRig(b, cfg) {
         b.addCapsule(side * 0.27 * wScale * S, shY, -0.01 * S, 0.11 * S, 0.04 * S, 'X', 10, 1, 1);
         b.withTransform(side * 0.39 * wScale * S, shY, -0.01 * S, 0.04, 0, side * -0.54, () => {
           b.addLathe(0, -0.03 * S, 0, [
-            [0.0, 0.22 * S], [0.06 * S, 0.215 * S], [0.12 * S, 0.185 * S], [0.18 * S, 0.125 * S], [0.21 * S, 0.02 * S]
+            [0.0, 0.22 * S], [0.06 * S, 0.215 * S], [0.12 * S, 0.185 * S], [0.18 * S, 0.125 * S], [0.21 * S, 0.0]
           ], 14, 'Y', 1, armorTone);
           b.addCylinder(0, -0.035 * S, 0, 0.232 * S, 0.225 * S, 0.055 * S, 14, 'Y', 1, trimTone);
           b.addBeveledBox(0, 0.10 * S, 0, 0.075 * S, 0.11 * S, 0.29 * S, 0.018 * S, 1, 3);
@@ -1034,7 +1059,7 @@ function addTrooperRig(b, cfg) {
       for (const side of [-1, 1]) {
         b.withTransform(side * shX, shY, 0, 0.03, 0, side * -0.42, () => {
           b.addLathe(0, -0.02 * S, 0, [
-            [0.0, 0.145 * S], [0.05 * S, 0.14 * S], [0.10 * S, 0.11 * S], [0.14 * S, 0.02 * S]
+            [0.0, 0.145 * S], [0.05 * S, 0.14 * S], [0.10 * S, 0.11 * S], [0.14 * S, 0.0]
           ], 12, 'Y', 1, armorTone);
           b.addCylinder(0, -0.025 * S, 0, 0.155 * S, 0.15 * S, 0.035 * S, 12, 'Y', 1, trimTone);
         });
@@ -1052,11 +1077,11 @@ function addTrooperRig(b, cfg) {
       b.addBeveledBox(0.27 * S, shY - 0.02 * S, 0, 0.14 * S, 0.14 * S, 0.20 * S, 0.035 * S, 1, armorTone);
     }
 
-    // 5. Helmet / Faceplate Styles (zero toy-skin gaps!)
+    // 5. Helmet / Faceplate Styles (zero toy-skin gaps & sealed crowns)
     const headY = torsoBaseY + 0.51 * S;
     if (helmetStyle === 'cmc') {
       b.addLathe(0, headY, 0.02 * S, [
-        [-0.075 * S, 0.15 * S], [-0.02 * S, 0.165 * S], [0.055 * S, 0.155 * S], [0.12 * S, 0.11 * S], [0.155 * S, 0.02 * S]
+        [-0.075 * S, 0.15 * S], [-0.02 * S, 0.165 * S], [0.055 * S, 0.155 * S], [0.12 * S, 0.11 * S], [0.155 * S, 0.0]
       ], 14, 'Y', 1, helmetTone);
       b.addBeveledBox(0, headY + 0.075 * S, 0.11 * S, 0.21 * S, 0.045 * S, 0.09 * S, 0.016 * S, 1, trimTone);
       b.addCylinder(0, headY + 0.015 * S, 0.088 * S, 0.142 * S, 0.142 * S, 0.08 * S, 14, 'Y', 1, visorTone);
@@ -1064,7 +1089,7 @@ function addTrooperRig(b, cfg) {
     } else if (helmetStyle === 'dome') {
       // Sleek full-face Chrono/Rocketeer spherical-oval combat helmet
       b.addLathe(0, headY + 0.01 * S, 0.01 * S, [
-        [-0.08 * S, 0.135 * S], [-0.01 * S, 0.162 * S], [0.07 * S, 0.152 * S], [0.13 * S, 0.105 * S], [0.165 * S, 0.02 * S]
+        [-0.08 * S, 0.135 * S], [-0.01 * S, 0.162 * S], [0.07 * S, 0.152 * S], [0.13 * S, 0.105 * S], [0.165 * S, 0.0]
       ], 14, 'Y', 1, helmetTone);
       b.addCapsule(0, headY + 0.01 * S, 0.08 * S, 0.095 * S, 0.05 * S, 'Y', 12, 1, visorTone);
       b.addBeveledBox(-0.155 * S, headY, 0, 0.05 * S, 0.09 * S, 0.10 * S, 0.015 * S, 1, trimTone);
@@ -1079,7 +1104,7 @@ function addTrooperRig(b, cfg) {
       // 'goggles': Steel/Hazard M1 dome + tinted combat goggles + respirator mask
       b.addCapsule(0, headY, 0.01 * S, 0.125 * S, 0.06 * S, 'Y', 12, 1, bootTone); // Sealed balaclava head
       b.addLathe(0, headY + 0.04 * S, 0, [
-        [-0.03 * S, 0.17 * S], [0.02 * S, 0.165 * S], [0.075 * S, 0.145 * S], [0.125 * S, 0.095 * S], [0.145 * S, 0.02 * S]
+        [-0.03 * S, 0.17 * S], [0.02 * S, 0.165 * S], [0.075 * S, 0.145 * S], [0.125 * S, 0.095 * S], [0.145 * S, 0.0]
       ], 14, 'Y', 1, helmetTone);
       b.addBeveledBox(0, headY + 0.02 * S, 0.115 * S, 0.18 * S, 0.058 * S, 0.065 * S, 0.015 * S, 1, visorTone);
       b.addCylinder(0, headY - 0.055 * S, 0.11 * S, 0.065 * S, 0.055 * S, 0.07 * S, 10, 'Z', 1, trimTone);
@@ -2148,6 +2173,9 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     uMaterialTex: gl.getUniformLocation(mainProg, 'uMaterialTex'),
     uShadowMap: gl.getUniformLocation(mainProg, 'uShadowMap'),
     uFogTex: gl.getUniformLocation(mainProg, 'uFogTex'),
+    uAlbedoTex: gl.getUniformLocation(mainProg, 'uAlbedoTex'),
+    uHasAlbedoTex: gl.getUniformLocation(mainProg, 'uHasAlbedoTex'),
+    uAlbedoTint: gl.getUniformLocation(mainProg, 'uAlbedoTint'),
     uTeamColors: gl.getUniformLocation(mainProg, 'uTeamColors')
   };
   const shadowLightLoc = gl.getUniformLocation(shadowProg, 'uLightViewProj');
@@ -2170,6 +2198,77 @@ export function createModelFactory(gl, compileProgram, worldSize) {
 
   const glbCache = new Map();
 
+  const fallbackWhiteTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, fallbackWhiteTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  function commitBatchAlbedoSource(batch, source) {
+    if (!batch.albedoTex) batch.albedoTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, batch.albedoTex);
+    // glTF TEXCOORD_0 uses top-left origin; keep UNPACK_FLIP_Y_WEBGL disabled during upload
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    batch.hasAlbedoTex = true;
+  }
+
+  function clearBatchAlbedoTexture(batch) {
+    batch.texUploadToken = (batch.texUploadToken || 0) + 1;
+    batch.hasAlbedoTex = false;
+    batch.albedoTint.set([1, 1, 1, 1]);
+    if (batch.albedoTex) {
+      gl.deleteTexture(batch.albedoTex);
+      batch.albedoTex = null;
+    }
+  }
+
+  function uploadBatchAlbedoTexture(batch, albedoImage) {
+    clearBatchAlbedoTexture(batch);
+    if (!albedoImage || !albedoImage.bytes) return;
+    if (Array.isArray(albedoImage.baseColorFactor)) {
+      batch.albedoTint.set([
+        albedoImage.baseColorFactor[0] ?? 1,
+        albedoImage.baseColorFactor[1] ?? 1,
+        albedoImage.baseColorFactor[2] ?? 1,
+        albedoImage.baseColorFactor[3] ?? 1
+      ]);
+    }
+    const token = batch.texUploadToken;
+    const blob = new Blob([albedoImage.bytes], { type: albedoImage.mimeType || 'image/png' });
+    if (typeof createImageBitmap === 'function') {
+      createImageBitmap(blob, { imageOrientation: 'from-image' })
+        .catch(() => createImageBitmap(blob))
+        .then((bitmap) => {
+          if (batch.texUploadToken !== token) {
+            if (typeof bitmap.close === 'function') bitmap.close();
+            return;
+          }
+          commitBatchAlbedoSource(batch, bitmap);
+          if (typeof bitmap.close === 'function') bitmap.close();
+        })
+        .catch(() => {});
+      return;
+    }
+    if (typeof Image !== 'undefined' && typeof URL !== 'undefined') {
+      const objUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        if (batch.texUploadToken === token) commitBatchAlbedoSource(batch, img);
+        URL.revokeObjectURL(objUrl);
+      };
+      img.onerror = () => URL.revokeObjectURL(objUrl);
+      img.src = objUrl;
+    }
+  }
+
   function uploadGeometryToBatch(batch, geom) {
     gl.bindVertexArray(batch.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, batch.vbo);
@@ -2179,6 +2278,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.bindVertexArray(null);
     batch.indexCount = geom.indexCount;
     batch.indexType = geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+    uploadBatchAlbedoTexture(batch, geom.albedoImage || null);
   }
 
   function applyGeometryOverride(typeId, sourceLabel, geom) {
@@ -2282,11 +2382,18 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       instVbo,
       indexCount: geom.indexCount,
       indexType: geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
+      albedoTex: null,
+      hasAlbedoTex: false,
+      albedoTint: new Float32Array([1, 1, 1, 1]),
+      texUploadToken: 0,
       capacity,
       instBuffer,
       staticCount: 0,
       dynamicCount: 0
     };
+    if (geom.albedoImage) {
+      uploadBatchAlbedoTexture(batch, geom.albedoImage);
+    }
     meshes.set(typeId, batch);
     return batch;
   }
@@ -2445,6 +2552,8 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.bindTexture(gl.TEXTURE_2D, ctx.fogTex);
     gl.uniform1i(loc.uFogTex, 3);
 
+    gl.uniform1i(loc.uAlbedoTex, 4);
+
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.enable(gl.STENCIL_TEST);
@@ -2455,6 +2564,10 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
     for (let i = 0; i < dynamicBatches.length; i++) {
       const batch = dynamicBatches[i];
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
+      gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
+      gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
       drawBatchSlice(batch, batch.dynamicCount, batch.staticCount, ctx);
     }
 
@@ -2464,6 +2577,10 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
     for (let i = 0; i < staticBatches.length; i++) {
       const batch = staticBatches[i];
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
+      gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
+      gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
       drawBatchSlice(batch, batch.staticCount, 0, ctx);
     }
 
@@ -2532,11 +2649,13 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       gl.deleteProgram(mainProg);
       gl.deleteProgram(shadowProg);
       gl.deleteProgram(xrayProg);
+      gl.deleteTexture(fallbackWhiteTex);
       for (const b of meshes.values()) {
         gl.deleteVertexArray(b.vao);
         gl.deleteBuffer(b.vbo);
         gl.deleteBuffer(b.ibo);
         gl.deleteBuffer(b.instVbo);
+        if (b.albedoTex) gl.deleteTexture(b.albedoTex);
       }
       meshes.clear();
       glbCache.clear();
