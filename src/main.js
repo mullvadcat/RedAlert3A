@@ -872,18 +872,24 @@ function bootstrap() {
 
     const glbFileInput = document.createElement('input');
     glbFileInput.type = 'file';
-    glbFileInput.accept = '.glb';
+    glbFileInput.accept = '.glb,.png,.webp';
     glbFileInput.hidden = true;
     panel.appendChild(glbFileInput);
 
     const resolveDropTypeId = (fileName) => {
-      const stem = String(fileName || '').replace(/\.glb$/i, '').toLowerCase();
+      const stem = String(fileName || '').replace(/\.(glb|png|webp)$/i, '').toLowerCase();
       if (CANONICAL_ENTITY_IDS.includes(stem)) return stem;
       return state.entities[focusIndex]?.typeId || CANONICAL_ENTITY_IDS[0];
     };
 
     const installCustomGlbFile = async (file, explicitTypeId = null) => {
-      if (!file || !/\.glb$/i.test(file.name)) {
+      if (!file) {
+        glbStatusEl.textContent = t('gallery.glbInvalidStatus');
+        return false;
+      }
+      const isSprite = /\.(png|webp)$/i.test(file.name);
+      const isGlb = /\.glb$/i.test(file.name);
+      if (!isGlb && !isSprite) {
         glbStatusEl.textContent = t('gallery.glbInvalidStatus');
         return false;
       }
@@ -895,8 +901,10 @@ function bootstrap() {
       }
       try {
         const buf = await file.arrayBuffer();
-        const geom = mf.loadGlbBufferOverride(typeId, buf, { fileName: file.name });
-        await saveCustomGlbModel(typeId, buf, { fileName: file.name });
+        const geom = isSprite
+          ? mf.loadSpriteBufferOverride(typeId, buf, file.type || (/\.webp$/i.test(file.name) ? 'image/webp' : 'image/png'), { fileName: file.name })
+          : mf.loadGlbBufferOverride(typeId, buf, { fileName: file.name });
+        if (isGlb) await saveCustomGlbModel(typeId, buf, { fileName: file.name });
         focusEntity(typeId);
         glbStatusEl.textContent = t('gallery.glbLoadedStatus', { typeId, verts: geom.vertexCount });
         return true;
@@ -917,6 +925,7 @@ function bootstrap() {
       if (!ent || !mf) return;
       mf.restoreProceduralModel(ent.typeId);
       await deleteCustomGlbModel(ent.typeId);
+      await mf.syncManifestOverrides?.();
       glbStatusEl.textContent = t('gallery.dropGlbHint');
     });
     mkBtn('gallery.resetAllModels', async () => {
@@ -926,6 +935,7 @@ function bootstrap() {
         mf.restoreProceduralModel(loadedId);
       }
       await clearCustomGlbModels();
+      await mf.syncManifestOverrides?.();
       glbStatusEl.textContent = t('gallery.dropGlbHint');
     });
 

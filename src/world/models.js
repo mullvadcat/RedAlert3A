@@ -27,6 +27,8 @@ layout(location = 9) in vec4 iUnitState; // x: localTurretYaw, y: recoil, z: hpR
 
 uniform mat4 uViewProj;
 uniform mat4 uLightViewProj;
+uniform vec3 uCamPos;
+uniform float uBillboardMode;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -43,23 +45,47 @@ vec3 rotateY(vec3 v, float ang) {
 
 void main() {
   mat4 modelMat = mat4(iMatCol0, iMatCol1, iMatCol2, iMatCol3);
-  vec3 pos = aPos;
-  vec3 nrm = aNormal;
+  vec4 worldPos;
+  vec3 worldNormal;
+  vec2 outUv = aUv;
 
-  // Sub-part vertex articulation (Zero CPU hierarchy matrix sync):
-  // aPartId == 1: turret/dish; aPartId == 2: barrel/tool (recoils along local -Z then inherits turret yaw)
-  if (aPartId > 0.5) {
-    if (aPartId > 1.5) {
-      pos.z -= iUnitState.y;
+  if (uBillboardMode > 0.5) {
+    vec3 worldOrigin = modelMat[3].xyz;
+    float instScale = length(modelMat[0].xyz);
+    vec3 toCamXZ = vec3(uCamPos.x - worldOrigin.x, 0.0, uCamPos.z - worldOrigin.z);
+    float camLen = length(toCamXZ);
+    vec3 fwd = camLen > 1e-4 ? toCamXZ / camLen : vec3(0.0, 0.0, 1.0);
+    vec3 screenRight = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));
+    // Tilt sprite top slightly back so overhead RTS cameras view full silhouette without steep foreshortening
+    vec3 spriteUp = normalize(vec3(0.0, 0.95, 0.0) - fwd * 0.31);
+    vec3 pos3 = worldOrigin + screenRight * (aPos.x * instScale) + spriteUp * (aPos.y * instScale) + fwd * (0.04 * instScale);
+    worldPos = vec4(pos3, 1.0);
+    worldNormal = normalize(fwd * 0.82 + vec3(0.0, 0.57, 0.0));
+    vec3 unitFwd = vec3(modelMat[2].x, 0.0, modelMat[2].z);
+    if (dot(unitFwd, screenRight) < -0.05) {
+      outUv.x = 1.0 - aUv.x;
     }
-    pos = rotateY(pos, iUnitState.x);
-    nrm = rotateY(nrm, iUnitState.x);
+  } else {
+    vec3 pos = aPos;
+    vec3 nrm = aNormal;
+
+    // Sub-part vertex articulation (Zero CPU hierarchy matrix sync):
+    // aPartId == 1: turret/dish; aPartId == 2: barrel/tool (recoils along local -Z then inherits turret yaw)
+    if (aPartId > 0.5) {
+      if (aPartId > 1.5) {
+        pos.z -= iUnitState.y;
+      }
+      pos = rotateY(pos, iUnitState.x);
+      nrm = rotateY(nrm, iUnitState.x);
+    }
+
+    worldPos = modelMat * vec4(pos, 1.0);
+    worldNormal = normalize(mat3(modelMat) * nrm);
   }
 
-  vec4 worldPos = modelMat * vec4(pos, 1.0);
   vWorldPos = worldPos.xyz;
-  vNormal = normalize(mat3(modelMat) * nrm);
-  vUv = aUv;
+  vNormal = worldNormal;
+  vUv = outUv;
   vTone = aTone;
   vUnitState = iUnitState;
   vShadowPos = uLightViewProj * worldPos;
@@ -88,6 +114,7 @@ uniform sampler2D uShadowMap;
 uniform sampler2D uFogTex;
 uniform sampler2D uAlbedoTex;
 uniform float uHasAlbedoTex;
+uniform float uBillboardMode;
 uniform vec4 uAlbedoTint;
 uniform vec3 uTeamColors[4];
 
@@ -209,11 +236,13 @@ void main() {
   }
 
   if (uHasAlbedoTex > 0.5) {
-    // glTF baseColorTexture is sRGB; decode to linear space before AgX filmic tone mapping
-    vec3 texLinear = pow(clamp(texture(uAlbedoTex, vUv).rgb, 0.0, 1.0), vec3(2.2));
+    vec4 albedoSample = texture(uAlbedoTex, vUv);
+    if (uBillboardMode > 0.5 && albedoSample.a < 0.32) discard;
+    // glTF baseColorTexture / PNG sprites are sRGB; decode to linear space before AgX filmic tone mapping
+    vec3 texLinear = pow(clamp(albedoSample.rgb, 0.0, 1.0), vec3(2.2));
     baseCol = texLinear * uAlbedoTint.rgb * 1.12;
-    metallic = 0.08;
-    roughness = 0.72;
+    metallic = mix(0.08, 0.02, uBillboardMode);
+    roughness = mix(0.72, 0.88, uBillboardMode);
   }
 
   // < 50% HP charred battle-damage mask
@@ -250,9 +279,11 @@ void main() {
 
   float upAO = mix(0.66, 1.12, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
   float cavityAO = mix(detail.a, 1.0, uHasAlbedoTex);
-  vec3 ambient = baseCol * (0.18 + 0.18 * max(N.y, 0.0)) * cavityAO * upAO;
+  float ambientStrength = mix(0.18 + 0.18 * max(N.y, 0.0), 0.38, uBillboardMode);
+  vec3 ambient = baseCol * ambientStrength * cavityAO * mix(upAO, 1.0, uBillboardMode);
   vec3 specTint = mix(vec3(1.0), clamp(baseCol * 1.35 + vec3(0.28), 0.0, 1.0), metallic * 0.65);
-  vec3 direct = (baseCol * 1.24 + specTint * spec) * NdotL * mix(0.24, 1.0, shadow);
+  float sunWrap = mix(NdotL, 0.58 + 0.42 * NdotL, uBillboardMode);
+  vec3 direct = (baseCol * mix(1.24, 1.06, uBillboardMode) + specTint * spec * (1.0 - uBillboardMode)) * sunWrap * mix(0.24, 1.0, shadow);
 
   // Height-adaptive faction Fresnel rim + glossy canopy sky reflection (muted on textured GLB assets)
   float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.4);
@@ -273,6 +304,7 @@ void main() {
 const SHADOW_VS = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 aPos;
+layout(location = 2) in vec2 aUv;
 layout(location = 3) in float aPartId;
 
 layout(location = 5) in vec4 iMatCol0;
@@ -282,6 +314,11 @@ layout(location = 8) in vec4 iMatCol3;
 layout(location = 9) in vec4 iUnitState;
 
 uniform mat4 uLightViewProj;
+uniform vec3 uCamPos;
+uniform vec3 uLightDir;
+uniform float uBillboardMode;
+
+out vec2 vUv;
 
 vec3 rotateY(vec3 v, float ang) {
   float c = cos(ang);
@@ -291,17 +328,47 @@ vec3 rotateY(vec3 v, float ang) {
 
 void main() {
   mat4 modelMat = mat4(iMatCol0, iMatCol1, iMatCol2, iMatCol3);
-  vec3 pos = aPos;
-  if (aPartId > 0.5) {
-    if (aPartId > 1.5) pos.z -= iUnitState.y;
-    pos = rotateY(pos, iUnitState.x);
+  vec2 outUv = aUv;
+  vec4 worldPos;
+
+  if (uBillboardMode > 0.5) {
+    vec3 worldOrigin = modelMat[3].xyz;
+    float instScale = length(modelMat[0].xyz);
+    // Face shadow card horizontally toward incoming sun light so silhouette shadows are never edge-on
+    vec3 toLightXZ = vec3(uLightDir.x, 0.0, uLightDir.z);
+    float lightLen = length(toLightXZ);
+    vec3 lightFwd = lightLen > 1e-4 ? toLightXZ / lightLen : vec3(0.5, 0.0, 0.7);
+    vec3 lightRight = normalize(cross(vec3(0.0, 1.0, 0.0), lightFwd));
+    vec3 shadowUp = normalize(vec3(0.0, 0.96, 0.0) - lightFwd * 0.28);
+    worldPos = vec4(worldOrigin + lightRight * (aPos.x * instScale) + shadowUp * (aPos.y * instScale), 1.0);
+    vec3 toCamXZ = vec3(uCamPos.x - worldOrigin.x, 0.0, uCamPos.z - worldOrigin.z);
+    float camLen = length(toCamXZ);
+    vec3 camFwd = camLen > 1e-4 ? toCamXZ / camLen : vec3(0.0, 0.0, 1.0);
+    vec3 camRight = normalize(cross(vec3(0.0, 1.0, 0.0), camFwd));
+    vec3 unitFwd = vec3(modelMat[2].x, 0.0, modelMat[2].z);
+    if (dot(unitFwd, camRight) < -0.05) {
+      outUv.x = 1.0 - aUv.x;
+    }
+  } else {
+    vec3 pos = aPos;
+    if (aPartId > 0.5) {
+      if (aPartId > 1.5) pos.z -= iUnitState.y;
+      pos = rotateY(pos, iUnitState.x);
+    }
+    worldPos = modelMat * vec4(pos, 1.0);
   }
-  gl_Position = uLightViewProj * modelMat * vec4(pos, 1.0);
+  vUv = outUv;
+  gl_Position = uLightViewProj * worldPos;
 }`;
 
 const SHADOW_FS = `#version 300 es
 precision highp float;
-void main() {}`;
+in vec2 vUv;
+uniform sampler2D uAlbedoTex;
+uniform float uBillboardMode;
+void main() {
+  if (uBillboardMode > 0.5 && texture(uAlbedoTex, vUv).a < 0.32) discard;
+}`;
 
 const XRAY_VS = `#version 300 es
 precision highp float;
@@ -2178,10 +2245,17 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     uFogTex: gl.getUniformLocation(mainProg, 'uFogTex'),
     uAlbedoTex: gl.getUniformLocation(mainProg, 'uAlbedoTex'),
     uHasAlbedoTex: gl.getUniformLocation(mainProg, 'uHasAlbedoTex'),
+    uBillboardMode: gl.getUniformLocation(mainProg, 'uBillboardMode'),
     uAlbedoTint: gl.getUniformLocation(mainProg, 'uAlbedoTint'),
     uTeamColors: gl.getUniformLocation(mainProg, 'uTeamColors')
   };
-  const shadowLightLoc = gl.getUniformLocation(shadowProg, 'uLightViewProj');
+  const shadowLoc = {
+    uLightViewProj: gl.getUniformLocation(shadowProg, 'uLightViewProj'),
+    uCamPos: gl.getUniformLocation(shadowProg, 'uCamPos'),
+    uLightDir: gl.getUniformLocation(shadowProg, 'uLightDir'),
+    uBillboardMode: gl.getUniformLocation(shadowProg, 'uBillboardMode'),
+    uAlbedoTex: gl.getUniformLocation(shadowProg, 'uAlbedoTex')
+  };
   const xrayLoc = {
     uViewProj: gl.getUniformLocation(xrayProg, 'uViewProj'),
     uCamPos: gl.getUniformLocation(xrayProg, 'uCamPos'),
@@ -2200,6 +2274,8 @@ export function createModelFactory(gl, compileProgram, worldSize) {
   ]);
 
   const glbCache = new Map();
+  const lastCamPos = new Float32Array([256, 40, 300]);
+  const lastLightDir = new Float32Array([0.45, 0.78, 0.43]);
 
   const fallbackWhiteTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, fallbackWhiteTex);
@@ -2217,8 +2293,9 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.generateMipmap(gl.TEXTURE_2D);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    const wrapMode = batch.isBillboard ? gl.CLAMP_TO_EDGE : gl.REPEAT;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
     gl.bindTexture(gl.TEXTURE_2D, null);
     batch.hasAlbedoTex = true;
   }
@@ -2281,7 +2358,48 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.bindVertexArray(null);
     batch.indexCount = geom.indexCount;
     batch.indexType = geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+    batch.isBillboard = Boolean(geom.isBillboard);
     uploadBatchAlbedoTexture(batch, geom.albedoImage || null);
+  }
+
+  function buildSpriteQuadGeometry(width = 2.4, height = 2.1, albedoImage = null) {
+    const hw = width * 0.5;
+    // Anchored at ground y=0; UV v=1 at base and v=0 at crown (UNPACK_FLIP_Y_WEBGL is disabled)
+    const vertices = new Float32Array([
+      -hw, 0.0,    0.0,   0.0, 0.0, 1.0,   0.0, 1.0,   0.0, 0.0,
+       hw, 0.0,    0.0,   0.0, 0.0, 1.0,   1.0, 1.0,   0.0, 0.0,
+       hw, height, 0.0,   0.0, 0.0, 1.0,   1.0, 0.0,   0.0, 0.0,
+      -hw, height, 0.0,   0.0, 0.0, 1.0,   0.0, 0.0,   0.0, 0.0
+    ]);
+    const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+    return {
+      vertices,
+      indices,
+      useUint32: false,
+      indexCount: 6,
+      vertexCount: 4,
+      isBillboard: true,
+      albedoImage
+    };
+  }
+
+  function loadSpriteBufferOverride(typeId, arrayBuffer, mimeType = 'image/png', options = {}) {
+    const width = Number.isFinite(options.width) ? options.width : 2.4;
+    const height = Number.isFinite(options.height) ? options.height : 2.1;
+    const geom = buildSpriteQuadGeometry(width, height, {
+      bytes: new Uint8Array(arrayBuffer),
+      mimeType,
+      baseColorFactor: [1, 1, 1, 1]
+    });
+    return applyGeometryOverride(typeId, options.fileName || `sprite:${typeId}`, geom);
+  }
+
+  async function loadSpriteOverride(typeId, url, options = {}) {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error(`Sprite fetch failed (${resp.status}): ${url}`);
+    const contentType = resp.headers.get('content-type') || (/\.webp$/i.test(url) ? 'image/webp' : 'image/png');
+    const buf = await resp.arrayBuffer();
+    return loadSpriteBufferOverride(typeId, buf, contentType, { ...options, fileName: url });
   }
 
   function applyGeometryOverride(typeId, sourceLabel, geom) {
@@ -2337,6 +2455,27 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     }
   }
 
+  async function syncSpriteManifest() {
+    if (typeof fetch !== 'function' || typeof window === 'undefined') return;
+    try {
+      const resp = await fetch('./assets/sprites/manifest.json', { cache: 'no-store' });
+      if (!resp.ok) return;
+      const manifest = await resp.json();
+      const entries = manifest && typeof manifest.sprites === 'object' ? Object.entries(manifest.sprites) : [];
+      await Promise.all(
+        entries.map(async ([typeId, spec]) => {
+          if (glbCache.has(typeId)) return; // Custom .glb takes precedence over 2.5D sprite if both exist
+          const url = typeof spec === 'string' ? spec : spec && spec.url;
+          if (!url) return;
+          const opts = typeof spec === 'object' && spec ? spec : {};
+          await loadSpriteOverride(typeId, url, opts);
+        })
+      );
+    } catch {
+      // Optional 2.5D sprite overrides fail softly.
+    }
+  }
+
   function getOrCreateBatch(typeId, overrideGeom = null) {
     let batch = meshes.get(typeId);
     if (batch) return batch;
@@ -2385,6 +2524,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       instVbo,
       indexCount: geom.indexCount,
       indexType: geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
+      isBillboard: Boolean(geom.isBillboard),
       albedoTex: null,
       hasAlbedoTex: false,
       albedoTint: new Float32Array([1, 1, 1, 1]),
@@ -2516,18 +2656,29 @@ export function createModelFactory(gl, compileProgram, worldSize) {
 
   function renderShadowPass(lightViewProj, onlyStatic, ctx) {
     gl.useProgram(shadowProg);
-    gl.uniformMatrix4fv(shadowLightLoc, false, lightViewProj);
+    gl.uniformMatrix4fv(shadowLoc.uLightViewProj, false, lightViewProj);
+    gl.uniform3fv(shadowLoc.uCamPos, ctx?.camPos || lastCamPos);
+    gl.uniform3fv(shadowLoc.uLightDir, ctx?.lightDir || lastLightDir);
+    gl.uniform1i(shadowLoc.uAlbedoTex, 4);
+    const cullWasEnabled = gl.isEnabled(gl.CULL_FACE);
     const list = onlyStatic ? staticBatches : dynamicBatches;
     for (let i = 0; i < list.length; i++) {
       const batch = list[i];
       const count = onlyStatic ? batch.staticCount : batch.dynamicCount;
       const baseInstanceOffset = onlyStatic ? 0 : batch.staticCount;
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
+      gl.uniform1f(shadowLoc.uBillboardMode, batch.isBillboard ? 1.0 : 0.0);
+      if (batch.isBillboard && cullWasEnabled) gl.disable(gl.CULL_FACE);
       drawBatchSlice(batch, count, baseInstanceOffset, ctx);
+      if (batch.isBillboard && cullWasEnabled) gl.enable(gl.CULL_FACE);
     }
     gl.bindVertexArray(null);
   }
 
   function renderMainPass(ctx) {
+    if (ctx?.camPos) lastCamPos.set(ctx.camPos);
+    if (ctx?.lightDir) lastLightDir.set(ctx.lightDir);
     gl.useProgram(mainProg);
     gl.uniformMatrix4fv(loc.uViewProj, false, ctx.viewProj);
     gl.uniformMatrix4fv(loc.uLightViewProj, false, ctx.lightViewProj);
@@ -2570,8 +2721,11 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       gl.activeTexture(gl.TEXTURE4);
       gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
       gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
+      gl.uniform1f(loc.uBillboardMode, batch.isBillboard ? 1.0 : 0.0);
       gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
+      if (batch.isBillboard) gl.disable(gl.CULL_FACE);
       drawBatchSlice(batch, batch.dynamicCount, batch.staticCount, ctx);
+      if (batch.isBillboard) gl.enable(gl.CULL_FACE);
     }
 
     // Draw static buildings marking stencil = 1 on foreground building pixels that win depth test
@@ -2583,8 +2737,11 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       gl.activeTexture(gl.TEXTURE4);
       gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
       gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
+      gl.uniform1f(loc.uBillboardMode, batch.isBillboard ? 1.0 : 0.0);
       gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
+      if (batch.isBillboard) gl.disable(gl.CULL_FACE);
       drawBatchSlice(batch, batch.staticCount, 0, ctx);
+      if (batch.isBillboard) gl.enable(gl.CULL_FACE);
     }
 
     gl.stencilMask(0xFF);
@@ -2618,6 +2775,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
 
     for (let i = 0; i < dynamicBatches.length; i++) {
       const batch = dynamicBatches[i];
+      if (batch.isBillboard) continue;
       drawBatchSlice(batch, batch.dynamicCount, batch.staticCount, ctx);
     }
 
@@ -2634,7 +2792,10 @@ export function createModelFactory(gl, compileProgram, worldSize) {
   for (const id of ['conyard', 'power_plant', 'refinery', 'war_factory', 'mcv', 'harvester', 'grizzly', 'rhino']) {
     getOrCreateBatch(id);
   }
-  syncGlbManifest();
+  function syncManifestOverrides() {
+    return syncGlbManifest().then(() => syncSpriteManifest());
+  }
+  syncManifestOverrides();
 
   return {
     canonicalCount: CANONICAL_ENTITY_IDS.length,
@@ -2644,6 +2805,9 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     renderXRayPass,
     loadGlbOverride,
     loadGlbBufferOverride,
+    loadSpriteOverride,
+    loadSpriteBufferOverride,
+    syncManifestOverrides,
     restoreProceduralModel,
     get glbLoadedTypes() {
       return Array.from(glbCache.keys());
