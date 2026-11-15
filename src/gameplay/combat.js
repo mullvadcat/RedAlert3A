@@ -189,26 +189,33 @@ function selectTargetForEntity(state, attacker, weapon) {
   let best = null;
   let bestDist2 = Infinity;
   const entities = state.entities;
+  const ax = attacker.x;
+  const az = attacker.z;
+  const maxCheckR = range + 6;
   for (let i = 0; i < entities.length; i++) {
     const cand = entities[i];
     if (!cand.alive || cand.teamId === attacker.teamId) continue;
+
+    // Fast 1D bounding-box rejection before property lookups
+    const dx = cand.x - ax;
+    if (dx > maxCheckR || dx < -maxCheckR) continue;
+    const dz = cand.z - az;
+    if (dz > maxCheckR || dz < -maxCheckR) continue;
+
     if (cand.teamId === 3 && cand.category === 'neutral') continue; // Don't auto-aggro neutral oil derricks
     if (cand.frozenByCount > 0) continue;
-    if (!isDomainAllowed(weapon, cand)) continue;
-    if (getArmorMultiplier(weapon.damageType, cand, attacker) <= 0) continue;
-    if (cand.hp - cand.pendingDamage <= 0) continue; // Overkill prevention!
 
-    const dx = cand.x - attacker.x;
-    const dz = cand.z - attacker.z;
     const effRange = range + (cand.radius ?? 0);
     const d2 = dx * dx + dz * dz;
-    if (d2 > effRange * effRange) continue;
+    if (d2 > effRange * effRange || d2 >= bestDist2) continue;
+
+    if (cand.hp - cand.pendingDamage <= 0) continue; // Overkill prevention!
+    if (!isDomainAllowed(weapon, cand)) continue;
+    if (getArmorMultiplier(weapon.damageType, cand, attacker) <= 0) continue;
     if (!isEntityTargetable(state, attacker.teamId, cand)) continue;
 
-    if (d2 < bestDist2) {
-      bestDist2 = d2;
-      best = cand;
-    }
+    bestDist2 = d2;
+    best = cand;
   }
   return best;
 }
@@ -553,7 +560,9 @@ export function stepCombatAndProjectiles(state) {
       }
     }
 
-    // Hold fire when idle harvester? Harvester still defends itself if enemy closes in!
+    // Only run full enemy scan when ready to fire, or when chasing an explicit attackTargetId
+    if (ent.fireCooldownTicks > 0 && ent.attackTargetId === null) continue;
+
     const target = selectTargetForEntity(state, ent, weapon);
     if (!target) {
       // AA Turret can intercept in-flight V3/Dreadnought ballistic rockets within 24m

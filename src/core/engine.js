@@ -31,6 +31,8 @@ import {
 import { applyDamage, checkVictoryCondition, stepCombatAndProjectiles } from '../gameplay/combat.js';
 import { stepAirforce } from '../gameplay/airforce.js';
 import { stepNaval } from '../gameplay/naval.js';
+import { castDoctrine, fireSuperweapon, stepSuperweaponsAndAreaEffectsCore } from '../gameplay/superweapon.js';
+import { createDefaultAiState, stepAI } from '../gameplay/ai.js';
 
 function createPlayerState(spec) {
   return {
@@ -39,6 +41,7 @@ function createPlayerState(spec) {
     factionId: spec.factionId ?? FACTIONS.abyssal.id,
     isHuman: Boolean(spec.isHuman),
     aiDifficulty: spec.aiDifficulty ?? null,
+    allowDualFaction: Boolean(spec.allowDualFaction),
     credits: spec.credits ?? 10000,
     powerProduced: 0,
     powerConsumed: 0,
@@ -47,11 +50,7 @@ function createPlayerState(spec) {
     isLowPower: false,
     aiState: spec.isHuman
       ? null
-      : {
-          phase: 'OPENING',
-          nextAttackTick: 900,
-          lastScoutTick: 0
-        },
+      : (spec.aiState ? structuredClone(spec.aiState) : createDefaultAiState(spec.aiDifficulty ?? 'normal')),
     queues: createEmptyQueues(),
     doctrines: {
       recon_satellite: 0,
@@ -71,7 +70,14 @@ function createPlayerState(spec) {
 
 export function createGameState(options = {}) {
   const seed = (options.seed ?? 20400401) >>> 0;
-  const map = options.map ?? compileMap(options.mapBlueprint ?? DEFAULT_M1_MAP_BLUEPRINT);
+  const blueprint = options.mapBlueprint ?? DEFAULT_M1_MAP_BLUEPRINT;
+  const map = options.map ?? compileMap(blueprint);
+  if (!map.neutralBuildings && blueprint.neutralBuildings) {
+    map.neutralBuildings = blueprint.neutralBuildings;
+  }
+  if (blueprint.supportsNaval !== undefined && map.supportsNaval === undefined) {
+    map.supportsNaval = blueprint.supportsNaval;
+  }
   const startingCredits = options.startingCredits ?? 10000;
   const humanFaction = options.factionId ?? FACTIONS.abyssal.id;
   const enemyFaction = humanFaction === FACTIONS.abyssal.id ? FACTIONS.crimson.id : FACTIONS.abyssal.id;
@@ -96,12 +102,19 @@ export function createGameState(options = {}) {
         })
       ];
 
+  const disableAI =
+    options.disableAI !== undefined
+      ? Boolean(options.disableAI)
+      : options.populateDefault === false && !options.players && !options.enableAI;
+
   const state = {
     tickCount: 0,
     prngState: seed,
     mode: options.mode ?? 'skirmish',
     missionId: options.missionId ?? null,
     fastBuild: Boolean(options.fastBuild),
+    skirmishFairStart: Boolean(options.skirmishFairStart),
+    disableAI,
     map,
     players,
     fogGrids: createTeamFogGrids(4),
@@ -116,6 +129,7 @@ export function createGameState(options = {}) {
     orphanDrones: [],
     orePillars: map.orePillars ?? [],
     flowCache: createFlowCache(),
+    directorState: null,
     hadMultipleHqTeams: false,
     winnerTeamId: null,
     events: []
@@ -134,11 +148,66 @@ export function createGameState(options = {}) {
   return state;
 }
 
+function spawnNeutralMapBuildings(state) {
+  const list = state.map?.neutralBuildings;
+  if (!list || list.length === 0) return;
+  for (let i = 0; i < list.length; i++) {
+    const nb = list[i];
+    if (!ENTITY_DEFS[nb.typeId]) continue;
+    spawnEntity(state, {
+      typeId: nb.typeId,
+      playerId: -1,
+      teamId: 3,
+      factionId: 'neutral',
+      gx: nb.gx,
+      gz: nb.gz
+    });
+  }
+}
+
 export function populateM1SkirmishScenario(state) {
+  spawnNeutralMapBuildings(state);
+
+  if (state.skirmishFairStart || state.players.length > 2) {
+    for (let i = 0; i < state.players.length; i++) {
+      const p = state.players[i];
+      const sp = state.map.spawns[i] ?? {
+        gx: i % 2 === 0 ? 44 : 212,
+        gz: i < 2 ? 128 : 48,
+        x: i % 2 === 0 ? 89 : 425,
+        z: i < 2 ? 257 : 97
+      };
+      const mcvPos = findNearestPassableLand(state.map, sp.x, sp.z, 8);
+      spawnEntity(state, {
+        typeId: 'mcv',
+        playerId: p.playerId,
+        teamId: p.teamId,
+        factionId: p.factionId,
+        x: mcvPos.x,
+        z: mcvPos.z
+      });
+      const mbtId = p.factionId === 'crimson' ? 'rhino' : 'grizzly';
+      const dir = sp.x < WORLD_SIZE * 0.5 ? 1 : -1;
+      for (let u = 0; u < 2; u++) {
+        const pos = findNearestPassableLand(state.map, mcvPos.x + dir * 7, mcvPos.z - 4 + u * 8, 8);
+        spawnEntity(state, {
+          typeId: mbtId,
+          playerId: p.playerId,
+          teamId: p.teamId,
+          factionId: p.factionId,
+          x: pos.x,
+          z: pos.z,
+          yaw: dir > 0 ? Math.PI * 0.5 : -Math.PI * 0.5
+        });
+      }
+    }
+    return;
+  }
+
   const sp0 = state.map.spawns[0] ?? { gx: 44, gz: 128, x: 89, z: 257 };
   const sp1 = state.map.spawns[1] ?? { gx: 212, gz: 128, x: 425, z: 257 };
 
-  // Player 0: Starting MCV (ready to press D & deploy) + 2 Grizzly scout escorts
+  // Player 0: Starting MCV (ready to press D & deploy) + 2 escort MBTs
   const p0 = state.players[0];
   spawnEntity(state, {
     typeId: 'mcv',
@@ -159,7 +228,7 @@ export function populateM1SkirmishScenario(state) {
     });
   }
 
-  // Player 1: Established Crimson rival base across the bridge with Conyard, Power, War Factory & defender tanks
+  // Player 1: Established rival base with Conyard, Power, War Factory & defender tanks
   if (state.players[1]) {
     const p1 = state.players[1];
     spawnEntity(state, {
@@ -188,7 +257,7 @@ export function populateM1SkirmishScenario(state) {
     });
     for (let i = 0; i < 3; i++) {
       spawnEntity(state, {
-        typeId: 'rhino',
+        typeId: p1.factionId === 'crimson' ? 'rhino' : 'grizzly',
         playerId: p1.playerId,
         teamId: p1.teamId,
         factionId: p1.factionId,
@@ -446,8 +515,8 @@ function executeCommand(state, cmd) {
       break;
 
     case 'PLACE_BUILDING': {
-      const gx = Math.round(cmd.x ?? 0);
-      const gz = Math.round(cmd.z ?? 0);
+      const gx = Math.round(cmd.gx ?? cmd.x ?? 0);
+      const gz = Math.round(cmd.gz ?? cmd.z ?? 0);
       placeBuilding(state, cmd.playerId, cmd.typeId, gx, gz);
       break;
     }
@@ -477,9 +546,10 @@ function executeCommand(state, cmd) {
     }
 
     case 'USE_DOCTRINE':
+      castDoctrine(state, cmd.playerId, cmd.typeId, cmd.x, cmd.z);
+      break;
     case 'FIRE_SUPERWEAPON':
-      // Placeholder hooks preserved cleanly for M4 superweapon.js
-      state.events.push({ type: 'command:deferred_m4', cmdType: cmd.type, typeId: cmd.typeId });
+      fireSuperweapon(state, cmd.playerId, cmd.typeId, cmd.x, cmd.z, cmd.sourceX, cmd.sourceZ, applyDamage);
       break;
 
     default:
@@ -507,28 +577,11 @@ function stepAirAndNaval(state) {
 }
 
 function stepSuperweaponsAndAreaEffects(state) {
-  if (!state.areaEffects || state.areaEffects.length === 0) return;
-  const active = [];
-  for (let i = 0; i < state.areaEffects.length; i++) {
-    const fx = state.areaEffects[i];
-    if (fx.expiryTick <= state.tickCount) continue;
-
-    if ((fx.kind === 'radiation' || fx.type === 'radiation') && fx.damagePerTick > 0) {
-      for (let j = 0; j < state.entities.length; j++) {
-        const ent = state.entities[j];
-        if (!ent.alive || ent.domain === 'AIR') continue;
-        if (Math.hypot(ent.x - fx.x, ent.z - fx.z) <= fx.radius) {
-          applyDamage(state, ent, fx.damagePerTick, 'Radiation', null, fx.ownerPlayerId ?? null);
-        }
-      }
-    }
-
-    active.push(fx);
-  }
-  state.areaEffects = active;
+  stepSuperweaponsAndAreaEffectsCore(state, applyDamage);
 }
 
 function stepAiAndCheckVictory(state) {
+  stepAI(state);
   checkVictoryCondition(state);
 }
 

@@ -184,11 +184,11 @@ const sec = (s) => Math.max(1, Math.round(s * TICK_RATE));
 export const ENTITY_DEFS = {
   // === 9 Infantry ===
   gi: {
-    id: 'gi', category: 'infantry', factions: ['abyssal'], cost: 200, buildTicks: sec(2.5),
-    speed: 3.6, hp: 120, armor: 'None', domain: 'GROUND', sight: 13, radius: 0.45,
+    id: 'gi', category: 'infantry', factions: ['abyssal'], cost: 160, buildTicks: sec(2.2),
+    speed: 3.6, hp: 135, armor: 'None', domain: 'GROUND', sight: 13, radius: 0.45,
     producerType: 'barracks', queueKey: 'infantry', prereqs: ['barracks'],
-    weapon: { damage: 16, burst: 1, cooldownTicks: sec(0.35), range: 10, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
-    deployedWeapon: { damage: 26, burst: 1, cooldownTicks: sec(0.35), range: 15, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
+    weapon: { damage: 20, burst: 1, cooldownTicks: sec(0.35), range: 10.5, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
+    deployedWeapon: { damage: 30, burst: 1, cooldownTicks: sec(0.35), range: 15.5, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
     canDeploy: true
   },
   conscript: {
@@ -249,15 +249,15 @@ export const ENTITY_DEFS = {
   },
   grizzly: {
     id: 'grizzly', category: 'vehicle', factions: ['abyssal'], cost: 700, buildTicks: sec(6.5),
-    speed: 6.4, hp: 370, armor: 'Heavy', domain: 'GROUND', sight: 16, radius: 1.25,
+    speed: 6.6, hp: 400, armor: 'Heavy', domain: 'GROUND', sight: 16, radius: 1.25,
     producerType: 'war_factory', queueKey: 'vehicle', prereqs: ['war_factory'],
-    weapon: { damage: 68, burst: 1, cooldownTicks: sec(1.6), range: 15, damageType: 'APShell', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 48 }
+    weapon: { damage: 74, burst: 1, cooldownTicks: sec(1.52), range: 15.5, damageType: 'APShell', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 48 }
   },
   rhino: {
     id: 'rhino', category: 'vehicle', factions: ['crimson'], cost: 900, buildTicks: sec(7.5),
-    speed: 5.4, hp: 490, armor: 'Heavy', domain: 'GROUND', sight: 16, radius: 1.35,
+    speed: 5.4, hp: 480, armor: 'Heavy', domain: 'GROUND', sight: 16, radius: 1.35,
     producerType: 'war_factory', queueKey: 'vehicle', prereqs: ['war_factory'],
-    weapon: { damage: 98, burst: 1, cooldownTicks: sec(1.8), range: 16, damageType: 'APShell', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 45 }
+    weapon: { damage: 94, burst: 1, cooldownTicks: sec(1.8), range: 16, damageType: 'APShell', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 45 }
   },
   ifv: {
     id: 'ifv', category: 'vehicle', factions: ['abyssal'], cost: 600, buildTicks: sec(5.5),
@@ -273,9 +273,9 @@ export const ENTITY_DEFS = {
   },
   prism: {
     id: 'prism', category: 'vehicle', factions: ['abyssal'], cost: 1200, buildTicks: sec(10.5),
-    speed: 5.6, hp: 250, armor: 'Light', domain: 'GROUND', sight: 18, radius: 1.25,
+    speed: 5.6, hp: 310, armor: 'Light', domain: 'GROUND', sight: 18, radius: 1.25,
     producerType: 'war_factory', queueKey: 'vehicle', prereqs: ['war_factory', 'battle_lab'],
-    weapon: { damage: 115, burst: 1, cooldownTicks: sec(2.2), range: 22, prismSplits: 5, damageType: 'Prism', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 0 }
+    weapon: { damage: 155, burst: 1, cooldownTicks: sec(1.9), range: 24, prismSplits: 5, damageType: 'Prism', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 0 }
   },
   apocalypse: {
     id: 'apocalypse', category: 'vehicle', factions: ['crimson'], cost: 1750, buildTicks: sec(14.0),
@@ -499,6 +499,23 @@ export const ENTITY_DEFS = {
 };
 
 export const CANONICAL_ENTITY_IDS = Object.keys(ENTITY_DEFS);
+
+export const SUPERWEAPON_IDS = ['chrono_sphere', 'iron_curtain', 'weather_control', 'nuclear_silo'];
+
+export const DOCTRINE_DEFS = {
+  recon_satellite: { id: 'recon_satellite', cooldownTicks: sec(90), radius: 20, durationTicks: sec(15) },
+  paratroopers: { id: 'paratroopers', cooldownTicks: sec(120), radius: 4, abyssalCount: 6, crimsonCount: 8 },
+  nano_repair: { id: 'nano_repair', cooldownTicks: sec(90), radius: 12, healRatio: 0.35 },
+  emp_strike: { id: 'emp_strike', cooldownTicks: sec(120), radius: 12, durationTicks: sec(8) }
+};
+
+export function nextRandom(state) {
+  let t = ((state.prngState ?? 1) + 0x6d2b79f5) >>> 0;
+  state.prngState = t;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 export function getEntityDef(typeId) {
   return ENTITY_DEFS[typeId] ?? null;

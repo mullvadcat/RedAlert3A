@@ -970,6 +970,62 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       writeInst(d.x, d.y, d.z, d.yaw ?? 0, 1.35, 0.24, 1.15, 0, 0.95, 0.45, 0.25, 1.6);
     }
 
+    // 2.5 Active Superweapon Warnings, Area Effects, Iron Curtain & EMP Sparks
+    const areaFx = state.areaEffects ?? [];
+    for (let i = 0; i < areaFx.length; i++) {
+      const fx = areaFx[i];
+      const rad = fx.radius ?? 10;
+      if (fx.kind === 'sw_warning') {
+        const isNuke = fx.swTypeId === 'nuclear_silo';
+        const r = isNuke ? 1.0 : 0.35;
+        const g = isNuke ? 0.18 : 0.78;
+        const b = isNuke ? 0.12 : 1.0;
+        const pulse = 2.0 + 1.4 * Math.abs(Math.sin(elapsedSec * 7.0));
+        writeInst(fx.x, 8.0, fx.z, elapsedSec * 2.5, 0.45, 16.0, 0.45, 0, r, g, b, pulse);
+        for (let k = 0; k < 8; k++) {
+          const ang = (k / 8) * Math.PI * 2 + elapsedSec * 1.4;
+          const px = fx.x + Math.cos(ang) * rad;
+          const pz = fx.z + Math.sin(ang) * rad;
+          writeInst(px, 2.2, pz, -ang, 0.45, 0.45, rad * 0.65, 0, r, g, b, pulse);
+        }
+      } else if (fx.kind === 'radiation' || fx.type === 'radiation') {
+        for (let k = 0; k < 6; k++) {
+          const ang = (k / 6) * Math.PI * 2 + elapsedSec * 0.8 + i;
+          const dist = rad * (0.35 + ((k * 37) % 10) * 0.06);
+          const px = fx.x + Math.cos(ang) * dist;
+          const pz = fx.z + Math.sin(ang) * dist;
+          const flicker = 1.4 + 0.8 * Math.sin(elapsedSec * 5.0 + k);
+          writeInst(px, 2.1, pz, ang, 1.1, 0.25, 1.1, 0, 0.42, 0.95, 0.18, flicker);
+        }
+      } else if (fx.kind === 'satellite') {
+        for (let k = 0; k < 8; k++) {
+          const ang = (k / 8) * Math.PI * 2 - elapsedSec * 1.2;
+          const px = fx.x + Math.cos(ang) * rad;
+          const pz = fx.z + Math.sin(ang) * rad;
+          writeInst(px, 3.0, pz, -ang, 0.3, 0.3, 3.0, 0, 0.2, 0.88, 1.0, 2.2);
+        }
+      } else if (fx.kind === 'lightning_storm') {
+        const pulse = 1.8 + Math.sin(elapsedSec * 9.0);
+        writeInst(fx.x, 12.5, fx.z, elapsedSec, 8.5, 0.9, 8.5, 0, 0.35, 0.55, 0.98, pulse);
+      }
+    }
+
+    const allEnts = state.entities ?? [];
+    for (let i = 0; i < allEnts.length; i++) {
+      const e = allEnts[i];
+      if (!e.alive) continue;
+      if (e.ironCurtainTicks > 0) {
+        const s = (e.radius ?? 1.6) * 2.1;
+        const glow = 2.0 + 0.9 * Math.sin(elapsedSec * 8.0 + e.id);
+        writeInst(e.x, (e.y ?? 1.6) + 0.9, e.z, elapsedSec * 1.6, s, 1.8, s, 0, 0.85, 0.12, 0.16, glow);
+      }
+      if (e.empTicks > 0) {
+        const jx = Math.sin(elapsedSec * 24 + e.id) * 0.45;
+        const jz = Math.cos(elapsedSec * 21 + e.id) * 0.45;
+        writeInst(e.x + jx, (e.y ?? 1.6) + 1.3, e.z + jz, elapsedSec * 6.0, 0.35, 1.1, 0.35, 0.4, 0.3, 0.85, 1.0, 2.8);
+      }
+    }
+
     // 3. Transient Fire Flashes / Explosions / Beams / Move Rings
     for (let i = transientFx.length - 1; i >= 0; i--) {
       const fx = transientFx[i];

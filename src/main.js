@@ -11,8 +11,10 @@ import { createRenderPipeline } from './render/pipeline.js';
 import { createSidebarUI } from './ui/sidebar.js';
 import { createMinimapUI } from './ui/minimap.js';
 import { createInputController } from './ui/input.js';
+import { createLobbyMenu } from './ui/menus.js';
 import { spawnBuildingDebris, stepDebrisSystem } from './world/destruction.js';
 import { MAP_SIZE, TERRAIN, getElevationAtWorld } from './world/map.js';
+import { getSkirmishMapById } from './world/skirmishMaps.js';
 
 function parseLaunchFlags() {
   const params = new URLSearchParams(window.location.search);
@@ -22,7 +24,9 @@ function parseLaunchFlags() {
     fastBuild: params.get('fastbuild') === '1',
     bench: params.get('bench') === '1',
     show: params.get('show') || null,
-    quality: params.get('quality') || 'high'
+    quality: params.get('quality') || 'high',
+    mapId: params.get('map') || null,
+    openMenu: params.get('menu') === '1'
   };
 }
 
@@ -48,10 +52,11 @@ function bootstrap() {
 
   const isGallery = flags.show === 'gallery';
 
-  const state = createGameState({
+  let state = createGameState({
     mode: isGallery ? 'gallery' : (flags.bench ? 'bench_m1' : 'skirmish'),
     populateDefault: !isGallery,
-    fastBuild: flags.fastBuild || isGallery
+    fastBuild: flags.fastBuild || isGallery,
+    mapBlueprint: flags.mapId ? getSkirmishMapById(flags.mapId) : undefined
   });
 
   if (isGallery) {
@@ -98,6 +103,8 @@ function bootstrap() {
     hoverFootprint: null,
     placementValid: false,
     cursorMode: 'default',
+    pendingPower: null,
+    lobbyOpen: flags.openMenu,
     selectedIds: new Set(),
     noFog: flags.noFog || isGallery,
     isBench: flags.bench,
@@ -126,6 +133,40 @@ function bootstrap() {
   const sidebarUI = createSidebarUI(state, uiState, { enqueue });
   const minimapUI = createMinimapUI(state, uiState, pipeline.camera, enqueue);
   const inputCtrl = createInputController(canvas, state, uiState, pipeline, sidebarUI, enqueue);
+
+  function launchSkirmishMatch(cfg) {
+    state = createGameState({
+      mode: 'skirmish',
+      mapBlueprint: cfg.mapBlueprint,
+      players: cfg.players,
+      startingCredits: cfg.startingCredits,
+      factionId: cfg.factionId,
+      aiDifficulty: cfg.aiDifficulty,
+      skirmishFairStart: cfg.skirmishFairStart ?? true,
+      fastBuild: flags.fastBuild
+    });
+    uiState.selectedIds.clear();
+    uiState.placementTypeId = null;
+    uiState.cursorMode = 'default';
+    uiState.pendingPower = null;
+    pipeline.syncTerrainMap(state.map, 0, true);
+    pipeline.shadowSys.invalidateCache();
+    sidebarUI.setState(state);
+    minimapUI.setState(state);
+    inputCtrl.setState(state);
+    const startUnit = state.entities.find((e) => e.alive && e.playerId === 0);
+    if (startUnit) {
+      pipeline.camera.jumpTo(startUnit.x, startUnit.z);
+      uiState.selectedIds.add(startUnit.id);
+    }
+    accumulator = 0;
+  }
+
+  const lobbyCtrl = createLobbyMenu(uiState, {
+    openInitially: flags.openMenu,
+    initialMapId: flags.mapId,
+    onLaunchSkirmish: launchSkirmishMatch
+  });
 
   const handleAudioUnlock = () => {
     mixer.unlock();
@@ -230,6 +271,49 @@ function bootstrap() {
             duration: 0.65
           });
         }
+      } else if (ev.type === 'fx:nukeBlast') {
+        mixer.playSfx('explosion');
+        const by = getElevationAtWorld(state.map, ev.x, ev.z);
+        pipeline.decalPool.addDecal(ev.x, by, ev.z, 12.0, 0.2, 0.25, 0.95);
+        pipeline.pushTransientFx({
+          kind: 'explosion',
+          x: ev.x,
+          y: by + 1.0,
+          z: ev.z,
+          scale: 6.5,
+          startSec: elapsedSec,
+          duration: 1.4
+        });
+      } else if (ev.type === 'fx:lightningStrike') {
+        mixer.playSfx('tesla');
+        pipeline.pushTransientFx({
+          kind: 'beam',
+          x: ev.x,
+          y: 26.0,
+          z: ev.z,
+          tx: ev.x,
+          tz: ev.z,
+          r: 0.45,
+          g: 0.85,
+          b: 1.0,
+          startSec: elapsedSec,
+          duration: 0.28
+        });
+      } else if (ev.type === 'fx:ironCurtain') {
+        mixer.playSfx('laser');
+        pipeline.pushTransientFx({
+          kind: 'order',
+          x: ev.x,
+          y: getElevationAtWorld(state.map, ev.x, ev.z) + 0.5,
+          z: ev.z,
+          r: 0.95,
+          g: 0.15,
+          b: 0.18,
+          startSec: elapsedSec,
+          duration: 0.85
+        });
+      } else if (ev.type === 'sw:warning') {
+        mixer.playEvaNotice('sw_warning');
       } else if (ev.type === 'hud:notice') {
         if (ev.playerId === 0) {
           sidebarUI.setStatusNotice(ev.key, 4.0);
@@ -405,11 +489,12 @@ function bootstrap() {
   }
 
   window.__RA3A__ = {
-    state,
+    get state() { return state; },
     uiState,
     pipeline,
     mixer,
     dialogueCtrl,
+    lobbyCtrl,
     telemetry,
     gallery: galleryCtrl,
     enqueueCommand: enqueue,

@@ -8,7 +8,8 @@ import { isEntityTargetable } from '../gameplay/fogCpu.js';
 import { canBoardTransport } from '../gameplay/entities.js';
 import { validateBuildingPlacement } from '../gameplay/production.js';
 
-export function createInputController(canvas, state, uiState, pipeline, sidebarUI, enqueue) {
+export function createInputController(canvas, initialState, uiState, pipeline, sidebarUI, enqueue) {
+  let state = initialState;
   const selectionBoxEl = document.getElementById('selection-box');
   const victoryModalEl = document.getElementById('victory-modal');
   const keysDown = new Set();
@@ -92,6 +93,7 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
     uiState.placementTypeId = null;
     uiState.hoverFootprint = null;
     uiState.cursorMode = 'default';
+    uiState.pendingPower = null;
   }
 
   // === 4-Level Keyboard Priority Stack ===
@@ -106,9 +108,13 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
       return;
     }
 
-    // Level 2: Placement / Special Cursor Mode Blocking
-    const inPlacementOrTool = Boolean(uiState.placementTypeId) || uiState.cursorMode === 'repair' || uiState.cursorMode === 'sell';
-    if (uiState.placementTypeId || uiState.cursorMode !== 'default') {
+    // Level 2: Placement / Special Cursor Mode / Pending Power Blocking
+    const inPlacementOrTool =
+      Boolean(uiState.placementTypeId) ||
+      Boolean(uiState.pendingPower) ||
+      uiState.cursorMode === 'repair' ||
+      uiState.cursorMode === 'sell';
+    if (uiState.placementTypeId || uiState.pendingPower || uiState.cursorMode !== 'default') {
       if (e.code === KEYMAP_DEFAULTS.cancel) {
         e.preventDefault();
         cancelCursorOrPlacement();
@@ -186,6 +192,23 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
       return;
     }
 
+    // Commander Doctrines F1..F4
+    const doctrineHotkeys = {
+      [KEYMAP_DEFAULTS.doctrine1]: 'recon_satellite',
+      [KEYMAP_DEFAULTS.doctrine2]: 'paratroopers',
+      [KEYMAP_DEFAULTS.doctrine3]: 'nano_repair',
+      [KEYMAP_DEFAULTS.doctrine4]: 'emp_strike'
+    };
+    const doctrineId = doctrineHotkeys[e.code];
+    if (doctrineId) {
+      e.preventDefault();
+      uiState.placementTypeId = null;
+      uiState.cursorMode = 'default';
+      uiState.pendingPower = { kind: 'doctrine', id: doctrineId, sourceX: null, sourceZ: null };
+      sidebarUI.setStatusNotice('hud.status.selectTarget', 4.0);
+      return;
+    }
+
     // Control groups 1..9
     if (e.code.startsWith('Digit') && e.code.length === 6) {
       const idx = Number(e.code[5]);
@@ -246,8 +269,8 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
     }
 
     if (e.button === 2) {
-      // Right-click cancels placement or cursor mode first
-      if (uiState.placementTypeId || uiState.cursorMode !== 'default') {
+      // Right-click cancels placement, pending power, or cursor mode first
+      if (uiState.placementTypeId || uiState.pendingPower || uiState.cursorMode !== 'default') {
         cancelCursorOrPlacement();
         return;
       }
@@ -321,6 +344,57 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
 
     if (e.button === 0) {
       const world = pipeline.camera.screenToWorld(e.clientX, e.clientY, 1.6);
+
+      // Active Superweapon or Commander Doctrine targeting
+      if (uiState.pendingPower) {
+        const pw = uiState.pendingPower;
+        if (pw.kind === 'doctrine') {
+          enqueue({ playerId: 0, type: 'USE_DOCTRINE', typeId: pw.id, x: world.x, z: world.z });
+          uiState.pendingPower = null;
+          pipeline.pushTransientFx({
+            kind: 'order',
+            x: world.x,
+            y: 1.8,
+            z: world.z,
+            r: 0.25,
+            g: 0.92,
+            b: 1.0,
+            startSec: performance.now() * 0.001,
+            duration: 0.6
+          });
+          return;
+        }
+        if (pw.kind === 'superweapon') {
+          if (pw.id === 'chrono_sphere' && pw.sourceX === null) {
+            pw.sourceX = world.x;
+            pw.sourceZ = world.z;
+            sidebarUI.setStatusNotice('hud.status.selectTarget', 4.0);
+            pipeline.pushTransientFx({
+              kind: 'order',
+              x: world.x,
+              y: 1.8,
+              z: world.z,
+              r: 0.3,
+              g: 0.95,
+              b: 1.0,
+              startSec: performance.now() * 0.001,
+              duration: 1.2
+            });
+            return;
+          }
+          enqueue({
+            playerId: 0,
+            type: 'FIRE_SUPERWEAPON',
+            typeId: pw.id,
+            sourceX: pw.sourceX ?? world.x,
+            sourceZ: pw.sourceZ ?? world.z,
+            x: world.x,
+            z: world.z
+          });
+          uiState.pendingPower = null;
+          return;
+        }
+      }
 
       // Active placement mode
       if (uiState.placementTypeId) {
@@ -516,5 +590,8 @@ export function createInputController(canvas, state, uiState, pipeline, sidebarU
     }
   }
 
-  return { updateCamera };
+  return {
+    updateCamera,
+    setState: (nextState) => { state = nextState; }
+  };
 }

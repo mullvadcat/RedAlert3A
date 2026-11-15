@@ -9,12 +9,15 @@ import { CELL_SIZE, MAP_SIZE, TERRAIN, WORLD_SIZE, worldToGrid } from '../world/
 
 export const MACRO_SIZE = 128;
 export const MACRO_CELL = CELL_SIZE * 2; // 4m
-export const FLOW_CACHE_SIZE = 16;
+export const FLOW_CACHE_SIZE = 32;
 export const MAX_FLOWS_PER_TICK = 2;
 
 const DIR_DX = [1, 1, 0, -1, -1, -1, 0, 1];
 const DIR_DZ = [0, 1, 1, 1, 0, -1, -1, -1];
 const DIR_COST = [10, 14, 10, 14, 10, 14, 10, 14];
+// Normalized (-127..127) vector pointing back from v -> u (opposite of DIR_DX[d], DIR_DZ[d])
+const REV_DIR_X = new Int8Array([-127, -90, 0, 90, 127, 90, 0, -90]);
+const REV_DIR_Z = new Int8Array([0, -90, -127, -90, 0, 90, 127, 90]);
 const INF_DIST = 0x7fffffff;
 
 function getCacheKey(mx, mz, layer, revision) {
@@ -27,11 +30,16 @@ export function createFlowCache() {
     queue: [],
     queuedKeys: new Set(),
     lastComputedThisTick: 0,
-    // Preallocated scratch for zero-GC Dijkstra + Spatial Hash
+    passMasks: {
+      LAND: { revision: -1, mask: new Uint8Array(MACRO_SIZE * MACRO_SIZE) },
+      SEA: { revision: -1, mask: new Uint8Array(MACRO_SIZE * MACRO_SIZE) },
+      AMPHIBIOUS: { revision: -1, mask: new Uint8Array(MACRO_SIZE * MACRO_SIZE) }
+    },
+    // Preallocated scratch for zero-GC Dial's Bucket Dijkstra + Spatial Hash
     dist: new Int32Array(MACRO_SIZE * MACRO_SIZE),
     passMask: new Uint8Array(MACRO_SIZE * MACRO_SIZE),
-    heapNode: new Int32Array(MACRO_SIZE * MACRO_SIZE),
-    heapDist: new Int32Array(MACRO_SIZE * MACRO_SIZE),
+    bucketNodes: new Int32Array(32 * 4096),
+    bucketCounts: new Int32Array(32),
     spatialHeads: new Int32Array(MACRO_SIZE * MACRO_SIZE),
     spatialNext: new Int32Array(2048)
   };
@@ -51,14 +59,12 @@ function isFineCellPassable(map, gx, gz, layer, allowBuildingId = 0) {
   return t === TERRAIN.LAND || t === TERRAIN.SHALLOW || t === TERRAIN.BRIDGE;
 }
 
-function computeFlowFieldIntoSlot(map, targetMx, targetMz, layer, cache, slot) {
-  const dist = cache.dist;
-  const passMask = cache.passMask;
-  const heapNode = cache.heapNode;
-  const heapDist = cache.heapDist;
-  dist.fill(INF_DIST);
-
-  // Build 128x128 passability mask once in O(16384) instead of probing 2x2 subcells in inner loop
+function getOrBuildPassMask(map, layer, cache) {
+  const entry = cache.passMasks?.[layer];
+  if (entry && entry.revision === map.revision) {
+    return entry.mask;
+  }
+  const passMask = entry ? entry.mask : cache.passMask;
   const terrain = map.terrain;
   const buildingId = map.buildingId;
   for (let mz = 0; mz < MACRO_SIZE; mz++) {
@@ -92,6 +98,36 @@ function computeFlowFieldIntoSlot(map, targetMx, targetMz, layer, cache, slot) {
       passMask[mRow + mx] = ok >= 3 ? 1 : 0;
     }
   }
+  if (entry) entry.revision = map.revision;
+  return passMask;
+}
+
+function hasClearMacroLine(map, cache, x0, z0, x1, z1, layer, dist) {
+  const passMask = getOrBuildPassMask(map, layer, cache);
+  const steps = Math.max(2, Math.ceil(dist / 3));
+  const inv = 1 / steps;
+  for (let s = 1; s < steps; s++) {
+    const t = s * inv;
+    const x = x0 + (x1 - x0) * t;
+    const z = z0 + (z1 - z0) * t;
+    const mx = Math.max(0, Math.min(MACRO_SIZE - 1, (x * 0.25) | 0));
+    const mz = Math.max(0, Math.min(MACRO_SIZE - 1, (z * 0.25) | 0));
+    if (passMask[(mz << 7) + mx] === 0) return false;
+  }
+  return true;
+}
+
+function computeFlowFieldIntoSlot(map, targetMx, targetMz, layer, cache, slot) {
+  const dist = cache.dist;
+  const passMask = getOrBuildPassMask(map, layer, cache);
+  const bucketNodes = cache.bucketNodes;
+  const bucketCounts = cache.bucketCounts;
+  const dirX = slot.dirX;
+  const dirZ = slot.dirZ;
+  dist.fill(INF_DIST);
+  dirX.fill(0);
+  dirZ.fill(0);
+  bucketCounts.fill(0);
 
   // Snap target macro cell to nearest passable cell if target itself sits on a building/obstacle
   let startMx = Math.max(0, Math.min(MACRO_SIZE - 1, targetMx));
@@ -115,102 +151,107 @@ function computeFlowFieldIntoSlot(map, targetMx, targetMz, layer, cache, slot) {
 
   const startIdx = startMz * MACRO_SIZE + startMx;
   dist[startIdx] = 0;
+  bucketNodes[0] = startIdx;
+  bucketCounts[0] = 1;
 
-  let heapSize = 1;
-  heapNode[0] = startIdx;
-  heapDist[0] = 0;
+  let remaining = 1;
+  let curD = 0;
 
-  while (heapSize > 0) {
-    const u = heapNode[0];
-    const ud = heapDist[0];
-    heapSize--;
-    if (heapSize > 0) {
-      const lastN = heapNode[heapSize];
-      const lastD = heapDist[heapSize];
-      let i = 0;
-      while (true) {
-        const left = i * 2 + 1;
-        if (left >= heapSize) break;
-        const right = left + 1;
-        let smallest = left;
-        if (right < heapSize && heapDist[right] < heapDist[left]) {
-          smallest = right;
-        }
-        if (lastD <= heapDist[smallest]) break;
-        heapNode[i] = heapNode[smallest];
-        heapDist[i] = heapDist[smallest];
-        i = smallest;
-      }
-      heapNode[i] = lastN;
-      heapDist[i] = lastD;
+  while (remaining > 0) {
+    let b = curD & 31;
+    let cnt = bucketCounts[b];
+    while (cnt === 0) {
+      curD++;
+      b = curD & 31;
+      cnt = bucketCounts[b];
     }
+    const baseOff = b << 12;
+    bucketCounts[b] = 0;
+    remaining -= cnt;
 
-    if (ud > dist[u]) continue;
-    const ux = u & 127;
-    const uz = u >> 7;
+    for (let k = 0; k < cnt; k++) {
+      const u = bucketNodes[baseOff + k];
+      if (dist[u] !== curD) continue;
 
-    for (let d = 0; d < 8; d++) {
-      const vx = ux + DIR_DX[d];
-      const vz = uz + DIR_DZ[d];
-      if (vx < 0 || vx >= MACRO_SIZE || vz < 0 || vz >= MACRO_SIZE) continue;
-      const v = (vz << 7) + vx;
-      if (passMask[v] === 0) continue;
-      // Prevent corner cutting on diagonal moves
-      if (DIR_DX[d] !== 0 && DIR_DZ[d] !== 0) {
-        if (passMask[(uz << 7) + ux + DIR_DX[d]] === 0 ||
-            passMask[((uz + DIR_DZ[d]) << 7) + ux] === 0) {
-          continue;
+      const ux = u & 127;
+      const uz = u >> 7;
+      if (ux > 0 && ux < 127 && uz > 0 && uz < 127) {
+        const pR = passMask[u + 1];
+        const pL = passMask[u - 1];
+        const pD = passMask[u + 128];
+        const pU = passMask[u - 128];
+        const c10 = curD + 10;
+        const c14 = curD + 14;
+        if (pR && c10 < dist[u + 1]) {
+          const v = u + 1; dist[v] = c10; dirX[v] = -127; dirZ[v] = 0;
+          const nb = c10 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
         }
-      }
-      const nd = ud + DIR_COST[d];
-      if (nd < dist[v]) {
-        dist[v] = nd;
-        let idx = heapSize++;
-        while (idx > 0) {
-          const parent = (idx - 1) >> 1;
-          if (heapDist[parent] <= nd) break;
-          heapNode[idx] = heapNode[parent];
-          heapDist[idx] = heapDist[parent];
-          idx = parent;
+        if (pL && c10 < dist[u - 1]) {
+          const v = u - 1; dist[v] = c10; dirX[v] = 127; dirZ[v] = 0;
+          const nb = c10 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
         }
-        heapNode[idx] = v;
-        heapDist[idx] = nd;
+        if (pD && c10 < dist[u + 128]) {
+          const v = u + 128; dist[v] = c10; dirX[v] = 0; dirZ[v] = -127;
+          const nb = c10 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
+        }
+        if (pU && c10 < dist[u - 128]) {
+          const v = u - 128; dist[v] = c10; dirX[v] = 0; dirZ[v] = 127;
+          const nb = c10 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
+        }
+        if (pR && pD && passMask[u + 129] && c14 < dist[u + 129]) {
+          const v = u + 129; dist[v] = c14; dirX[v] = -90; dirZ[v] = -90;
+          const nb = c14 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
+        }
+        if (pL && pD && passMask[u + 127] && c14 < dist[u + 127]) {
+          const v = u + 127; dist[v] = c14; dirX[v] = 90; dirZ[v] = -90;
+          const nb = c14 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
+        }
+        if (pL && pU && passMask[u - 129] && c14 < dist[u - 129]) {
+          const v = u - 129; dist[v] = c14; dirX[v] = 90; dirZ[v] = 90;
+          const nb = c14 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
+        }
+        if (pR && pU && passMask[u - 127] && c14 < dist[u - 127]) {
+          const v = u - 127; dist[v] = c14; dirX[v] = -90; dirZ[v] = 90;
+          const nb = c14 & 31; const p = bucketCounts[nb];
+          if (p < 4096) { bucketNodes[(nb << 12) + p] = v; bucketCounts[nb] = p + 1; remaining++; }
+        }
+      } else {
+        const rowU = uz << 7;
+        for (let d = 0; d < 8; d++) {
+          const vx = ux + DIR_DX[d];
+          const vz = uz + DIR_DZ[d];
+          if (vx < 0 || vx >= MACRO_SIZE || vz < 0 || vz >= MACRO_SIZE) continue;
+          const v = (vz << 7) + vx;
+          if (passMask[v] === 0) continue;
+          if (DIR_DX[d] !== 0 && DIR_DZ[d] !== 0) {
+            if (passMask[rowU + ux + DIR_DX[d]] === 0 || passMask[((uz + DIR_DZ[d]) << 7) + ux] === 0) {
+              continue;
+            }
+          }
+          const nd = curD + DIR_COST[d];
+          if (nd < dist[v]) {
+            dist[v] = nd;
+            dirX[v] = REV_DIR_X[d];
+            dirZ[v] = REV_DIR_Z[d];
+            const nb = nd & 31;
+            const nPos = bucketCounts[nb];
+            if (nPos < 4096) {
+              bucketNodes[(nb << 12) + nPos] = v;
+              bucketCounts[nb] = nPos + 1;
+              remaining++;
+            }
+          }
+        }
       }
     }
-  }
-
-  // Derive unit flow directions in fixed-point (-127..127)
-  const dirX = slot.dirX;
-  const dirZ = slot.dirZ;
-  dirX.fill(0);
-  dirZ.fill(0);
-
-  for (let mz = 0; mz < MACRO_SIZE; mz++) {
-    for (let mx = 0; mx < MACRO_SIZE; mx++) {
-      const idx = mz * MACRO_SIZE + mx;
-      const baseD = dist[idx];
-      if (baseD === 0 || baseD === INF_DIST) continue;
-
-      let bestD = baseD;
-      let bdx = 0;
-      let bdz = 0;
-      for (let d = 0; d < 8; d++) {
-        const nx = mx + DIR_DX[d];
-        const nz = mz + DIR_DZ[d];
-        if (nx < 0 || nx >= MACRO_SIZE || nz < 0 || nz >= MACRO_SIZE) continue;
-        const nd = dist[nz * MACRO_SIZE + nx];
-        if (nd < bestD) {
-          bestD = nd;
-          bdx = DIR_DX[d];
-          bdz = DIR_DZ[d];
-        }
-      }
-      if (bdx !== 0 || bdz !== 0) {
-        const len = Math.hypot(bdx, bdz);
-        dirX[idx] = Math.round((bdx / len) * 127);
-        dirZ[idx] = Math.round((bdz / len) * 127);
-      }
-    }
+    curD++;
   }
 
   slot.key = getCacheKey(targetMx, targetMz, layer, map.revision);
@@ -351,11 +392,14 @@ export function stepNavigation(state) {
         }
       } else {
         hasMoveTarget = true;
-        if (layer === 'AIR' || dist < 10) {
+        if (layer === 'AIR' || dist < 10 || (dist < 380 && hasClearMacroLine(map, cache, ent.x, ent.z, ent.moveTargetX, ent.moveTargetZ, layer, dist))) {
           moveX = dx / dist;
           moveZ = dz / dist;
         } else {
-          const flow = requestFlowField(state, ent.moveTargetX, ent.moveTargetZ, layer, 1);
+          // Cluster distant flow goals to 12m macro regions so squads share cached FlowFields
+          const qx = dist > 24 ? Math.floor(ent.moveTargetX / 12) * 12 + 6 : ent.moveTargetX;
+          const qz = dist > 24 ? Math.floor(ent.moveTargetZ / 12) * 12 + 6 : ent.moveTargetZ;
+          const flow = requestFlowField(state, qx, qz, layer, 1);
           if (flow) {
             const emx = Math.max(0, Math.min(MACRO_SIZE - 1, Math.floor(ent.x / MACRO_CELL)));
             const emz = Math.max(0, Math.min(MACRO_SIZE - 1, Math.floor(ent.z / MACRO_CELL)));

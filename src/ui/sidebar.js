@@ -238,7 +238,8 @@ function drawUnitSilhouette(ctx, def, cx, cy, accentColor) {
   ctx.restore();
 }
 
-export function createSidebarUI(state, uiState, handlers) {
+export function createSidebarUI(initialState, uiState, handlers) {
+  let state = initialState;
   const dom = {
     creditsLabel: document.getElementById('sidebar-credits-label'),
     creditsValue: document.getElementById('sidebar-credits-value'),
@@ -531,6 +532,24 @@ export function createSidebarUI(state, uiState, handlers) {
         row.style.padding = '2px 6px';
         row.style.background = '#101824';
         row.style.border = '1px solid var(--steel-border)';
+        row.style.cursor = 'pointer';
+        row.dataset.swId = swId;
+        row.addEventListener('click', () => {
+          const curSw = state.players?.[0]?.superweapons?.[swId];
+          const rem = typeof curSw === 'number' ? curSw : (curSw?.remainingTicks ?? 999);
+          if (rem > 0 || state.players?.[0]?.isLowPower) {
+            setStatusNotice('hud.status.swNotReady', 2.5);
+            return;
+          }
+          if (uiState.pendingPower?.kind === 'superweapon' && uiState.pendingPower.id === swId) {
+            uiState.pendingPower = null;
+            return;
+          }
+          uiState.placementTypeId = null;
+          uiState.cursorMode = 'default';
+          uiState.pendingPower = { kind: 'superweapon', id: swId, sourceX: null, sourceZ: null };
+          setStatusNotice(swId === 'chrono_sphere' ? 'hud.status.chronoSourceFirst' : 'hud.status.selectTarget', 4.0);
+        });
         const lbl = document.createElement('span');
         const val = document.createElement('span');
         row.appendChild(lbl);
@@ -546,9 +565,27 @@ export function createSidebarUI(state, uiState, handlers) {
       const ss = String(sec % 60).padStart(2, '0');
       row.lastChild.textContent = remTicks <= 0 ? t('sidebar.status.ready') : `${mm}:${ss}`;
       row.lastChild.style.color = remTicks <= 0 ? 'var(--green)' : 'var(--amber)';
+      const isArmed = uiState.pendingPower?.kind === 'superweapon' && uiState.pendingPower.id === swId;
+      row.style.borderColor = isArmed ? 'var(--green)' : 'var(--steel-border)';
     }
     swStripEl.hidden = activeSwCount === 0;
     swStripEl.style.display = activeSwCount > 0 ? 'flex' : 'none';
+
+    // Update doctrine buttons cooldowns & active highlight
+    for (const btn of dom.doctrineButtons) {
+      const key = btn.dataset.doctrine;
+      const cdTicks = player.doctrines?.[key] ?? 0;
+      const isArmed = uiState.pendingPower?.kind === 'doctrine' && uiState.pendingPower.id === key;
+      btn.style.borderColor = isArmed ? 'var(--green)' : '';
+      if (cdTicks > 0) {
+        const sec = Math.ceil(cdTicks / 30);
+        btn.textContent = `${t(`doctrine.${key}`)} (${sec}s)`;
+        btn.style.opacity = '0.6';
+      } else {
+        btn.textContent = t(`doctrine.${key}`);
+        btn.style.opacity = '1';
+      }
+    }
 
     // 5. Selection footer
     const selCount = uiState.selectedIds.size;
@@ -563,7 +600,14 @@ export function createSidebarUI(state, uiState, handlers) {
     } else {
       dom.selectionSummary.textContent = t('hud.selectionCount', { count: selCount });
     }
-    dom.commandHints.textContent = uiState.placementTypeId ? t('hud.hintsPlace') : t('hud.hintsDefault');
+    if (uiState.pendingPower) {
+      dom.commandHints.textContent =
+        uiState.pendingPower.id === 'chrono_sphere' && uiState.pendingPower.sourceX === null
+          ? t('hud.status.chronoSourceFirst')
+          : t('hud.status.selectTarget');
+    } else {
+      dom.commandHints.textContent = uiState.placementTypeId ? t('hud.hintsPlace') : t('hud.hintsDefault');
+    }
 
     // 6. Canvas 2D Icon Grid
     renderProductionGrid(player);
@@ -648,6 +692,20 @@ export function createSidebarUI(state, uiState, handlers) {
       uiState.activeSubTab = btn.dataset.subtab;
     });
   }
+  for (const btn of dom.doctrineButtons) {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.doctrine;
+      if (!key) return;
+      if (uiState.pendingPower?.kind === 'doctrine' && uiState.pendingPower.id === key) {
+        uiState.pendingPower = null;
+        return;
+      }
+      uiState.placementTypeId = null;
+      uiState.cursorMode = 'default';
+      uiState.pendingPower = { kind: 'doctrine', id: key, sourceX: null, sourceZ: null };
+      setStatusNotice('hud.status.selectTarget', 4.0);
+    });
+  }
   dom.btnRepair.addEventListener('click', () => {
     uiState.placementTypeId = null;
     uiState.cursorMode = uiState.cursorMode === 'repair' ? 'default' : 'repair';
@@ -676,6 +734,7 @@ export function createSidebarUI(state, uiState, handlers) {
     update,
     setStatusNotice,
     showVictoryModal,
-    isModalOpen: () => !dom.victoryModal.hidden
+    isModalOpen: () => !dom.victoryModal.hidden,
+    setState: (nextState) => { state = nextState; }
   };
 }

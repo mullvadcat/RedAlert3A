@@ -89,6 +89,17 @@ body {
   display: none;
 }
 
+.hud-btn-pill {
+  pointer-events: auto;
+  color: var(--amber);
+  cursor: pointer;
+}
+
+.hud-btn-pill:hover {
+  border-color: var(--amber);
+  background: rgba(24, 34, 52, 0.94);
+}
+
 #doctrine-bar {
   position: absolute;
   left: 12px;
@@ -131,6 +142,7 @@ body {
 #dialogue-box[hidden],
 #loading-screen[hidden],
 #victory-modal[hidden],
+#lobby-modal[hidden],
 #sidebar-subtabs[hidden],
 #sidebar-tooltip[hidden],
 #minimap-no-radar[hidden] {
@@ -152,7 +164,8 @@ body {
 }
 
 #loading-screen,
-#victory-modal {
+#victory-modal,
+#lobby-modal {
   position: absolute;
   inset: 0;
   display: flex;
@@ -160,6 +173,40 @@ body {
   justify-content: center;
   background: rgba(6, 10, 18, 0.88);
   z-index: 30;
+}
+
+.lobby-card {
+  width: 440px;
+}
+
+.lobby-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.lobby-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.lobby-label {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.lobby-row select {
+  width: 210px;
+  padding: 5px 8px;
+  border: 1px solid var(--steel-border);
+  border-radius: 3px;
+  background: #0d1420;
+  color: var(--text-main);
+  font-size: 12px;
 }
 
 .loading-card,

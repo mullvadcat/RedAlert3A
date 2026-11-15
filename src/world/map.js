@@ -196,6 +196,59 @@ export function compileMap(blueprint = DEFAULT_M1_MAP_BLUEPRINT) {
           }
         }
       }
+    } else if (ch.type === 'strait_z') {
+      const xMin = Math.max(0, ch.xMin);
+      const xMax = Math.min(MAP_SIZE - 1, ch.xMax);
+      const hw = ch.halfWidth ?? 6;
+      const gzMin = Math.max(0, Math.floor(ch.centerZ - hw - margin - 3));
+      const gzMax = Math.min(MAP_SIZE - 1, Math.ceil(ch.centerZ + hw + margin + 3));
+      for (let gz = gzMin; gz <= gzMax; gz++) {
+        const row = gz * MAP_SIZE;
+        for (let gx = xMin; gx <= xMax; gx++) {
+          const center = ch.centerZ + Math.sin(gx * 0.06) * 2.5;
+          const signedDepth = hw - Math.abs(gz - center);
+          if (signedDepth > -margin) {
+            const idx = row + gx;
+            if (signedDepth >= 1.2) {
+              terrain[idx] = TERRAIN.SEA;
+              const d = -2.8 - Math.min(2.2, (signedDepth - 1.2) * 0.35);
+              if (d < elevation[idx]) elevation[idx] = d;
+            } else {
+              const t = (signedDepth + margin) * invSpan;
+              const nextElev = baseElev * (1 - t) - 1.1 * t;
+              if (nextElev < elevation[idx]) elevation[idx] = nextElev;
+              if (terrain[idx] !== TERRAIN.SEA) terrain[idx] = nextElev <= 0.1 ? TERRAIN.SHALLOW : TERRAIN.LAND;
+            }
+          }
+        }
+      }
+    } else if (ch.type === 'sea_circle') {
+      const r = ch.radius ?? 20;
+      const gxMin = Math.max(0, Math.floor(ch.cx - r - margin));
+      const gxMax = Math.min(MAP_SIZE - 1, Math.ceil(ch.cx + r + margin));
+      const gzMin = Math.max(0, Math.floor(ch.cz - r - margin));
+      const gzMax = Math.min(MAP_SIZE - 1, Math.ceil(ch.cz + r + margin));
+      for (let gz = gzMin; gz <= gzMax; gz++) {
+        const dz = gz - ch.cz;
+        const row = gz * MAP_SIZE;
+        for (let gx = gxMin; gx <= gxMax; gx++) {
+          const dist = Math.hypot(gx - ch.cx, dz);
+          const signedDepth = r - dist;
+          if (signedDepth > -margin) {
+            const idx = row + gx;
+            if (signedDepth >= 1.2) {
+              terrain[idx] = TERRAIN.SEA;
+              const d = -2.8 - Math.min(2.2, (signedDepth - 1.2) * 0.35);
+              if (d < elevation[idx]) elevation[idx] = d;
+            } else {
+              const t = (signedDepth + margin) * invSpan;
+              const nextElev = baseElev * (1 - t) - 1.1 * t;
+              if (nextElev < elevation[idx]) elevation[idx] = nextElev;
+              if (terrain[idx] !== TERRAIN.SEA) terrain[idx] = nextElev <= 0.1 ? TERRAIN.SHALLOW : TERRAIN.LAND;
+            }
+          }
+        }
+      }
     }
   }
 

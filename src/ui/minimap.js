@@ -6,7 +6,8 @@ import { MAP_SIZE, ORE_TYPE, TERRAIN, WORLD_SIZE } from '../world/map.js';
 import { FACTIONS, PLAYER_COLORS } from '../core/config.js';
 import { FOG_EXPLORED, FOG_VISIBLE } from '../gameplay/fogCpu.js';
 
-export function createMinimapUI(state, uiState, camera, enqueue) {
+export function createMinimapUI(initialState, uiState, camera, enqueue) {
+  let state = initialState;
   const canvas = document.getElementById('minimap-canvas');
   const ctx = canvas.getContext('2d');
   const size = canvas.width; // 176
@@ -186,5 +187,11 @@ export function createMinimapUI(state, uiState, camera, enqueue) {
     isDragging = false;
   });
 
-  return { update };
+  return {
+    update,
+    setState: (nextState) => {
+      state = nextState;
+      lastTerrainId = null;
+    }
+  };
 }
