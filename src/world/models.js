@@ -34,6 +34,7 @@ out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUv;
 out float vTone;
+out float vLocalY;
 out vec4 vUnitState;
 out vec4 vShadowPos;
 
@@ -87,6 +88,7 @@ void main() {
   vNormal = worldNormal;
   vUv = outUv;
   vTone = aTone;
+  vLocalY = aPos.y;
   vUnitState = iUnitState;
   vShadowPos = uLightViewProj * worldPos;
   gl_Position = uViewProj * worldPos;
@@ -99,6 +101,7 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUv;
 in float vTone;
+in float vLocalY;
 in vec4 vUnitState;
 in vec4 vShadowPos;
 
@@ -148,15 +151,15 @@ void main() {
   float glassFactor = 0.0;
 
   if (vTone < 0.5) {
-    // Tone 0: Gunsteel / architectural armor plate + industrial panel seams & subtle louver vents on vertical facades
-    vec3 gunSteel = mix(vec3(0.20, 0.22, 0.26), teamCol * 0.65, 0.16);
+    // Tone 0: Brushed gunsteel / architectural armor plate + panel seams & louver vents
+    vec3 gunSteel = mix(vec3(0.18, 0.21, 0.26), teamCol * 0.58, 0.14);
     float wallMask = 1.0 - smoothstep(0.25, 0.65, abs(vNormal.y));
-    float seamGrid = 1.0 - 0.14 * max(step(0.92, fract(vWorldPos.x * 1.2 + vWorldPos.z * 1.2)), step(0.90, fract(vWorldPos.y * 1.4)));
-    float louver = 1.0 - 0.12 * wallMask * step(0.65, fract(vWorldPos.y * 5.0));
-    float microGrain = 0.90 + detail.r * 0.18 - detail.g * 0.08;
+    float seamGrid = 1.0 - 0.18 * max(step(0.92, fract(vWorldPos.x * 1.2 + vWorldPos.z * 1.2)), step(0.90, fract(vWorldPos.y * 1.4)));
+    float louver = 1.0 - 0.14 * wallMask * step(0.65, fract(vWorldPos.y * 5.0));
+    float microGrain = 0.88 + detail.r * 0.20 - detail.g * 0.10;
     baseCol = gunSteel * microGrain * seamGrid * louver;
-    metallic = clamp(metallic + 0.18, 0.0, 0.96);
-    roughness = clamp(roughness * 0.85, 0.18, 0.75);
+    metallic = clamp(metallic + 0.22, 0.0, 0.96);
+    roughness = clamp(roughness * 0.78, 0.16, 0.68);
   } else if (vTone < 1.5) {
     // Tone 1: Matte rubber tracks, tires & oiled dark rifle gunmetal
     float treadRib = 0.80 + 0.20 * step(0.45, fract(vUv.y * 10.0));
@@ -164,10 +167,12 @@ void main() {
     metallic = 0.35;
     roughness = 0.74;
   } else if (vTone < 2.5) {
-    // Tone 2: Glowing energy core / optical visor / afterburner thruster
-    baseCol = mix(teamCol * 1.65, vec3(0.98, 0.88, 0.44), 0.26);
-    metallic = 0.15;
-    roughness = 0.12;
+    // Tone 2: Rich glowing plasma/energy core + radial lattice (avoids chalk-white blow-out)
+    float ringBand = 0.82 + 0.18 * sin(vWorldPos.y * 18.0 + (vWorldPos.x + vWorldPos.z) * 4.0);
+    baseCol = mix(teamCol * 0.92 + vec3(0.04, 0.14, 0.24), vec3(0.52, 0.88, 1.0), 0.22) * ringBand;
+    metallic = 0.28;
+    roughness = 0.10;
+    glassFactor = 0.85;
   } else if (vTone < 3.5) {
     // Tone 3: Brushed alloy trim / concrete plinth with slab block mortar lines
     float slabX = step(0.94, fract(vWorldPos.x * 0.75));
@@ -271,33 +276,67 @@ void main() {
   vec3 H = normalize(V + L);
 
   float NdotL = max(dot(N, L), 0.0);
-  float specPow = mix(18.0, 148.0, 1.0 - roughness);
-  float spec = pow(max(dot(N, H), 0.0), specPow) * mix(0.14, 1.52, max(metallic, glassFactor));
+  float NdotV = max(dot(N, V), 0.001);
+  float NdotH = max(dot(N, H), 0.0);
+  float HdotV = max(dot(H, V), 0.0);
 
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
-  float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
+  float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0014, uShadowTexelSize);
 
-  float upAO = mix(0.66, 1.12, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
-  float cavityAO = mix(detail.a, 1.0, uHasAlbedoTex);
-  float ambientStrength = mix(0.18 + 0.18 * max(N.y, 0.0), 0.38, uBillboardMode);
-  vec3 ambient = baseCol * ambientStrength * cavityAO * mix(upAO, 1.0, uBillboardMode);
-  vec3 specTint = mix(vec3(1.0), clamp(baseCol * 1.35 + vec3(0.28), 0.0, 1.0), metallic * 0.65);
+  // Cook-Torrance GGX sun specular + Schlick Fresnel IBL sky-dome reflections
+  float alphaR = max(roughness * roughness, 0.045);
+  float a2 = alphaR * alphaR;
+  float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+  float D = a2 / (3.14159265 * denom * denom + 1e-5);
+  vec3 F0 = mix(vec3(0.04), baseCol, metallic);
+  vec3 F = F0 + (1.0 - F0) * pow(1.0 - HdotV, 5.0);
+  float kDirect = (roughness + 1.0);
+  kDirect = (kDirect * kDirect) * 0.125;
+  float G = (NdotV / (NdotV * (1.0 - kDirect) + kDirect)) * (NdotL / (NdotL * (1.0 - kDirect) + kDirect));
+  vec3 cookSpec = (D * G * F) / max(4.0 * NdotV * max(NdotL, 0.001), 0.05);
+
+  // Procedural sky zenith / bright horizon / warm earth-bounce environment probe
+  vec3 R = reflect(-V, N);
+  float horizonGlow = pow(1.0 - abs(R.y), 3.0);
+  vec3 envSky = mix(vec3(0.18, 0.24, 0.16), mix(vec3(0.42, 0.62, 0.88), vec3(0.76, 0.84, 0.94), horizonGlow), smoothstep(-0.15, 0.65, R.y));
+  envSky += vec3(1.15, 0.98, 0.75) * pow(max(dot(R, L), 0.0), mix(28.0, 6.0, roughness)) * 0.45 * shadow;
+  vec3 Fenv = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 4.0);
+  vec3 specIBL = envSky * Fenv * mix(0.55, 0.08, roughness) * (1.0 - uBillboardMode);
+
+  // Ground-contact AO + panel cavity + bevel edge metallic highlight
+  float contactAO = mix(mix(0.56, 1.0, smoothstep(0.0, 0.42, vLocalY)), 1.0, uBillboardMode);
+  float cavityAO = mix(detail.a, 1.0, uHasAlbedoTex) * contactAO;
+  float edgeCurv = clamp(length(fwidth(N)) * 1.1, 0.0, 0.26) * (1.0 - uBillboardMode) * (1.0 - uHasAlbedoTex);
+
+  // Hemisphere diffuse skylight + warm ground bounce
+  vec3 hemiSky = mix(vec3(0.11, 0.12, 0.10), vec3(0.20, 0.30, 0.44), clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
+  vec3 diffuseColor = baseCol * (1.0 - metallic * 0.52);
+  vec3 ambient = diffuseColor * mix(hemiSky, vec3(0.38), uBillboardMode) * cavityAO;
+
   float sunWrap = mix(NdotL, 0.58 + 0.42 * NdotL, uBillboardMode);
-  vec3 direct = (baseCol * mix(1.24, 1.06, uBillboardMode) + specTint * spec * (1.0 - uBillboardMode)) * sunWrap * mix(0.24, 1.0, shadow);
+  vec3 sunTint = vec3(1.36, 1.24, 1.04);
+  vec3 directShadow = mix(vec3(0.17, 0.22, 0.33), vec3(1.0), shadow);
+  vec3 directDiff = diffuseColor * mix(1.06, 1.02, uBillboardMode) * sunTint * sunWrap * directShadow;
+  vec3 directSpec = cookSpec * sunTint * NdotL * shadow * (1.0 - uBillboardMode) * 0.85;
+  vec3 bevelHighlight = mix(baseCol, vec3(0.75, 0.82, 0.90), metallic) * edgeCurv * (0.28 + 0.72 * NdotL * shadow);
 
   // Height-adaptive faction Fresnel rim + glossy canopy sky reflection (muted on textured GLB assets)
-  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.4);
-  float rimScale = mix(0.06, 0.92, smoothstep(22.0, 72.0, uCamHeight)) * mix(1.0, 0.18, uHasAlbedoTex);
-  vec3 rim = teamCol * fresnel * rimScale + vec3(0.45, 0.65, 0.88) * fresnel * glassFactor * 0.85;
+  float fresnel = pow(1.0 - NdotV, 3.4);
+  float rimScale = mix(0.08, 0.86, smoothstep(22.0, 72.0, uCamHeight)) * mix(1.0, 0.18, uHasAlbedoTex);
+  vec3 rim = teamCol * fresnel * rimScale + vec3(0.45, 0.68, 0.92) * fresnel * glassFactor * 0.95;
 
-  // Emissive energy core + subtle crystal internal glow + Low-HP embers
-  vec3 emissive = (vTone > 1.5 && vTone < 2.5) ? baseCol * 0.82 : vec3(0.0);
-  emissive += teamCol * glassFactor * 0.14;
+  // Emissive energy core (Fresnel center glow, deep edge) + Low-HP embers
+  vec3 emissive = vec3(0.0);
+  if (vTone > 1.5 && vTone < 2.5) {
+    float coreCenter = pow(NdotV, 1.4);
+    emissive = mix(teamCol * 0.55, baseCol * 1.15, coreCenter) + vec3(0.18, 0.48, 0.85) * fresnel;
+  }
+  emissive += teamCol * glassFactor * 0.10;
   if (hpRatio < 0.35) {
     emissive += vec3(0.9, 0.25, 0.04) * (1.0 - hpRatio / 0.35) * 0.35 * dmgMask;
   }
 
-  vec3 color = (ambient + direct + rim + emissive) * fogVis;
+  vec3 color = (ambient + specIBL + directDiff + directSpec + bevelHighlight + rim + emissive) * fogVis;
   outColor = vec4(color, 1.0);
 }`;
 

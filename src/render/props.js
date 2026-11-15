@@ -316,7 +316,7 @@ export function createPropRenderer(gl, compileProgram) {
         for (let s = 0; s < spawns.length; s++) {
           const dx = jx - spawns[s].gx;
           const dz = jz - spawns[s].gz;
-          if (dx * dx + dz * dz < 676) { // Keep base clear (26 cells)
+          if (dx * dx + dz * dz < 169) { // Keep immediate build pad clear (13 cells) while framing spawn outskirts
             nearProtected = true;
             break;
           }

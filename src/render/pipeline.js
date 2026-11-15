@@ -189,7 +189,7 @@ in vec3 vNormal;
 in vec2 vUv;
 in vec4 vShadowPos;
 
-uniform sampler2D uSplatTex;   // R: terrainClass, G: oreType, B: oreAmount, A: bridgeFlag
+uniform sampler2D uSplatTex;   // R: terrainClass, G: oreType, B: oreAmount, A: bridgeFlag(255) / buildingPad(110)
 uniform sampler2D uDetailTex;
 uniform sampler2D uShadowMap;
 uniform sampler2D uFogTex;
@@ -204,32 +204,64 @@ out vec4 outColor;
 
 ${PCSS_GLSL}
 
+float terrainHash(vec2 p) {
+  p = fract(p * vec2(127.1, 311.7));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
 void main() {
   vec4 splat = texture(uSplatTex, vUv);
-  vec2 tileUv = vWorldPos.xz * 0.14;
-  vec4 detail = texture(uDetailTex, tileUv);
+  // Multi-scale world-space procedural sampling + analytical close-range turf blade / soil grit hash
+  vec4 detMacro = texture(uDetailTex, vWorldPos.xz * 0.028);
+  vec4 detMed   = texture(uDetailTex, vWorldPos.xz * 0.19 + vec2(0.17, 0.43));
+  vec4 detMicro = texture(uDetailTex, vWorldPos.xz * 1.08);
+
+  float camDist = length(uCamPos - vWorldPos);
+  float nearDetail = 1.0 - smoothstep(26.0, 92.0, camDist);
+  float bladeCell = terrainHash(floor(vWorldPos.xz * 7.2));
+  float pebbleCell = terrainHash(floor(vWorldPos.xz * 3.1 + 19.7));
+  float crispGrit = mix(1.0, 0.87 + 0.26 * bladeCell * 0.72 + 0.08 * step(0.86, pebbleCell), nearDetail);
 
   float slope = 1.0 - max(vNormal.y, 0.0);
-  // Sunlit RA2 meadow palette: vibrant emerald-olive turf, warm loam, stratified cliffs, golden beach sand
-  vec3 grassCol = vec3(0.16, 0.28, 0.09) * (0.76 + 0.48 * detail.r);
-  vec3 cloverCol = vec3(0.22, 0.34, 0.10) * (0.80 + 0.40 * detail.b);
-  vec3 earthCol = vec3(0.22, 0.18, 0.11) * (0.76 + 0.48 * detail.b);
-  vec3 rockCol  = vec3(0.24, 0.21, 0.18) * (0.72 + 0.56 * detail.b);
-  vec3 sandCol  = vec3(0.38, 0.32, 0.21) * (0.80 + 0.40 * detail.r);
-  vec3 deckCol  = vec3(0.25, 0.28, 0.32) * (0.82 + 0.36 * detail.b);
+  float bladeMicro = (0.85 + 0.30 * detMicro.b) * crispGrit;
+  float macroNoise = detMacro.r * 0.58 + detMed.r * 0.42;
+
+  // Sunlit RA2 coastal meadow palette: deep moss greens, sunlit clover fields, damp loam soil, craggy slate, wet golden sand
+  vec3 lushMoss  = vec3(0.095, 0.215, 0.062) * (0.80 + 0.42 * detMed.b) * bladeMicro;
+  vec3 cloverCol = vec3(0.185, 0.305, 0.082) * (0.82 + 0.38 * detMicro.r) * bladeMicro;
+  vec3 earthCol  = vec3(0.165, 0.132, 0.082) * (0.76 + 0.48 * detMicro.b) * crispGrit;
+  vec3 rockCol   = vec3(0.19, 0.18, 0.165) * (0.68 + 0.62 * detMicro.b) * mix(1.0, 0.90 + 0.20 * pebbleCell, nearDetail);
+  vec3 sandCol   = vec3(0.36, 0.30, 0.19) * (0.82 + 0.36 * detMicro.b) * crispGrit;
+  vec3 deckCol   = vec3(0.22, 0.25, 0.29) * (0.82 + 0.36 * detMicro.b);
 
   float elev = vWorldPos.y;
-  float macroPatch = sin(vWorldPos.x * 0.055) * cos(vWorldPos.z * 0.055) * 0.5 + 0.5;
-  vec3 turf = mix(grassCol, cloverCol, smoothstep(0.25, 0.75, macroPatch * 0.65 + detail.r * 0.35));
-  float soilMix = smoothstep(0.45, 0.85, detail.b * 0.7 + (1.0 - detail.r) * 0.3);
-  vec3 albedo = mix(turf, earthCol, soilMix * 0.38);
-  albedo = mix(sandCol, albedo, smoothstep(-0.25, 1.05, elev));
-  // Stratified cliff rock banding on steep slopes
-  float strata = 0.84 + 0.16 * sin(elev * 5.2 + detail.b * 3.0);
-  albedo = mix(albedo, rockCol * strata, smoothstep(0.16, 0.44, slope));
+  float meadowMix = smoothstep(0.24, 0.78, macroNoise);
+  vec3 turf = mix(lushMoss, cloverCol, meadowMix);
+  float soilMix = smoothstep(0.54, 0.85, (1.0 - detMacro.r) * 0.52 + detMed.b * 0.48);
+  vec3 albedo = mix(turf, earthCol, soilMix * 0.46);
+
+  // Damp shoreline darkening right near water edge + smooth transition from beach sand to turf
+  float wetShore = 1.0 - smoothstep(-0.15, 0.42, elev);
+  vec3 beach = sandCol * mix(1.0, 0.66, wetShore);
+  albedo = mix(beach, albedo, smoothstep(-0.18, 0.95, elev));
+
+  // Stratified cliff rock banding + rocky grit cracks on steep slopes
+  float strata = 0.78 + 0.22 * sin(elev * 5.6 + detMed.b * 3.4);
+  float rockCrack = 0.85 + 0.15 * detMicro.a;
+  albedo = mix(albedo, rockCol * strata * rockCrack, smoothstep(0.14, 0.40, slope));
+
+  // Crushed gravel & dark contact-AO foundation pad under deployed buildings
+  bool isBridge = splat.a > 0.78;
+  float bldgPad = isBridge ? 0.0 : smoothstep(0.06, 0.42, splat.a);
+  if (bldgPad > 0.01) {
+    vec3 gravelPad = mix(earthCol * 0.72, vec3(0.17, 0.18, 0.19) * crispGrit, 0.65);
+    albedo = mix(albedo, gravelPad, bldgPad * 0.78);
+    albedo *= mix(1.0, 0.64, smoothstep(0.22, 0.43, splat.a));
+  }
 
   // Bridges painted clearly as reinforced steel/concrete decks
-  if (splat.a > 0.5) {
+  if (isBridge) {
     float stripe = step(0.88, fract(vWorldPos.z * 0.5)) * 0.18;
     albedo = deckCol + vec3(stripe * 0.55, stripe * 0.38, 0.0);
   }
@@ -246,27 +278,33 @@ void main() {
     emissive += oreCol * veinMask * (0.35 + 0.15 * sin(uTime * 2.4 + vWorldPos.x * 0.3));
   }
 
-  // Subtle tactical grid only faintly visible from high elevation / bridges
+  // Crisp subtle tactical grid softly grounded on terrain / reinforced bridges
   vec2 cellGrid = abs(fract(vWorldPos.xz / 2.0 - 0.5) - 0.5) / max(fwidth(vWorldPos.xz / 2.0), vec2(0.001));
   float gridLine = 1.0 - min(min(cellGrid.x, cellGrid.y), 1.0);
-  albedo = mix(albedo, albedo * 1.08 + vec3(0.008), gridLine * (0.018 + 0.08 * splat.a));
+  float gridMask = isBridge ? 0.095 : 0.015;
+  albedo = mix(albedo, albedo * 1.08 + vec3(0.006), gridLine * gridMask);
 
-  // Organic micro-bump surface normal perturbation (avoids armor plate grid seams)
-  float hDet = detail.r * 0.65 + detail.b * 0.35;
-  vec3 N = normalize(vNormal + vec3(dFdx(hDet), 0.0, dFdy(hDet)) * -1.4);
+  // Multi-scale micro-bump surface normal relief for tangible close-range turf & rock grit
+  float hDet = detMicro.b * 0.52 + detMed.r * 0.30 + mix(0.0, bladeCell * 0.18, nearDetail);
+  vec3 N = normalize(vNormal + vec3(dFdx(hDet), 0.0, dFdy(hDet)) * -2.45);
   vec3 L = normalize(uLightDir);
   vec3 V = normalize(uCamPos - vWorldPos);
   vec3 H = normalize(V + L);
 
   float NdotL = max(dot(N, L), 0.0);
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
-  float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
+  float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0014, uShadowTexelSize);
 
-  float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.07 * shadow;
-  vec3 skyAmbient = vec3(0.16, 0.21, 0.27);
-  vec3 sunColor = vec3(1.26, 1.15, 0.98);
+  float specPower = mix(24.0, 72.0, wetShore * (1.0 - smoothstep(0.15, 0.35, slope)));
+  float specGain = mix(0.055, 0.28, wetShore);
+  float spec = pow(max(dot(N, H), 0.0), specPower) * specGain * shadow;
 
-  vec3 lit = albedo * (skyAmbient + sunColor * NdotL * mix(0.18, 1.0, shadow)) + vec3(spec) + emissive;
+  // Dual-hemisphere cool-sky vs warm-sun daylight with saturated blue-slate shadow fill
+  vec3 skyAmbient = mix(vec3(0.12, 0.14, 0.16), vec3(0.16, 0.24, 0.35), N.y * 0.5 + 0.5);
+  vec3 sunColor = vec3(1.36, 1.22, 1.00);
+  vec3 directShadow = mix(vec3(0.16, 0.21, 0.31), vec3(1.0), shadow);
+
+  vec3 lit = albedo * (skyAmbient + sunColor * NdotL * directShadow) + vec3(1.0, 0.96, 0.88) * spec + emissive;
 
   // 5-tap softened GPU Fog of War to eliminate 256x256 block edges
   float fogTexel = 1.0 / 256.0;
@@ -461,8 +499,10 @@ void main() {
   vec3 scene = texture(uSceneTex, vUv).rgb;
   vec3 bloom = texture(uBloomTex, vUv).rgb;
   vec3 hdr = (scene + bloom * uBloomStrength) * uExposure;
-  // agxToneMap already curves into display-referred space; avoid double-gamma lift
+  // agxToneMap curves into display-referred space; apply gentle vibrance & crisp contrast grade
   vec3 mapped = agxToneMap(hdr);
+  float luma = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
+  mapped = mix(vec3(luma), mapped, 1.14);
 
   // Subtle tactical edge vignette for HUD contrast
   vec2 centered = vUv - 0.5;
@@ -817,7 +857,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       splatBytes[dst + 0] = Math.min(255, t * 50);
       splatBytes[dst + 1] = map.oreType[i] === ORE_TYPE.VIOLET ? 255 : (map.oreType[i] === ORE_TYPE.RED ? 128 : 0);
       splatBytes[dst + 2] = Math.min(255, Math.round((map.oreAmount[i] / ECONOMY_CONFIG.maxCellOreUnits) * 255));
-      splatBytes[dst + 3] = t === TERRAIN.BRIDGE ? 255 : 0;
+      splatBytes[dst + 3] = t === TERRAIN.BRIDGE ? 255 : (map.buildingId[i] !== 0 ? 110 : 0);
     }
 
     gl.bindTexture(gl.TEXTURE_2D, splatTex);

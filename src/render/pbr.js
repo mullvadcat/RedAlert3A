@@ -85,6 +85,7 @@ void main() {
   // Seamless periodic tiled UV space (zero wrap seams across terrain!)
   float macro = fbmTiled(vUv, 16.0);
   float fine = fbmTiled(vUv + 0.37, 64.0);
+  float microGrit = fbmTiled(vUv + 0.71, 128.0);
 
   // Armor plate seams & corner rivets (8x8 plate tile)
   vec2 plate = fract(vUv * 8.0);
@@ -95,20 +96,20 @@ void main() {
   vec2 riv = abs(plate - clamp(plate, 0.08, 0.92));
   float rivet = smoothstep(0.018, 0.008, length(fract(plate * 6.0) - 0.5)) * step(0.15, max(riv.x, riv.y));
 
-  // Digital camo blotches (seamless period 12)
-  float camo = smoothstep(0.46, 0.56, fbmTiled(vUv + vec2(0.19, 0.61), 12.0));
+  // Smooth multi-scale organic grain (avoids chunky blotches on terrain)
+  float organicGrain = clamp(fine * 0.62 + microGrit * 0.38, 0.0, 1.0);
   float edgeWear = smoothstep(0.4, 0.9, seam + (fine - 0.5) * 0.35);
 
   float heightL = macro - seam * 0.25 + rivet * 0.15;
   float eps = 0.004;
-  float hx = fbmTiled(vUv + vec2(eps, 0.0), 16.0) - fbmTiled(vUv - vec2(eps, 0.0), 16.0);
-  float hy = fbmTiled(vUv + vec2(0.0, eps), 16.0) - fbmTiled(vUv - vec2(0.0, eps), 16.0);
-  vec2 normXY = clamp(vec2(hx, hy) * 1.6 + 0.5, 0.0, 1.0);
+  float hx = fbmTiled(vUv + vec2(eps, 0.0), 32.0) - fbmTiled(vUv - vec2(eps, 0.0), 32.0);
+  float hy = fbmTiled(vUv + vec2(0.0, eps), 32.0) - fbmTiled(vUv - vec2(0.0, eps), 32.0);
+  vec2 normXY = clamp(vec2(hx, hy) * 1.9 + 0.5, 0.0, 1.0);
 
   float roughness = clamp(0.42 + (1.0 - macro) * 0.28 + seam * 0.2 - edgeWear * 0.18, 0.15, 0.95);
   float metallic = clamp(0.72 + rivet * 0.2 - seam * 0.35, 0.1, 0.98);
 
-  outDetail = vec4(macro, seam, camo, clamp(0.85 - seam * 0.4 + fine * 0.15, 0.0, 1.0));
+  outDetail = vec4(macro, seam, organicGrain, clamp(0.85 - seam * 0.4 + microGrit * 0.15, 0.0, 1.0));
   outMaterial = vec4(normXY.x, normXY.y, roughness, metallic);
 }`;
 

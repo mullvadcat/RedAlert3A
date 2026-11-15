@@ -35,8 +35,9 @@ void main() {
   vec3 worldPos;
 
   if (iStyle.y < 0.5) {
-    // Kind 0: Ground-projected selection ring
-    worldPos = center + vec3(aQuad.x * w, 0.14, aQuad.y * h);
+    // Kind 0: Ground-projected selection ring lifted slightly with footprint radius to avoid uneven terrain clipping
+    float lift = 0.24 + min(0.28, max(w, h) * 0.018);
+    worldPos = center + vec3(aQuad.x * w, lift, aQuad.y * h);
   } else {
     // Kind 1: Camera-facing overhead HUD bar + cargo pips + veterancy
     worldPos = center + uCamRight * (aQuad.x * w) + uCamUp * (aQuad.y * h);
@@ -56,13 +57,15 @@ out vec4 outColor;
 
 void main() {
   if (vStyle.y < 0.5) {
-    // Selection ring on XZ plane
+    // Selection ring on XZ plane with crisp inner band + subtle outer tactical halo
     vec2 p = vUv * 2.0 - 1.0;
     float d = length(p);
-    float ring = smoothstep(0.98, 0.90, d) * smoothstep(0.76, 0.84, d);
-    if (ring < 0.05) discard;
-    vec3 col = vMeta.w > 0.5 ? vec3(0.95, 0.25, 0.2) : vec3(0.32, 0.95, 0.55);
-    outColor = vec4(col, ring * 0.92);
+    float ring = smoothstep(0.96, 0.89, d) * smoothstep(0.78, 0.85, d);
+    float glow = smoothstep(1.0, 0.88, d) * smoothstep(0.70, 0.86, d) * 0.28;
+    float alpha = clamp(ring * 0.95 + glow, 0.0, 1.0);
+    if (alpha < 0.03) discard;
+    vec3 col = vMeta.w > 0.5 ? vec3(0.98, 0.28, 0.22) : vec3(0.28, 0.96, 0.62);
+    outColor = vec4(col, alpha);
     return;
   }
 
