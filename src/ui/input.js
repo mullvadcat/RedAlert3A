@@ -20,9 +20,12 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
   let lastClickInfo = { timeMs: 0, typeId: null };
 
   let pointerInsideViewport = false;
+  let pointerOverInteractiveUi = false;
   let pointerClientX = 0;
   let pointerClientY = 0;
   let dragStart = null;
+  let rightDragStart = null;
+  let suppressNextContextMenu = false;
   let isMiddleOrbit = false;
   let isMiddlePan = false;
   let lastMiddleX = 0;
@@ -238,18 +241,120 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
 
   window.addEventListener('blur', () => {
     keysDown.clear();
+    pointerInsideViewport = false;
+    pointerOverInteractiveUi = false;
+    rightDragStart = null;
+    isMiddlePan = false;
+    isMiddleOrbit = false;
+    canvas.style.cursor = '';
   });
 
-  // === Canvas Mouse Controls ===
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('mouseleave', () => {
+    pointerInsideViewport = false;
+    pointerOverInteractiveUi = false;
+  });
 
-  canvas.addEventListener('mouseenter', () => { pointerInsideViewport = true; });
-  canvas.addEventListener('mouseleave', () => { pointerInsideViewport = false; });
+  // === Canvas & Viewport Mouse Controls ===
+  const viewportEl = canvas.parentElement;
+  if (viewportEl) {
+    viewportEl.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('contextmenu', (e) => {
+    if (suppressNextContextMenu) {
+      e.preventDefault();
+      suppressNextContextMenu = false;
+    }
+  });
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    pipeline.camera.zoom(e.deltaY * 0.03);
+    if (e.shiftKey && Math.abs(e.deltaY) > 0 && Math.abs(e.deltaX) < 1) {
+      const panScale = (14 + pipeline.camera.height * 0.4) * 0.002;
+      pipeline.camera.pan(e.deltaY * panScale, 0);
+      return;
+    }
+    if (Math.abs(e.deltaX) >= 3) {
+      const panScale = (14 + pipeline.camera.height * 0.4) * 0.002;
+      pipeline.camera.pan(e.deltaX * panScale, 0);
+    }
+    if (Math.abs(e.deltaY) > 0) {
+      pipeline.camera.zoom(e.deltaY * 0.03);
+    }
   }, { passive: false });
+
+  function handleRightClickAction(clientX, clientY) {
+    // Right-click cancels placement, pending power, or cursor mode first
+    if (uiState.placementTypeId || uiState.pendingPower || uiState.cursorMode !== 'default') {
+      cancelCursorOrPlacement();
+      return;
+    }
+
+    if (uiState.selectedIds.size === 0) return;
+    const world = pipeline.camera.screenToWorld(clientX, clientY, 1.6);
+    const selectedList = Array.from(uiState.selectedIds);
+
+    const selectedEntities = selectedList
+      .map((id) => state.entityById.get(id))
+      .filter((ent) => ent && ent.alive);
+    const selectedHasEngineer = selectedEntities.some((ent) => ent.typeId === 'engineer');
+
+    // Check if targeting an enemy, neutral interactable (engineer), or friendly transport (boarding)
+    const enemyTarget = findEntityAtWorld(
+      world.x,
+      world.z,
+      (ent) => {
+        if (ent.teamId !== 0 && ent.teamId !== 3) {
+          return uiState.noFog || isEntityTargetable(state, 0, ent);
+        }
+        if (selectedHasEngineer && ent.isBuilding && (ent.teamId === 3 || (ent.playerId === 0 && ent.hp < ent.maxHp))) {
+          return true;
+        }
+        if (ent.playerId === 0 && selectedEntities.some((unit) => canBoardTransport(ent, unit))) {
+          return true;
+        }
+        return false;
+      }
+    );
+
+    if (enemyTarget) {
+      enqueue({ playerId: 0, type: 'ATTACK', entityIds: selectedList, targetId: enemyTarget.id });
+      pipeline.pushTransientFx({
+        kind: 'order',
+        x: enemyTarget.x,
+        y: enemyTarget.y ?? 1.6,
+        z: enemyTarget.z,
+        r: 1.0,
+        g: 0.25,
+        b: 0.2,
+        startSec: performance.now() * 0.001,
+        duration: 0.45
+      });
+      return;
+    }
+
+    const hasMobile = selectedList.some((id) => {
+      const ent = state.entityById.get(id);
+      return ent && ent.alive && !ent.isBuilding && ent.playerId === 0;
+    });
+
+    if (hasMobile) {
+      enqueue({ playerId: 0, type: 'MOVE', entityIds: selectedList, x: world.x, z: world.z });
+      pipeline.pushTransientFx({
+        kind: 'order',
+        x: world.x,
+        y: 1.6,
+        z: world.z,
+        r: 0.25,
+        g: 0.95,
+        b: 0.45,
+        startSec: performance.now() * 0.001,
+        duration: 0.42
+      });
+    } else {
+      enqueue({ playerId: 0, type: 'SET_RALLY', entityIds: selectedList, x: world.x, z: world.z });
+    }
+  }
 
   canvas.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -265,80 +370,19 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
       lastMiddleY = e.clientY;
       isMiddleOrbit = e.altKey;
       isMiddlePan = !e.altKey;
+      canvas.style.cursor = 'grabbing';
       return;
     }
 
     if (e.button === 2) {
-      // Right-click cancels placement, pending power, or cursor mode first
-      if (uiState.placementTypeId || uiState.pendingPower || uiState.cursorMode !== 'default') {
-        cancelCursorOrPlacement();
-        return;
-      }
-
-      if (uiState.selectedIds.size === 0) return;
-      const world = pipeline.camera.screenToWorld(e.clientX, e.clientY, 1.6);
-      const selectedList = Array.from(uiState.selectedIds);
-
-      const selectedEntities = selectedList
-        .map((id) => state.entityById.get(id))
-        .filter((ent) => ent && ent.alive);
-      const selectedHasEngineer = selectedEntities.some((ent) => ent.typeId === 'engineer');
-
-      // Check if targeting an enemy, neutral interactable (engineer), or friendly transport (boarding)
-      const enemyTarget = findEntityAtWorld(
-        world.x,
-        world.z,
-        (ent) => {
-          if (ent.teamId !== 0 && ent.teamId !== 3) {
-            return uiState.noFog || isEntityTargetable(state, 0, ent);
-          }
-          if (selectedHasEngineer && ent.isBuilding && (ent.teamId === 3 || (ent.playerId === 0 && ent.hp < ent.maxHp))) {
-            return true;
-          }
-          if (ent.playerId === 0 && selectedEntities.some((unit) => canBoardTransport(ent, unit))) {
-            return true;
-          }
-          return false;
-        }
-      );
-
-      if (enemyTarget) {
-        enqueue({ playerId: 0, type: 'ATTACK', entityIds: selectedList, targetId: enemyTarget.id });
-        pipeline.pushTransientFx({
-          kind: 'order',
-          x: enemyTarget.x,
-          y: enemyTarget.y ?? 1.6,
-          z: enemyTarget.z,
-          r: 1.0,
-          g: 0.25,
-          b: 0.2,
-          startSec: performance.now() * 0.001,
-          duration: 0.45
-        });
-        return;
-      }
-
-      const hasMobile = selectedList.some((id) => {
-        const ent = state.entityById.get(id);
-        return ent && ent.alive && !ent.isBuilding && ent.playerId === 0;
-      });
-
-      if (hasMobile) {
-        enqueue({ playerId: 0, type: 'MOVE', entityIds: selectedList, x: world.x, z: world.z });
-        pipeline.pushTransientFx({
-          kind: 'order',
-          x: world.x,
-          y: 1.6,
-          z: world.z,
-          r: 0.25,
-          g: 0.95,
-          b: 0.45,
-          startSec: performance.now() * 0.001,
-          duration: 0.42
-        });
-      } else {
-        enqueue({ playerId: 0, type: 'SET_RALLY', entityIds: selectedList, x: world.x, z: world.z });
-      }
+      rightDragStart = {
+        x: e.clientX,
+        y: e.clientY,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        active: false,
+        orbit: e.altKey
+      };
       return;
     }
 
@@ -463,10 +507,18 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
     pointerClientX = e.clientX;
     pointerClientY = e.clientY;
 
+    const rect = canvas.getBoundingClientRect();
+    const inX = e.clientX >= rect.left - 8 && e.clientX <= rect.right + 2;
+    const inY = e.clientY >= rect.top - 8 && e.clientY <= rect.bottom + 8;
+    pointerInsideViewport = inX && inY;
+    const targetEl = e.target;
+    pointerOverInteractiveUi = !!(
+      targetEl instanceof Element &&
+      targetEl.closest('#gallery-panel, #victory-modal, #dialogue-box, #bench-telemetry-overlay, #sidebar-root')
+    );
+
     if (isMiddlePan) {
-      const dx = (e.clientX - lastMiddleX) * 0.12;
-      const dz = (e.clientY - lastMiddleY) * 0.12;
-      pipeline.camera.pan(-dx, -dz);
+      pipeline.camera.panByScreenDrag(lastMiddleX, lastMiddleY, e.clientX, e.clientY);
       lastMiddleX = e.clientX;
       lastMiddleY = e.clientY;
       return;
@@ -481,6 +533,25 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
       return;
     }
 
+    if (rightDragStart) {
+      if (!rightDragStart.active && Math.hypot(e.clientX - rightDragStart.x, e.clientY - rightDragStart.y) > 5) {
+        rightDragStart.active = true;
+        canvas.style.cursor = 'grabbing';
+      }
+      if (rightDragStart.active) {
+        if (rightDragStart.orbit) {
+          const dYaw = (e.clientX - rightDragStart.lastX) * 0.008;
+          const dPitch = (e.clientY - rightDragStart.lastY) * 0.006;
+          pipeline.camera.orbit(-dYaw, dPitch);
+        } else {
+          pipeline.camera.panByScreenDrag(rightDragStart.lastX, rightDragStart.lastY, e.clientX, e.clientY);
+        }
+        rightDragStart.lastX = e.clientX;
+        rightDragStart.lastY = e.clientY;
+        return;
+      }
+    }
+
     if (uiState.placementTypeId) {
       updatePlacementPreview(e.clientX, e.clientY);
     }
@@ -492,7 +563,6 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
         const top = Math.min(dragStart.y, e.clientY);
         const width = Math.abs(e.clientX - dragStart.x);
         const height = Math.abs(e.clientY - dragStart.y);
-        const rect = canvas.getBoundingClientRect();
         selectionBoxEl.hidden = false;
         selectionBoxEl.style.left = `${left - rect.left}px`;
         selectionBoxEl.style.top = `${top - rect.top}px`;
@@ -506,6 +576,19 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
     if (e.button === 1) {
       isMiddlePan = false;
       isMiddleOrbit = false;
+      canvas.style.cursor = '';
+    }
+    if (e.button === 2 && rightDragStart) {
+      const rDrag = rightDragStart;
+      rightDragStart = null;
+      canvas.style.cursor = '';
+      if (rDrag.active) {
+        suppressNextContextMenu = true;
+      } else {
+        suppressNextContextMenu = false;
+        handleRightClickAction(e.clientX, e.clientY);
+      }
+      return;
     }
     if (!dragStart || e.button !== 0) return;
 
@@ -575,14 +658,25 @@ export function createInputController(canvas, initialState, uiState, pipeline, s
     if (keysDown.has(KEYMAP_DEFAULTS.panUp)) dz -= panSpeed;
     if (keysDown.has(KEYMAP_DEFAULTS.panDown)) dz += panSpeed;
 
-    // 14px viewport edge scrolling when mouse inside battlefield canvas
-    if (pointerInsideViewport && !dragStart) {
+    // 24px viewport edge scrolling (works cleanly across top/bottom HUD overlays; pauses over sidebar/modals)
+    const modalClosed = !victoryModalEl || victoryModalEl.hidden;
+    if (modalClosed && pointerInsideViewport && !pointerOverInteractiveUi && !dragStart && !rightDragStart && !isMiddlePan && !isMiddleOrbit) {
       const rect = canvas.getBoundingClientRect();
-      const m = 14;
-      if (pointerClientX >= rect.left && pointerClientX <= rect.left + m) dx -= panSpeed;
-      else if (pointerClientX <= rect.right && pointerClientX >= rect.right - m) dx += panSpeed;
-      if (pointerClientY >= rect.top && pointerClientY <= rect.top + m) dz -= panSpeed;
-      else if (pointerClientY <= rect.bottom && pointerClientY >= rect.bottom - m) dz += panSpeed;
+      const m = 24;
+      if (pointerClientX <= rect.left + m) {
+        const ratio = 0.45 + 0.55 * Math.max(0, Math.min(1, (rect.left + m - pointerClientX) / m));
+        dx -= panSpeed * ratio;
+      } else if (pointerClientX >= rect.right - m && pointerClientX <= rect.right + 4) {
+        const ratio = 0.45 + 0.55 * Math.max(0, Math.min(1, (pointerClientX - (rect.right - m)) / m));
+        dx += panSpeed * ratio;
+      }
+      if (pointerClientY <= rect.top + m) {
+        const ratio = 0.45 + 0.55 * Math.max(0, Math.min(1, (rect.top + m - pointerClientY) / m));
+        dz -= panSpeed * ratio;
+      } else if (pointerClientY >= rect.bottom - m) {
+        const ratio = 0.45 + 0.55 * Math.max(0, Math.min(1, (pointerClientY - (rect.bottom - m)) / m));
+        dz += panSpeed * ratio;
+      }
     }
 
     if (dx !== 0 || dz !== 0) {

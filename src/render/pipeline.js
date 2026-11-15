@@ -861,7 +861,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     camUp[0] = viewMat[1]; camUp[1] = viewMat[5]; camUp[2] = viewMat[9];
   }
 
-  function screenToWorld(clientX, clientY, planeY = 1.6) {
+  function rayPlaneRaw(clientX, clientY, planeY = 1.6) {
     const rect = canvas.getBoundingClientRect();
     const nx = ((clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
     const ny = -(((clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
@@ -877,16 +877,24 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     const nearPt = unproject(-1);
     const farPt = unproject(1);
     const dy = farPt[1] - nearPt[1];
-    if (Math.abs(dy) < 1e-5) {
+    if (Math.abs(dy) < 1e-4) {
       return { x: camState.targetX, z: camState.targetZ, hit: false };
     }
     const t = (planeY - nearPt[1]) / dy;
-    const wx = nearPt[0] + (farPt[0] - nearPt[0]) * t;
-    const wz = nearPt[2] + (farPt[2] - nearPt[2]) * t;
     return {
-      x: Math.max(2, Math.min(WORLD_SIZE - 2, wx)),
-      z: Math.max(2, Math.min(WORLD_SIZE - 2, wz)),
+      x: nearPt[0] + (farPt[0] - nearPt[0]) * t,
+      z: nearPt[2] + (farPt[2] - nearPt[2]) * t,
       hit: t > 0
+    };
+  }
+
+  function screenToWorld(clientX, clientY, planeY = 1.6) {
+    const p = rayPlaneRaw(clientX, clientY, planeY);
+    if (!p.hit) return p;
+    return {
+      x: Math.max(2, Math.min(WORLD_SIZE - 2, p.x)),
+      z: Math.max(2, Math.min(WORLD_SIZE - 2, p.z)),
+      hit: true
     };
   }
 
@@ -920,6 +928,23 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       const wz = -screenDx * sy + screenDz * cy;
       camState.targetX = Math.max(10, Math.min(WORLD_SIZE - 10, camState.targetX + wx));
       camState.targetZ = Math.max(10, Math.min(WORLD_SIZE - 10, camState.targetZ + wz));
+      updateCameraMatrices();
+    },
+    panByScreenDrag(prevX, prevY, nextX, nextY) {
+      const p0 = rayPlaneRaw(prevX, prevY, 1.6);
+      const p1 = rayPlaneRaw(nextX, nextY, 1.6);
+      if (p0.hit && p1.hit) {
+        const dx = p0.x - p1.x;
+        const dz = p0.z - p1.z;
+        if (Math.hypot(dx, dz) < 120) {
+          camState.targetX = Math.max(10, Math.min(WORLD_SIZE - 10, camState.targetX + dx));
+          camState.targetZ = Math.max(10, Math.min(WORLD_SIZE - 10, camState.targetZ + dz));
+          updateCameraMatrices();
+          return;
+        }
+      }
+      const scale = camState.height * 0.0028;
+      this.pan((prevX - nextX) * scale, (prevY - nextY) * scale);
     },
     zoom(deltaHeight) {
       camState.height = Math.max(14, Math.min(80, camState.height + deltaHeight));

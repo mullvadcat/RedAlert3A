@@ -22,7 +22,7 @@ export default {
   'hud.noRadar': '未部署雷达\n小地图受限',
   'hud.selectionNone': '未选中单位',
   'hud.selectionCount': '已选中 {count} 个目标',
-  'hud.hintsDefault': '左键框选 | 右键移动/攻击 | D 展开 | A 攻移 | S 停止 | L 切语言',
+  'hud.hintsDefault': '左键框选 | 右键点移动·按住拖屏 | 边缘移屏 | 滚轮缩放 | Alt+右键旋转',
   'hud.hintsPlace': '左键放置建筑 | 右键 / Esc 取消放置',
   'hud.status.deployed': '建造厂部署完成，解锁 18 格建造辐射圈',
   'hud.status.deployBlocked': '当前位置地形不平或存在障碍，无法展开建造厂',

@@ -22,7 +22,7 @@ export default {
   'hud.noRadar': 'NO RADAR\nSIGNAL OFFLINE',
   'hud.selectionNone': 'No Selection',
   'hud.selectionCount': '{count} Selected',
-  'hud.hintsDefault': 'LMB Box Select | RMB Move/Atk | D Deploy | A Atk-Move | S Stop | L Lang',
+  'hud.hintsDefault': 'LMB Box | RMB Click Move / Drag Pan | Edge Pan | Wheel Zoom | Alt+RMB Orbit',
   'hud.hintsPlace': 'LMB Place Structure | RMB / Esc Cancel',
   'hud.status.deployed': 'Construction Yard deployed (18-cell build radius active)',
   'hud.status.deployBlocked': 'Cannot deploy MCV here: uneven terrain or blocked footprint',
