@@ -209,9 +209,11 @@ void main() {
   }
 
   if (uHasAlbedoTex > 0.5) {
-    baseCol = texture(uAlbedoTex, vUv).rgb * uAlbedoTint.rgb;
-    metallic = 0.18;
-    roughness = 0.58;
+    // glTF baseColorTexture is sRGB; decode to linear space before AgX filmic tone mapping
+    vec3 texLinear = pow(clamp(texture(uAlbedoTex, vUv).rgb, 0.0, 1.0), vec3(2.2));
+    baseCol = texLinear * uAlbedoTint.rgb * 1.12;
+    metallic = 0.08;
+    roughness = 0.72;
   }
 
   // < 50% HP charred battle-damage mask
@@ -247,13 +249,14 @@ void main() {
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
   float upAO = mix(0.66, 1.12, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
-  vec3 ambient = baseCol * (0.18 + 0.18 * max(N.y, 0.0)) * detail.a * upAO;
+  float cavityAO = mix(detail.a, 1.0, uHasAlbedoTex);
+  vec3 ambient = baseCol * (0.18 + 0.18 * max(N.y, 0.0)) * cavityAO * upAO;
   vec3 specTint = mix(vec3(1.0), clamp(baseCol * 1.35 + vec3(0.28), 0.0, 1.0), metallic * 0.65);
   vec3 direct = (baseCol * 1.24 + specTint * spec) * NdotL * mix(0.24, 1.0, shadow);
 
-  // Height-adaptive faction Fresnel rim + glossy canopy sky reflection
+  // Height-adaptive faction Fresnel rim + glossy canopy sky reflection (muted on textured GLB assets)
   float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.4);
-  float rimScale = mix(0.06, 0.92, smoothstep(22.0, 72.0, uCamHeight));
+  float rimScale = mix(0.06, 0.92, smoothstep(22.0, 72.0, uCamHeight)) * mix(1.0, 0.18, uHasAlbedoTex);
   vec3 rim = teamCol * fresnel * rimScale + vec3(0.45, 0.65, 0.88) * fresnel * glassFactor * 0.85;
 
   // Emissive energy core + subtle crystal internal glow + Low-HP embers
