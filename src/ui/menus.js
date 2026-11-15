@@ -129,6 +129,20 @@ export function createLobbyMenu(uiState, options = {}) {
   diffSelect.value = 'normal';
   addRow('menu.aiDiff', diffSelect);
 
+  const qualitySelect = document.createElement('select');
+  for (const [qid, qKey] of [
+    ['ultra', 'menu.qualityUltra'],
+    ['high', 'menu.qualityHigh'],
+    ['balanced', 'menu.qualityBalanced']
+  ]) {
+    const opt = document.createElement('option');
+    opt.value = qid;
+    opt.dataset.i18n = qKey;
+    qualitySelect.appendChild(opt);
+  }
+  qualitySelect.value = options.initialQuality || profile?.preferences?.quality || 'high';
+  addRow('menu.quality', qualitySelect);
+
   // Actions row
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
@@ -223,6 +237,9 @@ export function createLobbyMenu(uiState, options = {}) {
     for (const opt of diffSelect.options) {
       opt.textContent = t(opt.dataset.i18n);
     }
+    for (const opt of qualitySelect.options) {
+      opt.textContent = t(opt.dataset.i18n);
+    }
     syncTabs();
   }
 
@@ -257,6 +274,11 @@ export function createLobbyMenu(uiState, options = {}) {
   });
 
   mapSelect.addEventListener('change', syncModeOptionsWithMap);
+  qualitySelect.addEventListener('change', () => {
+    if (typeof options.onChangeQuality === 'function') {
+      options.onChangeQuality(qualitySelect.value);
+    }
+  });
   btnOpen.addEventListener('click', () => (modal.hidden ? open() : close()));
   btnClose.addEventListener('click', close);
   window.addEventListener('keydown', (e) => {
@@ -313,6 +335,9 @@ export function createLobbyMenu(uiState, options = {}) {
     isOpen: () => !modal.hidden,
     setProfile(nextProfile) {
       profile = nextProfile ?? profile;
+      if (profile?.preferences?.quality && qualitySelect.value !== profile.preferences.quality) {
+        qualitySelect.value = profile.preferences.quality;
+      }
       if (activeTab === 'campaign') renderCampaignList();
     }
   };

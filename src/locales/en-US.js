@@ -353,5 +353,24 @@ export default {
   'campaign.EX13.brief': 'Joint Abyssal-Crimson command! Wield dual tech trees and all 4 superweapons against 3 Abyss-0 Hives.',
   'campaign.EX13.objHives': 'Destroy all 3 Abyss-0 Bio-Mecha Hive Cores',
   'campaign.EX13.dlgIntro': 'Joint Command activated! Both faction arsenals and all 4 superweapons stand ready!',
-  'campaign.EX13.dlgVictory': 'All Abyss-0 Hive Cores shattered! Dawn breaks across the Ink-Sea once more.'
+  'campaign.EX13.dlgVictory': 'All Abyss-0 Hive Cores shattered! Dawn breaks across the Ink-Sea once more.',
+
+  // Milestone 6: Quality presets, GPU context recovery & Benchmark HUD
+  'menu.quality': 'Graphics Quality',
+  'menu.qualityUltra': 'Ultra (4K Shadow / Bloom / 4-Wave)',
+  'menu.qualityHigh': 'High (4K Shadow / Full PBR)',
+  'menu.qualityBalanced': 'Balanced (2K Shadow / Fast)',
+  'loading.contextLost': 'GPU graphics context lost — simulation paused cleanly while recovering...',
+  'loading.contextRestored': 'GPU graphics context & PBR textures rebuilt — battle resumed!',
+  'bench.title': 'Heavy Combat Benchmark (250+ Land/Sea/Air)',
+  'bench.avgFps': 'Avg FPS',
+  'bench.p99Frame': 'P99 Frame',
+  'bench.simAvg': 'Sim Tick Avg',
+  'bench.drawCalls': 'Draw Calls',
+  'bench.heapDelta': 'JS Heap Delta',
+  'bench.activeUnits': 'Active Units',
+  'bench.quality': 'Quality',
+  'bench.elapsed': 'Elapsed',
+  'bench.pass': 'PASS',
+  'bench.warn': 'WARN'
 };

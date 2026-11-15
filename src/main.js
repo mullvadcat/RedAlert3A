@@ -21,6 +21,7 @@ import { createSidebarUI } from './ui/sidebar.js';
 import { createMinimapUI } from './ui/minimap.js';
 import { createInputController } from './ui/input.js';
 import { createLobbyMenu } from './ui/menus.js';
+import { createBenchOverlay } from './ui/bench.js';
 import { spawnBuildingDebris, stepDebrisSystem } from './world/destruction.js';
 import { MAP_SIZE, TERRAIN, getElevationAtWorld } from './world/map.js';
 import { getSkirmishMapById } from './world/skirmishMaps.js';
@@ -34,6 +35,7 @@ function parseLaunchFlags() {
     bench: params.get('bench') === '1',
     show: params.get('show') || null,
     quality: params.get('quality') || 'high',
+    qualityExplicit: params.has('quality'),
     mapId: params.get('map') || null,
     mission: params.get('mission') || null,
     openMenu: params.get('menu') === '1'
@@ -246,13 +248,49 @@ function bootstrap() {
     }), true);
   }
 
+  let benchOverlay = null;
+  let glContextLost = false;
+
+  function applyQualityPreset(qualityId) {
+    const applied = pipeline.setQualityPreset(qualityId);
+    if (benchOverlay) benchOverlay.setQuality(applied.id);
+    if (campaignProfile?.preferences) {
+      campaignProfile.preferences.quality = applied.id;
+      saveCampaignProfile(campaignProfile);
+    }
+    return applied;
+  }
+
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    glContextLost = true;
+    sidebarUI.setStatusNotice('loading.contextLost', 30.0);
+  });
+
+  canvas.addEventListener('webglcontextrestored', () => {
+    pipeline.restoreContext(state, 0, uiState.noFog);
+    glContextLost = false;
+    prevTimeMs = performance.now();
+    accumulator = 0;
+    sidebarUI.setStatusNotice('loading.contextRestored', 5.0);
+  });
+
+  if (flags.bench) {
+    benchOverlay = createBenchOverlay({
+      initialQuality: flags.quality,
+      onChangeQuality: applyQualityPreset
+    });
+  }
+
   const lobbyCtrl = createLobbyMenu(uiState, {
     openInitially: flags.openMenu,
     initialTab: flags.mission ? 'campaign' : 'skirmish',
     initialMapId: flags.mapId,
+    initialQuality: flags.quality,
     profile: campaignProfile,
     onLaunchSkirmish: launchSkirmishMatch,
     onLaunchCampaign: launchCampaignMission,
+    onChangeQuality: applyQualityPreset,
     onSaveCheckpoint: () => {
       saveCheckpointToDb('manual', state, 'manual');
     },
@@ -268,6 +306,9 @@ function bootstrap() {
   loadCampaignProfile().then((loaded) => {
     if (loaded) {
       campaignProfile = loaded;
+      if (!flags.qualityExplicit && loaded.preferences?.quality) {
+        applyQualityPreset(loaded.preferences.quality);
+      }
       lobbyCtrl.setProfile(campaignProfile);
     }
   });
@@ -613,14 +654,22 @@ function bootstrap() {
     mixer,
     dialogueCtrl,
     lobbyCtrl,
+    benchOverlay,
     telemetry,
     gallery: galleryCtrl,
+    setQualityPreset: applyQualityPreset,
     enqueueCommand: enqueue,
     stepSimulation: () => stepSimulation(state),
     getEntityDef: (id) => ENTITY_DEFS[id] ?? null
   };
 
   function frameLoop(nowMs) {
+    if (glContextLost) {
+      requestAnimationFrame(frameLoop);
+      return;
+    }
+
+    const frameStartMs = performance.now();
     const dtSec = Math.min(0.1, Math.max(0, (nowMs - prevTimeMs) * 0.001));
     prevTimeMs = nowMs;
     const elapsedSec = nowMs * 0.001;
@@ -635,6 +684,7 @@ function bootstrap() {
       inputCtrl.updateCamera(dtSec);
     }
 
+    let simStepMs = 0;
     if (isGallery) {
       for (let i = 0; i < state.entities.length; i++) {
         const ent = state.entities[i];
@@ -646,11 +696,15 @@ function bootstrap() {
     } else {
       accumulator += dtSec;
       let steps = 0;
+      const simT0 = performance.now();
       while (accumulator >= TICK_DT && steps < 5) {
         stepSimulation(state);
         consumeSimulationEvents(elapsedSec);
         accumulator -= TICK_DT;
         steps++;
+      }
+      if (steps > 0) {
+        simStepMs = (performance.now() - simT0) / steps;
       }
       if (steps === 5 && accumulator > TICK_DT) {
         accumulator = 0;
@@ -680,6 +734,15 @@ function bootstrap() {
     telemetry.fps = currentFps;
     telemetry.tick = state.tickCount;
     telemetry.activeEntities = state.entities.filter((e) => e.alive).length;
+
+    if (benchOverlay) {
+      benchOverlay.recordFrame({
+        frameMs: Math.max(0.1, performance.now() - frameStartMs),
+        simMs: simStepMs,
+        drawCalls: telemetry.drawCalls,
+        activeUnits: telemetry.activeEntities
+      });
+    }
 
     sidebarUI.update(dtSec, telemetry);
     minimapUI.update();

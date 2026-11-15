@@ -176,7 +176,7 @@ export function createGameState(options = {}) {
     rebuildTeamFogGrids(state);
     stepProductionAndPower(state);
   } else if (options.populateDefault !== false) {
-    if (state.mode === 'bench') {
+    if (state.mode === 'bench' || state.mode === 'bench_m1') {
       populateBenchM1Scenario(state);
     } else {
       populateM1SkirmishScenario(state);
@@ -364,6 +364,164 @@ export function populateBenchM1Scenario(state) {
     r.orderType = 'ATTACK_MOVE';
     r.moveTargetX = 180;
     r.moveTargetZ = 256;
+  }
+
+  // Tier-3 heavy armor (25 Prism vs 25 Apocalypse = 50)
+  for (let i = 0; i < 25; i++) {
+    const col = i % 5;
+    const row = Math.floor(i / 5);
+    const p0Pos = findNearestPassableLand(state.map, 148 + col * 5.0, 224 + row * 12.0);
+    const pr = spawnEntity(state, {
+      typeId: 'prism',
+      playerId: p0.playerId,
+      teamId: p0.teamId,
+      factionId: p0.factionId,
+      x: p0Pos.x,
+      z: p0Pos.z
+    });
+    pr.orderType = 'ATTACK_MOVE';
+    pr.moveTargetX = 340;
+    pr.moveTargetZ = 256;
+
+    const p1Pos = findNearestPassableLand(state.map, 344 + col * 5.0, 224 + row * 12.0);
+    const ap = spawnEntity(state, {
+      typeId: 'apocalypse',
+      playerId: p1.playerId,
+      teamId: p1.teamId,
+      factionId: p1.factionId,
+      x: p1Pos.x,
+      z: p1Pos.z,
+      yaw: -Math.PI * 0.5
+    });
+    ap.orderType = 'ATTACK_MOVE';
+    ap.moveTargetX = 170;
+    ap.moveTargetZ = 256;
+  }
+
+  // Infantry platoons (30 GI vs 30 Conscript = 60)
+  for (let i = 0; i < 30; i++) {
+    const col = i % 6;
+    const row = Math.floor(i / 6);
+    const p0Pos = findNearestPassableLand(state.map, 196 + col * 3.5, 228 + row * 11.0);
+    const gi = spawnEntity(state, {
+      typeId: 'gi',
+      playerId: p0.playerId,
+      teamId: p0.teamId,
+      factionId: p0.factionId,
+      x: p0Pos.x,
+      z: p0Pos.z
+    });
+    gi.orderType = 'ATTACK_MOVE';
+    gi.moveTargetX = 310;
+    gi.moveTargetZ = 256;
+
+    const p1Pos = findNearestPassableLand(state.map, 296 + col * 3.5, 228 + row * 11.0);
+    const cs = spawnEntity(state, {
+      typeId: 'conscript',
+      playerId: p1.playerId,
+      teamId: p1.teamId,
+      factionId: p1.factionId,
+      x: p1Pos.x,
+      z: p1Pos.z,
+      yaw: -Math.PI * 0.5
+    });
+    cs.orderType = 'ATTACK_MOVE';
+    cs.moveTargetX = 200;
+    cs.moveTargetZ = 256;
+  }
+
+  // Harvesters (6 vs 6 = 12)
+  for (let i = 0; i < 6; i++) {
+    const h0Pos = findNearestPassableLand(state.map, 92 + (i % 3) * 6, 232 + Math.floor(i / 3) * 18);
+    spawnEntity(state, {
+      typeId: 'harvester',
+      playerId: p0.playerId,
+      teamId: p0.teamId,
+      factionId: p0.factionId,
+      x: h0Pos.x,
+      z: h0Pos.z
+    });
+    const h1Pos = findNearestPassableLand(state.map, 412 + (i % 3) * 6, 232 + Math.floor(i / 3) * 18);
+    spawnEntity(state, {
+      typeId: 'harvester',
+      playerId: p1.playerId,
+      teamId: p1.teamId,
+      factionId: p1.factionId,
+      x: h1Pos.x,
+      z: h1Pos.z
+    });
+  }
+
+  // Air wings (12 Stormhawk vs 12 Mig = 24)
+  for (let i = 0; i < 12; i++) {
+    const sh = spawnEntity(state, {
+      typeId: 'stormhawk',
+      playerId: p0.playerId,
+      teamId: p0.teamId,
+      factionId: p0.factionId,
+      x: 110 + (i % 4) * 10,
+      z: 205 + Math.floor(i / 4) * 35
+    });
+    sh.orderType = 'ATTACK_MOVE';
+    sh.moveTargetX = 340;
+    sh.moveTargetZ = 256;
+
+    const mg = spawnEntity(state, {
+      typeId: 'crimson_mig',
+      playerId: p1.playerId,
+      teamId: p1.teamId,
+      factionId: p1.factionId,
+      x: 390 + (i % 4) * 10,
+      z: 205 + Math.floor(i / 4) * 35,
+      yaw: -Math.PI * 0.5
+    });
+    mg.orderType = 'ATTACK_MOVE';
+    mg.moveTargetX = 170;
+    mg.moveTargetZ = 256;
+  }
+
+  // Naval squadrons (8 Aegis vs 8 Dreadnought = 16) in sea lanes (fallback air if no sea)
+  const cellSize = WORLD_SIZE / MAP_SIZE;
+  const seaSpots = [];
+  for (let gz = 24; gz < MAP_SIZE - 24 && seaSpots.length < 40; gz += 8) {
+    for (let gx = 40; gx < MAP_SIZE - 40 && seaSpots.length < 40; gx += 12) {
+      if (state.map.terrain[gz * MAP_SIZE + gx] === TERRAIN.SEA) {
+        seaSpots.push({ x: (gx + 0.5) * cellSize, z: (gz + 0.5) * cellSize });
+      }
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    if (seaSpots.length >= 2) {
+      const s0 = seaSpots[i % Math.floor(seaSpots.length / 2)];
+      const s1 = seaSpots[Math.floor(seaSpots.length / 2) + (i % Math.ceil(seaSpots.length / 2))];
+      const ae = spawnEntity(state, {
+        typeId: 'aegis',
+        playerId: p0.playerId,
+        teamId: p0.teamId,
+        factionId: p0.factionId,
+        x: s0.x,
+        z: s0.z
+      });
+      ae.orderType = 'ATTACK_MOVE';
+      ae.moveTargetX = s1.x;
+      ae.moveTargetZ = s1.z;
+
+      const dn = spawnEntity(state, {
+        typeId: 'dreadnought',
+        playerId: p1.playerId,
+        teamId: p1.teamId,
+        factionId: p1.factionId,
+        x: s1.x,
+        z: s1.z,
+        yaw: -Math.PI * 0.5
+      });
+      dn.orderType = 'ATTACK_MOVE';
+      dn.moveTargetX = s0.x;
+      dn.moveTargetZ = s0.z;
+    } else {
+      spawnEntity(state, { typeId: 'stormhawk', playerId: p0.playerId, teamId: p0.teamId, factionId: p0.factionId, x: 140 + i * 8, z: 256 });
+      spawnEntity(state, { typeId: 'crimson_mig', playerId: p1.playerId, teamId: p1.teamId, factionId: p1.factionId, x: 360 + i * 8, z: 256 });
+    }
   }
 }
 

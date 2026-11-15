@@ -353,5 +353,24 @@ export default {
   'campaign.EX13.brief': '暗潮与赤铁全面联合！执掌双阵营全部科技与四大超级武器，摧毁零号赤潮三座母巢。',
   'campaign.EX13.objHives': '摧毁全部三座「零号赤潮 (Abyss-0)」母巢核心',
   'campaign.EX13.dlgIntro': '联合司令部成立！双阵营建造体系与四大超级武器全面待命！',
-  'campaign.EX13.dlgVictory': '零号赤潮母巢彻底瓦解，墨陆重迎蔚蓝黎明！'
+  'campaign.EX13.dlgVictory': '零号赤潮母巢彻底瓦解，墨陆重迎蔚蓝黎明！',
+
+  // Milestone 6: Quality presets, WebGL context recovery & Benchmark HUD
+  'menu.quality': '画质档位',
+  'menu.qualityUltra': 'Ultra (4K 阴影/泛光/4波海浪)',
+  'menu.qualityHigh': 'High (高画质 4K 阴影)',
+  'menu.qualityBalanced': 'Balanced (性能均衡 2K 阴影)',
+  'loading.contextLost': 'WebGL2 渲染上下文已丢失，正在等待 GPU 恢复并冻结模拟...',
+  'loading.contextRestored': 'WebGL2 GPU 上下文与 PBR 纹理已重建，恢复战斗！',
+  'bench.title': '基准压力测试 (250+ 海陆空单位)',
+  'bench.avgFps': '平均帧率',
+  'bench.p99Frame': 'P99 帧耗时',
+  'bench.simAvg': '模拟步均值',
+  'bench.drawCalls': 'Draw Calls',
+  'bench.heapDelta': 'JS 堆增量',
+  'bench.activeUnits': '战场单位数',
+  'bench.quality': '当前画质',
+  'bench.elapsed': '采样时长',
+  'bench.pass': '达标',
+  'bench.warn': '需关注'
 };

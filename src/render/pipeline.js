@@ -578,56 +578,167 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   gl.getExtension('EXT_color_buffer_half_float');
 
   let quality = QUALITY_PRESETS[initialQuality] ?? QUALITY_PRESETS.high;
-
-  // Subsystems
-  const pbr = bakeProceduralPBRTextures(gl, 2048);
-  const gpuFog = createGpuFog(gl);
-  const shadowSys = createShadowSystem(gl, quality.shadowSize);
-  const waterRenderer = createWaterRenderer(gl, compileProgram);
-  const modelFactory = createModelFactory(gl, compileProgram, WORLD_SIZE);
-  const billboardRenderer = createBillboardRenderer(gl, compileProgram);
-  const decalPool = createDecalPool(gl, compileProgram);
+  const cube = buildUnitCubeMesh();
+  const MAX_VFX_INSTANCES = 1024;
+  const VFX_FLOATS = 12;
+  const vfxData = new Float32Array(MAX_VFX_INSTANCES * VFX_FLOATS);
+  const splatBytes = new Uint8Array(MAP_SIZE * MAP_SIZE * 4);
   const debrisSys = createDebrisSystem(256);
 
-  // Terrain programs & textures
-  const terrainProg = compileProgram(gl, TERRAIN_VS, TERRAIN_FS);
-  const tLoc = {
-    uViewProj: gl.getUniformLocation(terrainProg, 'uViewProj'),
-    uLightViewProj: gl.getUniformLocation(terrainProg, 'uLightViewProj'),
-    uSplatTex: gl.getUniformLocation(terrainProg, 'uSplatTex'),
-    uDetailTex: gl.getUniformLocation(terrainProg, 'uDetailTex'),
-    uShadowMap: gl.getUniformLocation(terrainProg, 'uShadowMap'),
-    uFogTex: gl.getUniformLocation(terrainProg, 'uFogTex'),
-    uCamPos: gl.getUniformLocation(terrainProg, 'uCamPos'),
-    uLightDir: gl.getUniformLocation(terrainProg, 'uLightDir'),
-    uWorldSize: gl.getUniformLocation(terrainProg, 'uWorldSize'),
-    uTime: gl.getUniformLocation(terrainProg, 'uTime'),
-    uNoFog: gl.getUniformLocation(terrainProg, 'uNoFog'),
-    uShadowTexelSize: gl.getUniformLocation(terrainProg, 'uShadowTexelSize')
-  };
-
-  // GPU Height texture (R16F is natively linear-filterable in WebGL2 core!)
-  const heightTex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, heightTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, MAP_SIZE, MAP_SIZE, 0, gl.RED, gl.FLOAT, null);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-  const splatTex = gl.createTexture();
-  const splatBytes = new Uint8Array(MAP_SIZE * MAP_SIZE * 4);
-  gl.bindTexture(gl.TEXTURE_2D, splatTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, MAP_SIZE, MAP_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, splatBytes);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.bindTexture(gl.TEXTURE_2D, null);
-
+  // GPU-owned subsystems & programs (initialized/rebuilt by initGpuResources on startup & context restore)
+  let pbr = null;
+  let gpuFog = null;
+  let shadowSys = null;
+  let waterRenderer = null;
+  let modelFactory = null;
+  let billboardRenderer = null;
+  let decalPool = null;
+  let terrainProg = null;
+  let tLoc = null;
+  let heightTex = null;
+  let splatTex = null;
   let terrainMesh = null;
   let boundMapId = null;
   let lastOverlaySyncTick = -999;
+  let vfxProg = null;
+  let vfxLoc = null;
+  let vfxVao = null;
+  let vfxMeshVbo = null;
+  let vfxIbo = null;
+  let vfxInstVbo = null;
+  let ghostProg = null;
+  let ghostLoc = null;
+  let ghostVao = null;
+  let ghostVbo = null;
+  let postVao = null;
+  let extractProg = null;
+  let extractSceneLoc = null;
+  let blurProg = null;
+  let blurTexLoc = null;
+  let blurStepLoc = null;
+  let compositeProg = null;
+  let compLoc = null;
+  let sceneRT = null;
+  let bloomRT0 = null;
+  let bloomRT1 = null;
+
+  function initGpuResources() {
+    pbr = bakeProceduralPBRTextures(gl, 2048);
+    gpuFog = createGpuFog(gl);
+    shadowSys = createShadowSystem(gl, quality.shadowSize);
+    waterRenderer = createWaterRenderer(gl, compileProgram);
+    modelFactory = createModelFactory(gl, compileProgram, WORLD_SIZE);
+    billboardRenderer = createBillboardRenderer(gl, compileProgram);
+    decalPool = createDecalPool(gl, compileProgram);
+
+    // Terrain programs & textures
+    terrainProg = compileProgram(gl, TERRAIN_VS, TERRAIN_FS);
+    tLoc = {
+      uViewProj: gl.getUniformLocation(terrainProg, 'uViewProj'),
+      uLightViewProj: gl.getUniformLocation(terrainProg, 'uLightViewProj'),
+      uSplatTex: gl.getUniformLocation(terrainProg, 'uSplatTex'),
+      uDetailTex: gl.getUniformLocation(terrainProg, 'uDetailTex'),
+      uShadowMap: gl.getUniformLocation(terrainProg, 'uShadowMap'),
+      uFogTex: gl.getUniformLocation(terrainProg, 'uFogTex'),
+      uCamPos: gl.getUniformLocation(terrainProg, 'uCamPos'),
+      uLightDir: gl.getUniformLocation(terrainProg, 'uLightDir'),
+      uWorldSize: gl.getUniformLocation(terrainProg, 'uWorldSize'),
+      uTime: gl.getUniformLocation(terrainProg, 'uTime'),
+      uNoFog: gl.getUniformLocation(terrainProg, 'uNoFog'),
+      uShadowTexelSize: gl.getUniformLocation(terrainProg, 'uShadowTexelSize')
+    };
+
+    // GPU Height texture (R16F is natively linear-filterable in WebGL2 core!)
+    heightTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, heightTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, MAP_SIZE, MAP_SIZE, 0, gl.RED, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    splatTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, splatTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, MAP_SIZE, MAP_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, splatBytes);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    // Instanced VFX / Crystal / Projectile Cube Batch (1 draw call!)
+    vfxProg = compileProgram(gl, INST_VFX_VS, INST_VFX_FS);
+    vfxLoc = {
+      uViewProj: gl.getUniformLocation(vfxProg, 'uViewProj'),
+      uLightDir: gl.getUniformLocation(vfxProg, 'uLightDir')
+    };
+    vfxVao = gl.createVertexArray();
+    vfxMeshVbo = gl.createBuffer();
+    vfxIbo = gl.createBuffer();
+    vfxInstVbo = gl.createBuffer();
+
+    gl.bindVertexArray(vfxVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vfxMeshVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, cube.vertices, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vfxIbo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, cube.indices, gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vfxInstVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vfxData.byteLength, gl.DYNAMIC_DRAW);
+    for (let c = 0; c < 3; c++) {
+      gl.enableVertexAttribArray(2 + c);
+      gl.vertexAttribPointer(2 + c, 4, gl.FLOAT, false, VFX_FLOATS * 4, c * 16);
+      gl.vertexAttribDivisor(2 + c, 1);
+    }
+    gl.bindVertexArray(null);
+
+    // Placement Ghost & Radius quad
+    ghostProg = compileProgram(gl, GHOST_VS, GHOST_FS);
+    ghostLoc = {
+      uViewProj: gl.getUniformLocation(ghostProg, 'uViewProj'),
+      uRect: gl.getUniformLocation(ghostProg, 'uRect'),
+      uColor: gl.getUniformLocation(ghostProg, 'uColor'),
+      uTime: gl.getUniformLocation(ghostProg, 'uTime'),
+      uIsRing: gl.getUniformLocation(ghostProg, 'uIsRing')
+    };
+    ghostVao = gl.createVertexArray();
+    ghostVbo = gl.createBuffer();
+    gl.bindVertexArray(ghostVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, ghostVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -0.5, -0.5, 0.5, -0.5, 0.5, 0.5,
+      -0.5, -0.5, 0.5, 0.5, -0.5, 0.5
+    ]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    // Post-processing programs & full-screen VAO
+    postVao = gl.createVertexArray();
+    extractProg = compileProgram(gl, QUAD_VS, BLOOM_EXTRACT_FS);
+    extractSceneLoc = gl.getUniformLocation(extractProg, 'uSceneTex');
+    blurProg = compileProgram(gl, QUAD_VS, BLOOM_BLUR_FS);
+    blurTexLoc = gl.getUniformLocation(blurProg, 'uTex');
+    blurStepLoc = gl.getUniformLocation(blurProg, 'uTexelStep');
+    compositeProg = compileProgram(gl, QUAD_VS, COMPOSITE_FS);
+    compLoc = {
+      uSceneTex: gl.getUniformLocation(compositeProg, 'uSceneTex'),
+      uBloomTex: gl.getUniformLocation(compositeProg, 'uBloomTex'),
+      uBloomStrength: gl.getUniformLocation(compositeProg, 'uBloomStrength'),
+      uExposure: gl.getUniformLocation(compositeProg, 'uExposure')
+    };
+
+    terrainMesh = null;
+    boundMapId = null;
+    lastOverlaySyncTick = -999;
+    sceneRT = null;
+    bloomRT0 = null;
+    bloomRT1 = null;
+  }
+
+  initGpuResources();
 
   function syncTerrainMap(map, tickCount, force = false) {
     if (!map) return;
@@ -664,83 +775,12 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
-  // Instanced VFX / Crystal / Projectile Cube Batch (1 draw call!)
-  const vfxProg = compileProgram(gl, INST_VFX_VS, INST_VFX_FS);
-  const vfxLoc = {
-    uViewProj: gl.getUniformLocation(vfxProg, 'uViewProj'),
-    uLightDir: gl.getUniformLocation(vfxProg, 'uLightDir')
-  };
-  const cube = buildUnitCubeMesh();
-  const MAX_VFX_INSTANCES = 1024;
-  const VFX_FLOATS = 12;
-  const vfxData = new Float32Array(MAX_VFX_INSTANCES * VFX_FLOATS);
-  const vfxVao = gl.createVertexArray();
-  const vfxMeshVbo = gl.createBuffer();
-  const vfxIbo = gl.createBuffer();
-  const vfxInstVbo = gl.createBuffer();
-
-  gl.bindVertexArray(vfxVao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, vfxMeshVbo);
-  gl.bufferData(gl.ARRAY_BUFFER, cube.vertices, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
-  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vfxIbo);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, cube.indices, gl.STATIC_DRAW);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, vfxInstVbo);
-  gl.bufferData(gl.ARRAY_BUFFER, vfxData.byteLength, gl.DYNAMIC_DRAW);
-  for (let c = 0; c < 3; c++) {
-    gl.enableVertexAttribArray(2 + c);
-    gl.vertexAttribPointer(2 + c, 4, gl.FLOAT, false, VFX_FLOATS * 4, c * 16);
-    gl.vertexAttribDivisor(2 + c, 1);
-  }
-  gl.bindVertexArray(null);
-
   // Transient beams / flashes / explosion rings spawned by game events & orders
   const transientFx = [];
   function pushTransientFx(fx) {
     if (transientFx.length < 320) transientFx.push(fx);
   }
 
-  // Placement Ghost & Radius quad
-  const ghostProg = compileProgram(gl, GHOST_VS, GHOST_FS);
-  const ghostLoc = {
-    uViewProj: gl.getUniformLocation(ghostProg, 'uViewProj'),
-    uRect: gl.getUniformLocation(ghostProg, 'uRect'),
-    uColor: gl.getUniformLocation(ghostProg, 'uColor'),
-    uTime: gl.getUniformLocation(ghostProg, 'uTime'),
-    uIsRing: gl.getUniformLocation(ghostProg, 'uIsRing')
-  };
-  const ghostVao = gl.createVertexArray();
-  const ghostVbo = gl.createBuffer();
-  gl.bindVertexArray(ghostVao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, ghostVbo);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-    -0.5, -0.5, 0.5, -0.5, 0.5, 0.5,
-    -0.5, -0.5, 0.5, 0.5, -0.5, 0.5
-  ]), gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  gl.bindVertexArray(null);
-
-  // Post-processing programs & full-screen VAO
-  const postVao = gl.createVertexArray();
-  const extractProg = compileProgram(gl, QUAD_VS, BLOOM_EXTRACT_FS);
-  const extractSceneLoc = gl.getUniformLocation(extractProg, 'uSceneTex');
-  const blurProg = compileProgram(gl, QUAD_VS, BLOOM_BLUR_FS);
-  const blurTexLoc = gl.getUniformLocation(blurProg, 'uTex');
-  const blurStepLoc = gl.getUniformLocation(blurProg, 'uTexelStep');
-  const compositeProg = compileProgram(gl, QUAD_VS, COMPOSITE_FS);
-  const compLoc = {
-    uSceneTex: gl.getUniformLocation(compositeProg, 'uSceneTex'),
-    uBloomTex: gl.getUniformLocation(compositeProg, 'uBloomTex'),
-    uBloomStrength: gl.getUniformLocation(compositeProg, 'uBloomStrength'),
-    uExposure: gl.getUniformLocation(compositeProg, 'uExposure')
-  };
-
-  let sceneRT = null;
-  let bloomRT0 = null;
-  let bloomRT1 = null;
   let viewportW = 1280;
   let viewportH = 720;
   let cssW = 1280;
@@ -1260,25 +1300,41 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     gl.bindVertexArray(null);
   }
 
+  function setQuality(presetId) {
+    const next = QUALITY_PRESETS[presetId];
+    if (!next) return quality;
+    quality = next;
+    shadowSys.resize(quality.shadowSize);
+    sceneRT = null; // triggers clean rebuild on next frame
+    return quality;
+  }
+
   return {
     gl,
     info: rendererInfo,
     camera,
-    decalPool,
-    debrisSys,
-    billboardRenderer,
-    shadowSys,
-    gpuFog,
+    get decalPool() { return decalPool; },
+    get debrisSys() { return debrisSys; },
+    get billboardRenderer() { return billboardRenderer; },
+    get shadowSys() { return shadowSys; },
+    get gpuFog() { return gpuFog; },
     pushTransientFx,
     syncTerrainMap,
-    setQuality(presetId) {
-      const next = QUALITY_PRESETS[presetId];
-      if (!next) return;
-      quality = next;
-      shadowSys.resize(quality.shadowSize);
-      sceneRT = null; // triggers clean rebuild on next frame
-    },
+    setQuality,
+    setQualityPreset: setQuality,
     get quality() { return quality; },
+    restoreContext(state, playerId = 0, noFog = false) {
+      gl.getExtension('EXT_color_buffer_float');
+      gl.getExtension('EXT_color_buffer_half_float');
+      initGpuResources();
+      if (state?.map) {
+        syncTerrainMap(state.map, state.tickCount ?? 0, true);
+        shadowSys.invalidateCache();
+      }
+      if (state?.fogGrids) {
+        gpuFog.updateFromCpu(state.fogGrids[playerId] ?? state.fogGrids[0], noFog);
+      }
+    },
     renderFrame,
     dispose() {
       pbr.dispose();
