@@ -97,7 +97,13 @@ export function getPlayerTechUnlockSet(state, playerId) {
   const ownedTypes = new Set();
   const ownedFactions = new Set();
   const player = state.players[playerId];
-  if (player) ownedFactions.add(player.factionId);
+  if (player) {
+    ownedFactions.add(player.factionId);
+    if (player.allowDualFaction) {
+      ownedFactions.add('abyssal');
+      ownedFactions.add('crimson');
+    }
+  }
 
   for (let i = 0; i < state.entities.length; i++) {
     const ent = state.entities[i];

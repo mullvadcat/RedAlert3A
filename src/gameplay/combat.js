@@ -668,7 +668,7 @@ export function stepCombatAndProjectiles(state) {
 }
 
 export function checkVictoryCondition(state) {
-  if (state.mode === 'bench' || state.winnerTeamId !== null || state.tickCount === 0) {
+  if (state.mode === 'bench' || state.mode === 'campaign' || state.winnerTeamId !== null || state.tickCount === 0) {
     return;
   }
 

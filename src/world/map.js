@@ -316,6 +316,7 @@ export function compileMap(blueprint = DEFAULT_M1_MAP_BLUEPRINT) {
 
   return {
     id: blueprint.id,
+    blueprint,
     width: MAP_SIZE,
     height: MAP_SIZE,
     cellSize: CELL_SIZE,

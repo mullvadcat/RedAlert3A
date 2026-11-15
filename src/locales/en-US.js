@@ -262,5 +262,96 @@ export default {
   'unit.tech_airport.desc': 'Engineer capture unlocks F2 Paradrop & passive air repair.',
   'unit.hospital.name': 'Field Hospital',
   'unit.hospital.short': 'Hosp',
-  'unit.hospital.desc': 'Engineer capture heals friendly infantry within 10m radius.'
+  'unit.hospital.desc': 'Engineer capture heals friendly infantry within 10m radius.',
+
+  // Campaign speakers & UI
+  'speaker.eva_abyssal': 'EVA Tactical Officer [Abyssal]',
+  'speaker.eva_crimson': 'War Commissar [Crimson]',
+  'speaker.commander_abyssal': 'Abyssal Fleet Admiral',
+  'speaker.commander_crimson': 'Crimson Iron Marshal',
+  'menu.campaignTab': 'Campaign',
+  'menu.skirmishTab': 'Skirmish Lobby',
+  'menu.saveCheckpoint': 'Save Checkpoint',
+  'menu.loadCheckpoint': 'Load Checkpoint',
+  'menu.locked': 'Locked',
+  'menu.cleared': 'Cleared',
+  'campaign.act.abyssal': 'Azure Refraction — Abyssal Pact (A01–A06)',
+  'campaign.act.crimson': 'Crimson Deluge — Crimson Foundry (C01–C06)',
+  'campaign.act.finale': 'Secret Convergence Finale (EX13)',
+
+  'campaign.A01.title': 'A01 Tidebreak Prologue',
+  'campaign.A01.brief': 'Storm the beach, capture the coastal Tech Airport, and clear Crimson defenders.',
+  'campaign.A01.objCapture': 'Send an Engineer to capture the coastal Tech Airport',
+  'campaign.A01.objClear': 'Eliminate all Crimson forces along the harbor beach',
+  'campaign.A01.dlgIntro': 'Landing craft ashore! Escort our Engineers to seize the forward outpost.',
+  'campaign.A01.dlgCaptured': 'Outpost secured! Tactical support uplink established.',
+  'campaign.A01.choiceTitle': 'Tactical Support Choice',
+  'campaign.A01.choiceBody': 'The coastal uplink is active. Choose your immediate theater support package:',
+  'campaign.A01.choiceArmor': 'Deploy 3 Grizzly Heavy Tanks',
+  'campaign.A01.choiceCredits': 'Authorize $3,500 Emergency War Funds',
+  'campaign.A01.dlgReinf': 'Armored reinforcements have arrived at the beachhead!',
+  'campaign.A01.dlgCredits': 'Emergency funds transferred to Construction Yard.',
+
+  'campaign.A02.title': 'A02 Strait Watch',
+  'campaign.A02.brief': 'Build Aegis Cruisers and Dolphins to intercept incoming Kirov & Typhoon waves.',
+  'campaign.A02.objNavy': 'Destroy all enemy Kirov airships & Typhoon submarines',
+  'campaign.A02.dlgIntro': 'Crimson Kirovs and Typhoon subs detected across the strait. Battle stations!',
+
+  'campaign.A03.title': 'A03 Thunderhead Ridge',
+  'campaign.A03.brief': 'Deploy Rocketeers and Nighthawk stealth transports to raid cliffside V3 batteries.',
+  'campaign.A03.objV3': 'Destroy all Crimson V3 Rocket Launchers on the ridge',
+  'campaign.A03.dlgIntro': 'Enemy V3 artillery threatens our perimeter. Strike from the air!',
+  'campaign.A03.dlgV3Cleared': 'V3 batteries neutralized! Sweep remaining enemy forces.',
+
+  'campaign.A04.title': 'A04 Amethyst Valley',
+  'campaign.A04.brief': 'Hold the Violet Ore basin with Prism Towers, Prism Tanks, and Chrono Legionnaires.',
+  'campaign.A04.objValley': 'Repel the Crimson armored counterattack and clear the valley',
+  'campaign.A04.dlgWave': 'Warning: Crimson Rhino armored column advancing from the eastern canyon!',
+
+  'campaign.A05.title': 'A05 Twin Fission',
+  'campaign.A05.brief': 'Use the Chrono Sphere to teleport Prism Tanks behind enemy lines and smash twin silos.',
+  'campaign.A05.objSilos': 'Destroy both enemy Nuclear Silos',
+  'campaign.A05.dlgIntro': 'Chrono Sphere charged! Warp your strike squad onto the enemy rear flank.',
+
+  'campaign.A06.title': 'A06 Mariana Seal',
+  'campaign.A06.brief': 'Unleash the Weather Control superweapon and carrier fleet to seal the trench fortress.',
+  'campaign.A06.objSeal': 'Shatter the Crimson Mariana Trench stronghold',
+  'campaign.A06.dlgIntro': 'Weather Control online! Lightning storm locked onto enemy coordinates.',
+
+  'campaign.C01.title': 'C01 Iron Vanguard',
+  'campaign.C01.brief': 'Lead Rhinos and Conscripts across the frozen twin bridges and seize the oil derrick.',
+  'campaign.C01.objBridge': 'Secure the bridgehead and crush Abyssal defenders',
+  'campaign.C01.dlgIntro': 'Advance without hesitation! Capture the derrick and crush the opposition.',
+  'campaign.C01.dlgCaptured': 'Oil derrick captured! Heavy Rhino reserves rolling across the bridge.',
+
+  'campaign.C02.title': 'C02 Silent Depth',
+  'campaign.C02.brief': 'Command Typhoon submarines and Sea Scorpions to hunt down Abyssal Aircraft Carriers.',
+  'campaign.C02.objCarriers': 'Sink all Abyssal Aircraft Carriers',
+  'campaign.C02.dlgIntro': 'Typhoon pack diving deep. Sea Scorpions engage escorting Dolphins!',
+
+  'campaign.C03.title': 'C03 Blackout Grid',
+  'campaign.C03.brief': 'Have Tesla Troopers overcharge Tesla Coils during brownouts while Kirovs lift off.',
+  'campaign.C03.objPower': 'Hold the perimeter and wipe out the Abyssal forward base',
+  'campaign.C03.dlgIntro': 'Power grid unstable! Station Tesla Troopers beside Tesla Coils and launch Kirovs!',
+
+  'campaign.C04.title': 'C04 Prism Gauntlet',
+  'campaign.C04.brief': 'Shield Apocalypse Tanks with the Iron Curtain and smash straight through Prism Towers.',
+  'campaign.C04.objGauntlet': 'Break the Prism defense line and destroy the enemy base',
+  'campaign.C04.dlgIntro': 'Iron Curtain charged! Shield the Apocalypse spearhead for 15 seconds of invulnerability.',
+
+  'campaign.C05.title': 'C05 Dreadnought Broadside',
+  'campaign.C05.brief': 'Bombard the Abyssal coast with 40m Dreadnought cruise missiles to wreck Weather Control.',
+  'campaign.C05.objWeather': 'Destroy the Abyssal Weather Control Device',
+  'campaign.C05.dlgIntro': 'Dreadnought missile batteries armed! Open stand-off bombardment.',
+
+  'campaign.C06.title': 'C06 Core Eruption',
+  'campaign.C06.brief': 'Launch a Nuclear Missile and lead Sledge & Apocalypse forces to crush the core rebels.',
+  'campaign.C06.objCore': 'Neutralize the rebel stronghold in the crater',
+  'campaign.C06.dlgIntro': 'Nuclear Silo armed and ready! Deliver decisive atomic retaliation.',
+
+  'campaign.EX13.title': 'EX-13 Abyss Zero',
+  'campaign.EX13.brief': 'Joint Abyssal-Crimson command! Wield dual tech trees and all 4 superweapons against 3 Abyss-0 Hives.',
+  'campaign.EX13.objHives': 'Destroy all 3 Abyss-0 Bio-Mecha Hive Cores',
+  'campaign.EX13.dlgIntro': 'Joint Command activated! Both faction arsenals and all 4 superweapons stand ready!',
+  'campaign.EX13.dlgVictory': 'All Abyss-0 Hive Cores shattered! Dawn breaks across the Ink-Sea once more.'
 };

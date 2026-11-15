@@ -747,7 +747,7 @@ export function stepAI(state) {
 
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
-    if (!p || p.isHuman) continue;
+    if (!p || p.isHuman || p.teamId === 3) continue;
 
     const params = getDiffParams(p.aiDifficulty ?? 'normal');
 

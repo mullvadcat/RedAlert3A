@@ -3,6 +3,8 @@
 
 import { FACTIONS } from '../core/config.js';
 import { onLocaleChange, t } from '../core/i18n.js';
+import { createDefaultCampaignProfile, isMissionUnlocked } from '../core/save.js';
+import { CAMPAIGN_MISSIONS } from '../story/campaigns/index.js';
 import { SKIRMISH_MAPS, getSkirmishMapById } from '../world/skirmishMaps.js';
 
 export function createLobbyMenu(uiState, options = {}) {
@@ -12,9 +14,13 @@ export function createLobbyMenu(uiState, options = {}) {
     return {
       open: () => {},
       close: () => {},
-      isOpen: () => false
+      isOpen: () => false,
+      setProfile: () => {}
     };
   }
+
+  let profile = options.profile ?? createDefaultCampaignProfile();
+  let activeTab = options.initialTab === 'campaign' ? 'campaign' : 'skirmish';
 
   // Top-bar clickable Lobby pill
   const btnOpen = document.createElement('button');
@@ -38,9 +44,25 @@ export function createLobbyMenu(uiState, options = {}) {
   const titleEl = document.createElement('h2');
   card.appendChild(titleEl);
 
+  const tabBar = document.createElement('div');
+  tabBar.className = 'modal-actions';
+  tabBar.style.marginBottom = '10px';
+  const btnTabSkirmish = document.createElement('button');
+  btnTabSkirmish.type = 'button';
+  const btnTabCampaign = document.createElement('button');
+  btnTabCampaign.type = 'button';
+  tabBar.appendChild(btnTabSkirmish);
+  tabBar.appendChild(btnTabCampaign);
+  card.appendChild(tabBar);
+
   const formEl = document.createElement('div');
   formEl.className = 'lobby-grid';
   card.appendChild(formEl);
+
+  const campaignPanel = document.createElement('div');
+  campaignPanel.className = 'lobby-campaign-list';
+  campaignPanel.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:260px;overflow-y:auto;margin-bottom:10px;';
+  card.appendChild(campaignPanel);
 
   function addRow(labelKey, selectEl) {
     const row = document.createElement('label');
@@ -113,14 +135,54 @@ export function createLobbyMenu(uiState, options = {}) {
   const btnStart = document.createElement('button');
   btnStart.type = 'button';
   btnStart.id = 'btn-lobby-launch';
+  const btnSaveCp = document.createElement('button');
+  btnSaveCp.type = 'button';
+  btnSaveCp.id = 'btn-save-checkpoint';
+  const btnLoadCp = document.createElement('button');
+  btnLoadCp.type = 'button';
+  btnLoadCp.id = 'btn-load-checkpoint';
   const btnClose = document.createElement('button');
   btnClose.type = 'button';
   btnClose.id = 'btn-lobby-close';
   actions.appendChild(btnStart);
+  actions.appendChild(btnSaveCp);
+  actions.appendChild(btnLoadCp);
   actions.appendChild(btnClose);
   card.appendChild(actions);
 
   viewportEl.appendChild(modal);
+
+  function renderCampaignList() {
+    while (campaignPanel.firstChild) campaignPanel.removeChild(campaignPanel.firstChild);
+    for (const m of CAMPAIGN_MISSIONS) {
+      const unlocked = isMissionUnlocked(profile, m.id);
+      const clearedDiff = profile?.clearedMissions?.[m.id];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.disabled = !unlocked;
+      btn.style.cssText = 'text-align:left;padding:6px 8px;border:1px solid #355070;border-radius:4px;background:#101c2d;color:#e2e8f0;cursor:pointer;font-size:12px;';
+      if (!unlocked) btn.style.opacity = '0.45';
+      const statusTxt = clearedDiff
+        ? `[${t('menu.cleared')}]`
+        : (unlocked ? '' : `[${t('menu.locked')}]`);
+      btn.textContent = `${t(m.titleKey)} ${statusTxt}`.trim();
+      btn.addEventListener('click', () => {
+        if (!unlocked) return;
+        close();
+        if (typeof options.onLaunchCampaign === 'function') {
+          options.onLaunchCampaign(m.id, diffSelect.value || 'normal');
+        }
+      });
+      campaignPanel.appendChild(btn);
+    }
+  }
+
+  function syncTabs() {
+    formEl.hidden = activeTab !== 'skirmish';
+    campaignPanel.hidden = activeTab !== 'campaign';
+    btnStart.hidden = activeTab !== 'skirmish';
+    if (activeTab === 'campaign') renderCampaignList();
+  }
 
   function syncModeOptionsWithMap() {
     const blueprint = getSkirmishMapById(mapSelect.value);
@@ -137,8 +199,12 @@ export function createLobbyMenu(uiState, options = {}) {
 
   function applyTranslations() {
     btnOpen.textContent = t('menu.lobbyBtn');
-    titleEl.textContent = t('menu.skirmish');
+    titleEl.textContent = activeTab === 'campaign' ? t('menu.campaignTab') : t('menu.skirmish');
+    btnTabSkirmish.textContent = t('menu.skirmishTab');
+    btnTabCampaign.textContent = t('menu.campaignTab');
     btnStart.textContent = t('menu.start');
+    btnSaveCp.textContent = t('menu.saveCheckpoint');
+    btnLoadCp.textContent = t('menu.loadCheckpoint');
     btnClose.textContent = t('menu.resume');
 
     for (const lbl of formEl.querySelectorAll('.lobby-label')) {
@@ -157,10 +223,12 @@ export function createLobbyMenu(uiState, options = {}) {
     for (const opt of diffSelect.options) {
       opt.textContent = t(opt.dataset.i18n);
     }
+    syncTabs();
   }
 
   function open() {
     syncModeOptionsWithMap();
+    syncTabs();
     modal.hidden = false;
     uiState.lobbyOpen = true;
   }
@@ -169,6 +237,24 @@ export function createLobbyMenu(uiState, options = {}) {
     modal.hidden = true;
     uiState.lobbyOpen = false;
   }
+
+  btnTabSkirmish.addEventListener('click', () => {
+    activeTab = 'skirmish';
+    applyTranslations();
+  });
+  btnTabCampaign.addEventListener('click', () => {
+    activeTab = 'campaign';
+    applyTranslations();
+  });
+  btnSaveCp.addEventListener('click', () => {
+    if (typeof options.onSaveCheckpoint === 'function') options.onSaveCheckpoint();
+  });
+  btnLoadCp.addEventListener('click', () => {
+    if (typeof options.onLoadCheckpoint === 'function') {
+      options.onLoadCheckpoint();
+      close();
+    }
+  });
 
   mapSelect.addEventListener('change', syncModeOptionsWithMap);
   btnOpen.addEventListener('click', () => (modal.hidden ? open() : close()));
@@ -224,6 +310,10 @@ export function createLobbyMenu(uiState, options = {}) {
   return {
     open,
     close,
-    isOpen: () => !modal.hidden
+    isOpen: () => !modal.hidden,
+    setProfile(nextProfile) {
+      profile = nextProfile ?? profile;
+      if (activeTab === 'campaign') renderCampaignList();
+    }
   };
 }

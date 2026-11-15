@@ -173,6 +173,7 @@ export function spawnEntity(state, spec) {
     teamId: spec.teamId ?? spec.playerId ?? 0,
     factionId: spec.factionId ?? FACTIONS.abyssal.id,
     producerType: def.producerType ?? null,
+    campaignTag: spec.campaignTag ?? null,
 
     x,
     z,

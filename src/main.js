@@ -5,7 +5,16 @@ import { CANONICAL_ENTITY_IDS, ENTITY_DEFS, TICK_DT } from './core/config.js';
 import { createGameState, enqueueCommand, stepSimulation } from './core/engine.js';
 import { initI18n, onLocaleChange, t } from './core/i18n.js';
 import { createAudioMixer } from './core/mixer.js';
+import {
+  createDefaultCampaignProfile,
+  loadCampaignProfile,
+  loadCheckpointFromDb,
+  recordMissionVictory,
+  saveCampaignProfile,
+  saveCheckpointToDb
+} from './core/save.js';
 import { createDialogueController } from './story/dialogue.js';
+import { resolveDirectorChoice } from './story/director.js';
 import { deployEntity, spawnEntity } from './gameplay/entities.js';
 import { createRenderPipeline } from './render/pipeline.js';
 import { createSidebarUI } from './ui/sidebar.js';
@@ -26,6 +35,7 @@ function parseLaunchFlags() {
     show: params.get('show') || null,
     quality: params.get('quality') || 'high',
     mapId: params.get('map') || null,
+    mission: params.get('mission') || null,
     openMenu: params.get('menu') === '1'
   };
 }
@@ -53,9 +63,11 @@ function bootstrap() {
   const isGallery = flags.show === 'gallery';
 
   let state = createGameState({
-    mode: isGallery ? 'gallery' : (flags.bench ? 'bench_m1' : 'skirmish'),
+    mode: isGallery ? 'gallery' : (flags.mission ? 'campaign' : (flags.bench ? 'bench_m1' : 'skirmish')),
+    missionId: flags.mission,
     populateDefault: !isGallery,
     fastBuild: flags.fastBuild || isGallery,
+    noFog: flags.noFog,
     mapBlueprint: flags.mapId ? getSkirmishMapById(flags.mapId) : undefined
   });
 
@@ -134,8 +146,84 @@ function bootstrap() {
   const minimapUI = createMinimapUI(state, uiState, pipeline.camera, enqueue);
   const inputCtrl = createInputController(canvas, state, uiState, pipeline, sidebarUI, enqueue);
 
+  let campaignProfile = createDefaultCampaignProfile();
+  let choiceModalEl = null;
+
+  function hideChoicePrompt() {
+    if (choiceModalEl && choiceModalEl.parentElement) {
+      choiceModalEl.parentElement.removeChild(choiceModalEl);
+    }
+    choiceModalEl = null;
+  }
+
+  function showChoicePrompt(payload) {
+    hideChoicePrompt();
+    const host = document.getElementById('viewport-container') || document.body;
+    if (!host) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'director-choice-modal';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(4,10,20,0.68);z-index:60;';
+
+    const card = document.createElement('div');
+    card.className = 'modal-card';
+    card.style.cssText = 'max-width:440px;padding:18px;border:1px solid #38bdf8;background:#0b1322;color:#e2e8f0;border-radius:8px;';
+
+    const title = document.createElement('h3');
+    title.textContent = payload.titleKey ? t(payload.titleKey) : '';
+    card.appendChild(title);
+
+    const body = document.createElement('p');
+    body.textContent = payload.bodyKey ? t(payload.bodyKey) : '';
+    body.style.margin = '8px 0 14px';
+    card.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const choices = payload.choices ?? [];
+    for (let i = 0; i < choices.length; i++) {
+      const ch = choices[i];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = i === 0 ? 'btn-primary' : 'btn-secondary';
+      btn.textContent = ch.labelKey ? t(ch.labelKey) : String(i + 1);
+      btn.addEventListener('click', () => {
+        resolveDirectorChoice(state, i);
+        hideChoicePrompt();
+      });
+      actions.appendChild(btn);
+    }
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    host.appendChild(overlay);
+    choiceModalEl = overlay;
+  }
+
+  function applyLoadedGameState(nextState, focusCamera = true) {
+    state = nextState;
+    uiState.selectedIds.clear();
+    uiState.placementTypeId = null;
+    uiState.cursorMode = 'default';
+    uiState.pendingPower = null;
+    hideChoicePrompt();
+    pipeline.syncTerrainMap(state.map, 0, true);
+    pipeline.shadowSys.invalidateCache();
+    sidebarUI.setState(state);
+    minimapUI.setState(state);
+    inputCtrl.setState(state);
+    if (focusCamera) {
+      const startUnit = state.entities.find((e) => e.alive && e.playerId === 0);
+      if (startUnit) {
+        pipeline.camera.jumpTo(startUnit.x, startUnit.z);
+        uiState.selectedIds.add(startUnit.id);
+      }
+    }
+    accumulator = 0;
+  }
+
   function launchSkirmishMatch(cfg) {
-    state = createGameState({
+    applyLoadedGameState(createGameState({
       mode: 'skirmish',
       mapBlueprint: cfg.mapBlueprint,
       players: cfg.players,
@@ -143,29 +231,45 @@ function bootstrap() {
       factionId: cfg.factionId,
       aiDifficulty: cfg.aiDifficulty,
       skirmishFairStart: cfg.skirmishFairStart ?? true,
-      fastBuild: flags.fastBuild
-    });
-    uiState.selectedIds.clear();
-    uiState.placementTypeId = null;
-    uiState.cursorMode = 'default';
-    uiState.pendingPower = null;
-    pipeline.syncTerrainMap(state.map, 0, true);
-    pipeline.shadowSys.invalidateCache();
-    sidebarUI.setState(state);
-    minimapUI.setState(state);
-    inputCtrl.setState(state);
-    const startUnit = state.entities.find((e) => e.alive && e.playerId === 0);
-    if (startUnit) {
-      pipeline.camera.jumpTo(startUnit.x, startUnit.z);
-      uiState.selectedIds.add(startUnit.id);
-    }
-    accumulator = 0;
+      fastBuild: flags.fastBuild,
+      noFog: flags.noFog
+    }), true);
+  }
+
+  function launchCampaignMission(missionId, aiDifficulty) {
+    applyLoadedGameState(createGameState({
+      mode: 'campaign',
+      missionId,
+      aiDifficulty: aiDifficulty || 'normal',
+      fastBuild: flags.fastBuild,
+      noFog: flags.noFog
+    }), true);
   }
 
   const lobbyCtrl = createLobbyMenu(uiState, {
     openInitially: flags.openMenu,
+    initialTab: flags.mission ? 'campaign' : 'skirmish',
     initialMapId: flags.mapId,
-    onLaunchSkirmish: launchSkirmishMatch
+    profile: campaignProfile,
+    onLaunchSkirmish: launchSkirmishMatch,
+    onLaunchCampaign: launchCampaignMission,
+    onSaveCheckpoint: () => {
+      saveCheckpointToDb('manual', state, 'manual');
+    },
+    onLoadCheckpoint: async () => {
+      const cp = (await loadCheckpointFromDb('manual')) ?? (await loadCheckpointFromDb('autosave'));
+      if (cp?.state) {
+        applyLoadedGameState(cp.state, false);
+        lobbyCtrl.close();
+      }
+    }
+  });
+
+  loadCampaignProfile().then((loaded) => {
+    if (loaded) {
+      campaignProfile = loaded;
+      lobbyCtrl.setProfile(campaignProfile);
+    }
   });
 
   const handleAudioUnlock = () => {
@@ -322,7 +426,21 @@ function bootstrap() {
             uiState.lastAlertPos = { x: ev.x, z: ev.z };
           }
         }
-      } else if (ev.type === 'match:ended') {
+      } else if (ev.type === 'director:cameraPan') {
+        pipeline.camera.jumpTo(ev.x, ev.z);
+      } else if (ev.type === 'director:dialogue') {
+        const speakerKey = ev.speakerId ? `speaker.${ev.speakerId}` : 'speaker.eva_abyssal';
+        dialogueCtrl.showDialogue(speakerKey, ev.localeKey, ev.durationSec ?? 5, ev.accentHex ?? '#38bdf8');
+      } else if (ev.type === 'director:checkpoint') {
+        saveCheckpointToDb('autosave', state, ev.label ?? 'auto');
+      } else if (ev.type === 'director:choicePrompt') {
+        showChoicePrompt(ev);
+      } else if (ev.type === 'match:ended' || ev.type === 'match:victory') {
+        if (state.mode === 'campaign' && state.missionId && ev.winnerTeamId === 0) {
+          campaignProfile = recordMissionVictory(campaignProfile, state.missionId);
+          saveCampaignProfile(campaignProfile);
+          lobbyCtrl.setProfile(campaignProfile);
+        }
         sidebarUI.showVictoryModal(ev.winnerTeamId);
       }
     }
@@ -507,7 +625,15 @@ function bootstrap() {
     prevTimeMs = nowMs;
     const elapsedSec = nowMs * 0.001;
 
-    inputCtrl.updateCamera(dtSec);
+    const cutscene = state.directorState?.activeCutscene;
+    if (cutscene) {
+      const k = Math.min(1, dtSec * 5.0);
+      const nx = pipeline.camera.targetX + (cutscene.x - pipeline.camera.targetX) * k;
+      const nz = pipeline.camera.targetZ + (cutscene.z - pipeline.camera.targetZ) * k;
+      pipeline.camera.jumpTo(nx, nz);
+    } else {
+      inputCtrl.updateCamera(dtSec);
+    }
 
     if (isGallery) {
       for (let i = 0; i < state.entities.length; i++) {
@@ -529,6 +655,7 @@ function bootstrap() {
       if (steps === 5 && accumulator > TICK_DT) {
         accumulator = 0;
       }
+      mixer.updateCombatIntensity(state, dtSec);
     }
 
     stepDebrisSystem(

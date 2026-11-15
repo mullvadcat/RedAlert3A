@@ -23,6 +23,12 @@ export function createAudioMixer() {
   let unlocked = false;
   const voiceCache = new Map();
 
+  let musicBus = null;
+  let layerNodes = null;
+  let currentMusicLayer = 'stealth';
+  let recentCombatHeat = 0;
+  let nextPulseAt = 0;
+
   function ensureContext() {
     if (ctx) return ctx;
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -49,6 +55,33 @@ export function createAudioMixer() {
     bandpass.connect(shaper);
     shaper.connect(masterGain);
 
+    // Adaptive 3-state procedural music bed: Stealth -> March -> Climax
+    musicBus = ctx.createGain();
+    musicBus.gain.value = 0.24;
+    musicBus.connect(masterGain);
+
+    const makeBed = (freq, type, initialGain) => {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.value = freq;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = type === 'sawtooth' ? 420 : 260;
+      const gain = ctx.createGain();
+      gain.gain.value = initialGain;
+      osc.connect(lp);
+      lp.connect(gain);
+      gain.connect(musicBus);
+      osc.start();
+      return { osc, gain, lp };
+    };
+
+    layerNodes = {
+      stealth: makeBed(55, 'sine', 0.28),
+      march: makeBed(110, 'triangle', 0.001),
+      climax: makeBed(146.83, 'sawtooth', 0.001)
+    };
+
     // Pre-bake 1s white noise buffer for PTT squelch / explosions / gunshots
     const sampleRate = ctx.sampleRate;
     noiseBuffer = ctx.createBuffer(1, sampleRate, sampleRate);
@@ -57,6 +90,54 @@ export function createAudioMixer() {
       data[i] = Math.random() * 2 - 1;
     }
     return ctx;
+  }
+
+  function updateCombatIntensity(state, dtSec = 0.016) {
+    // Track 5s rolling combat damage / explosion / superweapon warning intensity
+    const decay = Math.exp(-Math.max(0.001, dtSec) / 5.0);
+    recentCombatHeat *= decay;
+    if (state?.events) {
+      for (let i = 0; i < state.events.length; i++) {
+        const ev = state.events[i];
+        if (ev.type === 'combat:fire') recentCombatHeat += 0.35;
+        else if (ev.type === 'fx:explosion' || ev.type === 'entity:destroyed') recentCombatHeat += 1.5;
+        else if (ev.type === 'sw:warning') recentCombatHeat += 8.0;
+      }
+    }
+    const hasWarn = Boolean(state?.areaEffects?.some((fx) => fx.type === 'nuke_warn' || fx.type === 'weather_warn'));
+    if (hasWarn || recentCombatHeat >= 6.5) {
+      currentMusicLayer = 'climax';
+    } else if (recentCombatHeat >= 1.6) {
+      currentMusicLayer = 'march';
+    } else {
+      currentMusicLayer = 'stealth';
+    }
+
+    if (!ctx || !layerNodes || ctx.state !== 'running' || muted) return;
+    const now = ctx.currentTime;
+    const targetGains = {
+      stealth: currentMusicLayer === 'stealth' ? 0.28 : 0.08,
+      march: currentMusicLayer === 'march' ? 0.24 : (currentMusicLayer === 'climax' ? 0.14 : 0.001),
+      climax: currentMusicLayer === 'climax' ? 0.22 : 0.001
+    };
+    layerNodes.stealth.gain.gain.setTargetAtTime(targetGains.stealth, now, 0.4);
+    layerNodes.march.gain.gain.setTargetAtTime(targetGains.march, now, 0.4);
+    layerNodes.climax.gain.gain.setTargetAtTime(targetGains.climax, now, 0.35);
+
+    // Subtle industrial rhythm pulse during march/climax
+    if (currentMusicLayer !== 'stealth' && now >= nextPulseAt) {
+      nextPulseAt = now + (currentMusicLayer === 'climax' ? 0.28 : 0.48);
+      const osc = ctx.createOscillator();
+      osc.type = currentMusicLayer === 'climax' ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(currentMusicLayer === 'climax' ? 98 : 73.4, now);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(currentMusicLayer === 'climax' ? 0.07 : 0.04, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.connect(g);
+      g.connect(musicBus);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    }
   }
 
   function unlock() {
@@ -223,6 +304,9 @@ export function createAudioMixer() {
     unlock,
     playEvaNotice,
     playSfx,
+    updateCombatIntensity,
+    getCurrentMusicLayer() { return currentMusicLayer; },
+    getIntensityScore() { return recentCombatHeat; },
     setMuted(flag) {
       muted = Boolean(flag);
       if (masterGain && ctx) {

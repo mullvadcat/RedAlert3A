@@ -33,6 +33,9 @@ import { stepAirforce } from '../gameplay/airforce.js';
 import { stepNaval } from '../gameplay/naval.js';
 import { castDoctrine, fireSuperweapon, stepSuperweaponsAndAreaEffectsCore } from '../gameplay/superweapon.js';
 import { createDefaultAiState, stepAI } from '../gameplay/ai.js';
+import { createDirectorState, stepDirector } from '../story/director.js';
+import { getCampaignMission } from '../story/campaigns/index.js';
+import { getSkirmishMapById } from '../world/skirmishMaps.js';
 
 function createPlayerState(spec) {
   return {
@@ -70,7 +73,12 @@ function createPlayerState(spec) {
 
 export function createGameState(options = {}) {
   const seed = (options.seed ?? 20400401) >>> 0;
-  const blueprint = options.mapBlueprint ?? DEFAULT_M1_MAP_BLUEPRINT;
+  const missionSpec = options.missionId ? getCampaignMission(options.missionId) : null;
+  if (options.missionId && !missionSpec) {
+    throw new Error(`Unknown campaign missionId: ${options.missionId}`);
+  }
+
+  const blueprint = options.mapBlueprint ?? (missionSpec ? getSkirmishMapById(missionSpec.mapId) : DEFAULT_M1_MAP_BLUEPRINT);
   const map = options.map ?? compileMap(blueprint);
   if (!map.neutralBuildings && blueprint.neutralBuildings) {
     map.neutralBuildings = blueprint.neutralBuildings;
@@ -78,41 +86,69 @@ export function createGameState(options = {}) {
   if (blueprint.supportsNaval !== undefined && map.supportsNaval === undefined) {
     map.supportsNaval = blueprint.supportsNaval;
   }
-  const startingCredits = options.startingCredits ?? 10000;
-  const humanFaction = options.factionId ?? FACTIONS.abyssal.id;
-  const enemyFaction = humanFaction === FACTIONS.abyssal.id ? FACTIONS.crimson.id : FACTIONS.abyssal.id;
+  const startingCredits = options.startingCredits ?? missionSpec?.startingCredits ?? 10000;
+  const humanFaction = options.factionId ?? missionSpec?.factionId ?? FACTIONS.abyssal.id;
+  const enemyFaction = missionSpec?.enemyFactionId ?? (humanFaction === FACTIONS.abyssal.id ? FACTIONS.crimson.id : FACTIONS.abyssal.id);
 
   const players = options.players
     ? options.players.map(createPlayerState)
-    : [
-        createPlayerState({
-          playerId: 0,
-          teamId: 0,
-          factionId: humanFaction,
-          isHuman: true,
-          credits: startingCredits
-        }),
-        createPlayerState({
-          playerId: 1,
-          teamId: 1,
-          factionId: enemyFaction,
-          isHuman: false,
-          aiDifficulty: options.aiDifficulty ?? 'normal',
-          credits: startingCredits
-        })
-      ];
+    : missionSpec
+      ? [
+          createPlayerState({
+            playerId: 0,
+            teamId: 0,
+            factionId: humanFaction,
+            isHuman: true,
+            allowDualFaction: Boolean(missionSpec.allowDualFaction),
+            credits: startingCredits
+          }),
+          createPlayerState({
+            playerId: 1,
+            teamId: 1,
+            factionId: enemyFaction,
+            isHuman: false,
+            aiDifficulty: options.difficulty ?? options.aiDifficulty ?? 'normal',
+            credits: startingCredits
+          }),
+          createPlayerState({
+            playerId: 2,
+            teamId: 3,
+            factionId: FACTIONS.abyssal.id,
+            isHuman: false,
+            credits: 0
+          })
+        ]
+      : [
+          createPlayerState({
+            playerId: 0,
+            teamId: 0,
+            factionId: humanFaction,
+            isHuman: true,
+            credits: startingCredits
+          }),
+          createPlayerState({
+            playerId: 1,
+            teamId: 1,
+            factionId: enemyFaction,
+            isHuman: false,
+            aiDifficulty: options.aiDifficulty ?? 'normal',
+            credits: startingCredits
+          })
+        ];
 
   const disableAI =
     options.disableAI !== undefined
       ? Boolean(options.disableAI)
-      : options.populateDefault === false && !options.players && !options.enableAI;
+      : (missionSpec ? Boolean(missionSpec.disableAI) : (options.populateDefault === false && !options.players && !options.enableAI));
 
   const state = {
     tickCount: 0,
     prngState: seed,
-    mode: options.mode ?? 'skirmish',
-    missionId: options.missionId ?? null,
+    mode: missionSpec ? 'campaign' : (options.mode ?? 'skirmish'),
+    missionId: missionSpec ? missionSpec.id : (options.missionId ?? null),
+    difficulty: options.difficulty ?? options.aiDifficulty ?? 'normal',
     fastBuild: Boolean(options.fastBuild),
+    noFog: Boolean(options.noFog),
     skirmishFairStart: Boolean(options.skirmishFairStart),
     disableAI,
     map,
@@ -129,13 +165,17 @@ export function createGameState(options = {}) {
     orphanDrones: [],
     orePillars: map.orePillars ?? [],
     flowCache: createFlowCache(),
-    directorState: null,
+    directorState: missionSpec ? createDirectorState(missionSpec) : null,
     hadMultipleHqTeams: false,
     winnerTeamId: null,
     events: []
   };
 
-  if (options.populateDefault !== false) {
+  if (missionSpec) {
+    missionSpec.setup(state);
+    rebuildTeamFogGrids(state);
+    stepProductionAndPower(state);
+  } else if (options.populateDefault !== false) {
     if (state.mode === 'bench') {
       populateBenchM1Scenario(state);
     } else {
@@ -600,4 +640,7 @@ export function stepSimulation(state) {
   stepSuperweaponsAndAreaEffects(state);  // 8
   rebuildTeamFogGrids(state);             // 9
   stepAiAndCheckVictory(state);           // 10
+  if (state.mode === 'campaign' && state.directorState) {
+    stepDirector(state, getCampaignMission(state.missionId));
+  }
 }

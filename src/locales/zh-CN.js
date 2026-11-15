@@ -262,5 +262,96 @@ export default {
   'unit.tech_airport.desc': '工程师占领后解锁伞兵空降秘策与额外空军维护',
   'unit.hospital.name': '战地医疗站',
   'unit.hospital.short': '医院',
-  'unit.hospital.desc': '工程师占领后为半径 10m 内己方步兵持续恢复生命'
+  'unit.hospital.desc': '工程师占领后为半径 10m 内己方步兵持续恢复生命',
+
+  // Campaign speakers & UI
+  'speaker.eva_abyssal': 'EVA 战术官 [暗潮]',
+  'speaker.eva_crimson': '战区司政官 [赤铁]',
+  'speaker.commander_abyssal': '海渊舰队指挥官',
+  'speaker.commander_crimson': '铁幕钢铁元帅',
+  'menu.campaignTab': '双线战役',
+  'menu.skirmishTab': '遭遇战大厅',
+  'menu.saveCheckpoint': '保存检查点',
+  'menu.loadCheckpoint': '读取检查点',
+  'menu.locked': '未解锁',
+  'menu.cleared': '已通关',
+  'campaign.act.abyssal': '《蔚蓝折光》暗潮战役 (A01–A06)',
+  'campaign.act.crimson': '《赤铁洪流》赤铁战役 (C01–C06)',
+  'campaign.act.finale': '隐藏终章 (EX13)',
+
+  'campaign.A01.title': 'A01 破潮序章',
+  'campaign.A01.brief': '抢滩登陆并占领海岸科技机场前哨，肃清赤铁海防残军。',
+  'campaign.A01.objCapture': '派遣工程师占领海岸前哨站',
+  'campaign.A01.objClear': '消灭海岸线所有赤铁重工驻军',
+  'campaign.A01.dlgIntro': '登陆艇已抵达滩头！优先护送工程师夺取前方前哨站。',
+  'campaign.A01.dlgCaptured': '前哨站控制权已切换，战区指挥通道解锁！',
+  'campaign.A01.choiceTitle': '战区支援抉择',
+  'campaign.A01.choiceBody': '海岸雷达站已上线，请选择立即调用的战术支援方案：',
+  'campaign.A01.choiceArmor': '呼叫 3 辆灰熊重型坦克增援',
+  'campaign.A01.choiceCredits': '提取 $3,500 军费紧急拨款',
+  'campaign.A01.dlgReinf': '装甲增援已就位，全线压上！',
+  'campaign.A01.dlgCredits': '紧急军费已汇入建造厂账户。',
+
+  'campaign.A02.title': 'A02 海峡守望',
+  'campaign.A02.brief': '依托造船厂与神盾巡洋舰群拦截赤铁基洛夫空艇编队。',
+  'campaign.A02.objNavy': '肃清海域并击落敌军基洛夫与台风潜艇',
+  'campaign.A02.dlgIntro': '侦测到赤铁台风潜艇与基洛夫空艇逼近海峡，神盾准备防空！',
+
+  'campaign.A03.title': 'A03 雷鸣崖',
+  'campaign.A03.brief': '出动火箭飞行兵与夜鹰直升机奇袭悬崖上的 V3 火箭炮阵地。',
+  'campaign.A03.objV3': '摧毁悬崖上的全部 V3 远程火箭炮',
+  'campaign.A03.dlgIntro': '敌军 V3 火箭炮占据高地，用火箭飞行兵与夜鹰迂回拔除！',
+  'campaign.A03.dlgV3Cleared': '悬崖 V3 阵地已被摧毁，继续清剿残余敌军！',
+
+  'campaign.A04.title': 'A04 紫晶峡谷',
+  'campaign.A04.brief': '依托光棱塔折射网与超时空军团守卫紫晶矿脉盆地。',
+  'campaign.A04.objValley': '击退赤铁装甲反扑并肃清敌方前哨',
+  'campaign.A04.dlgWave': '警告：赤铁坦克集群正从峡谷东侧发起强攻！',
+
+  'campaign.A05.title': 'A05 双核裂变',
+  'campaign.A05.brief': '利用超时空传送仪直插敌后，在核弹就绪前拔除两座核弹发射井。',
+  'campaign.A05.objSilos': '摧毁敌方两座核弹发射井',
+  'campaign.A05.dlgIntro': '超时空传送仪已充能完毕，将光棱突击群折跃至核弹井侧翼！',
+
+  'campaign.A06.title': 'A06 马里亚纳封印',
+  'campaign.A06.brief': '启动天气控制机配合航母编队攻破深渊浮岛防线。',
+  'campaign.A06.objSeal': '摧毁马里亚纳深渊赤铁主基地',
+  'campaign.A06.dlgIntro': '天气控制机已锁定海沟上空，闪电风暴准备释放！',
+
+  'campaign.C01.title': 'C01 赤铁先声',
+  'campaign.C01.brief': '率领犀牛坦克与动员兵强渡冰原双桥并夺取桥头钻油井。',
+  'campaign.C01.objBridge': '夺取桥头油井并碾碎对岸暗潮守军',
+  'campaign.C01.dlgIntro': '钢铁洪流不容退缩！工程师夺取油井，坦克群正面碾压！',
+  'campaign.C01.dlgCaptured': '油井已经在我军掌控之中，重装预备队出击！',
+
+  'campaign.C02.title': 'C02 静默深海',
+  'campaign.C02.brief': '出动台风攻击潜艇与赤蝎防空舰，猎杀暗潮太平洋航母群。',
+  'campaign.C02.objCarriers': '击沉暗潮同盟全部航空母舰',
+  'campaign.C02.dlgIntro': '台风潜艇深潜接敌，防空赤蝎护航清理海豚侦察群！',
+
+  'campaign.C03.title': 'C03 断电危机',
+  'campaign.C03.brief': '在电网承压状态下用磁暴步兵稳固磁暴防线并起飞基洛夫重型空艇。',
+  'campaign.C03.objPower': '守住磁暴线圈防线并摧毁敌军前线阵地',
+  'campaign.C03.dlgIntro': '磁暴步兵立即为线圈外接充能，基洛夫空艇准备轰炸！',
+
+  'campaign.C04.title': 'C04 铁幕长驱',
+  'campaign.C04.brief': '用铁幕无敌护盾掩护天启坦克集群强行冲破光棱塔封锁线。',
+  'campaign.C04.objGauntlet': '无视光棱防线摧毁敌方基地',
+  'campaign.C04.dlgIntro': '铁幕装置充能完成！对天启矛头开启 15 秒无敌护盾！',
+
+  'campaign.C05.title': 'C05 无畏炮击',
+  'campaign.C05.brief': '指挥无畏战列舰跨海超视距炮击，拔除暗潮天气控制核心。',
+  'campaign.C05.objWeather': '摧毁暗潮海岸天气控制机',
+  'campaign.C05.dlgIntro': '无畏战列舰巡航导弹装填完毕，40m 超视距齐射覆盖！',
+
+  'campaign.C06.title': 'C06 地核风暴',
+  'campaign.C06.brief': '发射核弹清场并用天启与重锤英雄收复地核裂变反应区。',
+  'campaign.C06.objCore': '肃清叛军基地并镇压裂变核心区',
+  'campaign.C06.dlgIntro': '核弹发射井已解锁！准备发动灭世级精准打击！',
+
+  'campaign.EX13.title': 'EX-13 零号赤潮',
+  'campaign.EX13.brief': '暗潮与赤铁全面联合！执掌双阵营全部科技与四大超级武器，摧毁零号赤潮三座母巢。',
+  'campaign.EX13.objHives': '摧毁全部三座「零号赤潮 (Abyss-0)」母巢核心',
+  'campaign.EX13.dlgIntro': '联合司令部成立！双阵营建造体系与四大超级武器全面待命！',
+  'campaign.EX13.dlgVictory': '零号赤潮母巢彻底瓦解，墨陆重迎蔚蓝黎明！'
 };
