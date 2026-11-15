@@ -134,22 +134,23 @@ void main() {
   float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
   float spec = pow(max(dot(N, H), 0.0), 140.0) * 1.8;
 
-  vec3 shallowCol = vec3(0.05, 0.22, 0.30);
-  vec3 deepCol = vec3(0.015, 0.06, 0.14);
-  vec3 skyReflect = vec3(0.24, 0.40, 0.62);
-  vec3 baseCol = mix(shallowCol, deepCol, smoothstep(0.0, 2.8, depth));
+  vec3 shallowCol = vec3(0.06, 0.30, 0.42);
+  vec3 deepCol = vec3(0.014, 0.065, 0.175);
+  vec3 skyReflect = vec3(0.26, 0.44, 0.68);
+  vec3 baseCol = mix(shallowCol, deepCol, smoothstep(0.0, 2.5, depth));
 
-  // Subtle shoreline surf foam where 0 < depth < 0.7m
-  float foamBand = smoothstep(0.72, 0.02, depth);
-  float foamRipple = sin(depth * 14.0 - uTime * 3.2) * 0.5 + 0.5;
-  float foam = foamBand * (0.35 + 0.65 * foamRipple);
+  // Crisp RA2 shoreline surf foam + subtle offshore wave crests where 0 < depth < 1.1m
+  float foamBand = smoothstep(1.05, 0.02, depth);
+  float foamRipple = sin(depth * 12.0 - uTime * 3.0) * 0.5 + 0.5;
+  float waveCrest = smoothstep(0.14, 0.30, vWorldPos.y) * 0.35;
+  float foam = clamp(foamBand * (0.45 + 0.55 * foamRipple) + waveCrest, 0.0, 1.0);
 
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0025, uShadowTexelSize);
 
-  vec3 lit = mix(baseCol, skyReflect, fresnel * 0.65) * (0.34 + 0.72 * NdotL * mix(0.40, 1.0, shadow));
-  lit += vec3(0.95, 0.90, 0.80) * spec * shadow;
-  lit = mix(lit, vec3(0.72, 0.80, 0.86), foam * 0.44);
+  vec3 lit = mix(baseCol, skyReflect, fresnel * 0.52) * (0.36 + 0.84 * NdotL * mix(0.20, 1.0, shadow));
+  lit += vec3(1.0, 0.94, 0.84) * spec * shadow;
+  lit = mix(lit, vec3(0.84, 0.90, 0.95), foam * 0.58);
 
   float fogTexel = 1.0 / 256.0;
   float fogSample = (

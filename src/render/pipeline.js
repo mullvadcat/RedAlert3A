@@ -17,6 +17,7 @@ import { createWaterRenderer } from './water.js';
 import { createModelFactory } from '../world/models.js';
 import { createBillboardRenderer } from './billboards.js';
 import { createDecalPool } from './decals.js';
+import { createPropRenderer } from './props.js';
 import { createDebrisSystem } from '../world/destruction.js';
 
 export function compileProgram(gl, vsSrc, fsSrc) {
@@ -209,17 +210,23 @@ void main() {
   vec4 detail = texture(uDetailTex, tileUv);
 
   float slope = 1.0 - max(vNormal.y, 0.0);
-  vec3 grassCol = vec3(0.13, 0.20, 0.10) * (0.74 + 0.52 * detail.r);
-  vec3 earthCol = vec3(0.17, 0.13, 0.09) * (0.76 + 0.48 * detail.b);
-  vec3 rockCol  = vec3(0.16, 0.17, 0.20) * (0.74 + 0.52 * detail.b);
-  vec3 sandCol  = vec3(0.26, 0.22, 0.15) * (0.80 + 0.40 * detail.r);
-  vec3 deckCol  = vec3(0.22, 0.25, 0.29) * (0.80 + 0.40 * detail.b);
+  // Sunlit RA2 meadow palette: vibrant emerald-olive turf, warm loam, stratified cliffs, golden beach sand
+  vec3 grassCol = vec3(0.16, 0.28, 0.09) * (0.76 + 0.48 * detail.r);
+  vec3 cloverCol = vec3(0.22, 0.34, 0.10) * (0.80 + 0.40 * detail.b);
+  vec3 earthCol = vec3(0.22, 0.18, 0.11) * (0.76 + 0.48 * detail.b);
+  vec3 rockCol  = vec3(0.24, 0.21, 0.18) * (0.72 + 0.56 * detail.b);
+  vec3 sandCol  = vec3(0.38, 0.32, 0.21) * (0.80 + 0.40 * detail.r);
+  vec3 deckCol  = vec3(0.25, 0.28, 0.32) * (0.82 + 0.36 * detail.b);
 
   float elev = vWorldPos.y;
-  float soilMix = smoothstep(0.26, 0.74, detail.r * 0.55 + detail.b * 0.45);
-  vec3 albedo = mix(grassCol, earthCol, soilMix);
-  albedo = mix(sandCol, albedo, smoothstep(-0.35, 0.85, elev));
-  albedo = mix(albedo, rockCol, smoothstep(0.18, 0.48, slope));
+  float macroPatch = sin(vWorldPos.x * 0.055) * cos(vWorldPos.z * 0.055) * 0.5 + 0.5;
+  vec3 turf = mix(grassCol, cloverCol, smoothstep(0.25, 0.75, macroPatch * 0.65 + detail.r * 0.35));
+  float soilMix = smoothstep(0.45, 0.85, detail.b * 0.7 + (1.0 - detail.r) * 0.3);
+  vec3 albedo = mix(turf, earthCol, soilMix * 0.38);
+  albedo = mix(sandCol, albedo, smoothstep(-0.25, 1.05, elev));
+  // Stratified cliff rock banding on steep slopes
+  float strata = 0.84 + 0.16 * sin(elev * 5.2 + detail.b * 3.0);
+  albedo = mix(albedo, rockCol * strata, smoothstep(0.16, 0.44, slope));
 
   // Bridges painted clearly as reinforced steel/concrete decks
   if (splat.a > 0.5) {
@@ -255,11 +262,11 @@ void main() {
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
-  float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.08 * shadow;
-  vec3 skyAmbient = vec3(0.14, 0.18, 0.24);
-  vec3 sunColor = vec3(1.18, 1.08, 0.94);
+  float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.07 * shadow;
+  vec3 skyAmbient = vec3(0.16, 0.21, 0.27);
+  vec3 sunColor = vec3(1.26, 1.15, 0.98);
 
-  vec3 lit = albedo * (skyAmbient + sunColor * NdotL * mix(0.32, 1.0, shadow)) + vec3(spec) + emissive;
+  vec3 lit = albedo * (skyAmbient + sunColor * NdotL * mix(0.18, 1.0, shadow)) + vec3(spec) + emissive;
 
   // 5-tap softened GPU Fog of War to eliminate 256x256 block edges
   float fogTexel = 1.0 / 256.0;
@@ -550,26 +557,54 @@ function buildTerrainMesh(gl, map) {
   };
 }
 
-function buildUnitCubeMesh() {
-  const s = 0.5;
-  const faces = [
-    [0, 0, 1, [-s, -s, s], [s, -s, s], [s, s, s], [-s, s, s]],
-    [0, 0, -1, [s, -s, -s], [-s, -s, -s], [-s, s, -s], [s, s, -s]],
-    [0, 1, 0, [-s, s, s], [s, s, s], [s, s, -s], [-s, s, -s]],
-    [0, -1, 0, [-s, -s, -s], [s, -s, -s], [s, -s, s], [-s, -s, s]],
-    [1, 0, 0, [s, -s, s], [s, -s, -s], [s, s, -s], [s, s, s]],
-    [-1, 0, 0, [-s, -s, -s], [-s, -s, s], [-s, s, s], [-s, s, -s]]
+function buildPolyPuffMesh() {
+  // 1-step subdivided icosahedron (80 smooth-shaded organic poly triangles) for explosions, smoke puffs, missiles & beams
+  const t = (1 + Math.sqrt(5)) * 0.5;
+  const baseVerts = [
+    [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
+    [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+    [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
+  ].map(([x, y, z]) => {
+    const l = Math.hypot(x, y, z) || 1;
+    return [x / l, y / l, z / l];
+  });
+  let tris = [
+    [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+    [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+    [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+    [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
   ];
+  const midCache = new Map();
+  const getMid = (a, b) => {
+    const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+    if (midCache.has(key)) return midCache.get(key);
+    const va = baseVerts[a];
+    const vb = baseVerts[b];
+    const mx = (va[0] + vb[0]) * 0.5;
+    const my = (va[1] + vb[1]) * 0.5;
+    const mz = (va[2] + vb[2]) * 0.5;
+    const ml = Math.hypot(mx, my, mz) || 1;
+    const id = baseVerts.length;
+    baseVerts.push([mx / ml, my / ml, mz / ml]);
+    midCache.set(key, id);
+    return id;
+  };
+  const sub = [];
+  for (let i = 0; i < tris.length; i++) {
+    const [a, b, c] = tris[i];
+    const ab = getMid(a, b);
+    const bc = getMid(b, c);
+    const ca = getMid(c, a);
+    sub.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
+  }
   const verts = [];
   const idx = [];
-  for (let f = 0; f < faces.length; f++) {
-    const [nx, ny, nz, p0, p1, p2, p3] = faces[f];
-    const base = verts.length / 6;
-    verts.push(p0[0], p0[1], p0[2], nx, ny, nz);
-    verts.push(p1[0], p1[1], p1[2], nx, ny, nz);
-    verts.push(p2[0], p2[1], p2[2], nx, ny, nz);
-    verts.push(p3[0], p3[1], p3[2], nx, ny, nz);
-    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  for (let i = 0; i < baseVerts.length; i++) {
+    const [nx, ny, nz] = baseVerts[i];
+    verts.push(nx * 0.5, ny * 0.5, nz * 0.5, nx, ny, nz);
+  }
+  for (let i = 0; i < sub.length; i++) {
+    idx.push(sub[i][0], sub[i][1], sub[i][2]);
   }
   return { vertices: new Float32Array(verts), indices: new Uint16Array(idx) };
 }
@@ -579,6 +614,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     antialias: true,
     alpha: false,
     depth: true,
+    stencil: true,
     powerPreference: 'high-performance'
   });
   if (!gl) {
@@ -589,8 +625,8 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   gl.getExtension('EXT_color_buffer_half_float');
 
   let quality = QUALITY_PRESETS[initialQuality] ?? QUALITY_PRESETS.high;
-  const cube = buildUnitCubeMesh();
-  const MAX_VFX_INSTANCES = 1024;
+  const cube = buildPolyPuffMesh();
+  const MAX_VFX_INSTANCES = 2048;
   const VFX_FLOATS = 12;
   const vfxData = new Float32Array(MAX_VFX_INSTANCES * VFX_FLOATS);
   const splatBytes = new Uint8Array(MAP_SIZE * MAP_SIZE * 4);
@@ -604,6 +640,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   let modelFactory = null;
   let billboardRenderer = null;
   let decalPool = null;
+  let propsRenderer = null;
   let terrainProg = null;
   let tLoc = null;
   let heightTex = null;
@@ -641,6 +678,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     modelFactory = createModelFactory(gl, compileProgram, WORLD_SIZE);
     billboardRenderer = createBillboardRenderer(gl, compileProgram);
     decalPool = createDecalPool(gl, compileProgram);
+    propsRenderer = createPropRenderer(gl, compileProgram);
 
     // Terrain programs & textures
     terrainProg = compileProgram(gl, TERRAIN_VS, TERRAIN_FS);
@@ -762,6 +800,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
         gl.deleteBuffer(terrainMesh.ibo);
       }
       terrainMesh = buildTerrainMesh(gl, map);
+      propsRenderer?.syncMap(map);
       gl.bindTexture(gl.TEXTURE_2D, heightTex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP_SIZE, MAP_SIZE, gl.RED, gl.FLOAT, map.elevation);
       gl.bindTexture(gl.TEXTURE_2D, null);
@@ -1025,9 +1064,31 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       const dz = p.targetZ - iz;
       const yaw = Math.atan2(dx, dz);
       const isMissile = p.damageType === 'Missile' || p.damageType === 'HighExplosive';
-      const len = isMissile ? 1.35 : 0.95;
-      const thick = isMissile ? 0.32 : 0.18;
-      writeInst(ix, iy, iz, yaw, thick, thick, len, 0, 1.0, isMissile ? 0.45 : 0.82, isMissile ? 0.15 : 0.28, 3.2);
+      if (isMissile) {
+        const vx = Math.sin(yaw);
+        const vz = Math.cos(yaw);
+        // Missile warhead + hot rocket thruster core
+        writeInst(ix, iy, iz, yaw, 0.34, 0.34, 1.35, 0, 0.92, 0.92, 0.96, 1.1);
+        writeInst(ix - vx * 0.75, iy, iz - vz * 0.75, yaw, 0.42, 0.42, 0.75, 0, 1.0, 0.56, 0.14, 3.8);
+        // Animated fading contrail smoke puffs trailing behind rocket
+        for (let t = 1; t <= 4; t++) {
+          const lag = 1.2 + t * 1.15;
+          const fade = 1.0 - t * 0.2;
+          const puffS = 0.36 + t * 0.14;
+          const smoke = 0.48 - t * 0.06;
+          writeInst(
+            ix - vx * lag,
+            iy + t * 0.06,
+            iz - vz * lag,
+            elapsedSec * 2.0 + t + i,
+            puffS, puffS, puffS, 0.2,
+            smoke, smoke * 0.95, smoke * 0.9,
+            fade * 0.45
+          );
+        }
+      } else {
+        writeInst(ix, iy, iz, yaw, 0.20, 0.20, 1.05, 0, 1.0, 0.84, 0.32, 3.2);
+      }
     }
 
     // 2b. Carrier Strike Drones & Orphan Airborne Drones
@@ -1100,6 +1161,19 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
         const jz = Math.cos(elapsedSec * 21 + e.id) * 0.45;
         writeInst(e.x + jx, (e.y ?? 1.6) + 1.3, e.z + jz, elapsedSec * 6.0, 0.35, 1.1, 0.35, 0.4, 0.3, 0.85, 1.0, 2.8);
       }
+      if (e.maxHp > 0 && e.hp < e.maxHp * 0.55 && (e.category === 'building' || e.category === 'vehicle' || e.category === 'naval')) {
+        const puffs = e.category === 'building' ? 3 : 2;
+        const baseY = (e.y ?? 1.6) + (e.category === 'building' ? 2.2 : 1.0);
+        for (let k = 0; k < puffs; k++) {
+          const cycle = (elapsedSec * 0.65 + e.id * 0.37 + k * 0.33) % 1.0;
+          const rise = cycle * (e.category === 'building' ? 4.4 : 2.6);
+          const driftX = Math.sin(elapsedSec * 1.4 + k * 2.1 + e.id) * (0.45 + cycle * 0.9);
+          const driftZ = Math.cos(elapsedSec * 1.1 + k * 1.7 + e.id) * (0.35 + cycle * 0.7);
+          const s = (e.category === 'building' ? 0.95 : 0.55) * (0.65 + cycle * 1.35);
+          const shade = 0.14 + cycle * 0.12;
+          writeInst(e.x + driftX, baseY + rise, e.z + driftZ, cycle * 2.5, s, s * 0.88, s, 0.2, shade, shade, shade, 0.08 * (1.0 - cycle));
+        }
+      }
     }
 
     // 3. Transient Fire Flashes / Explosions / Beams / Move Rings
@@ -1112,9 +1186,22 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       }
       const prog = age / fx.duration;
       if (fx.kind === 'explosion') {
-        const s = fx.scale * (0.6 + prog * 2.4);
-        const heat = (1.0 - prog) * 3.8;
-        writeInst(fx.x, fx.y + 0.6, fx.z, prog * 3.0, s, s * (1.1 - prog * 0.4), s, 0.3, 1.0, 0.52 * (1 - prog * 0.5), 0.12, heat);
+        const baseS = fx.scale * (0.65 + prog * 1.85);
+        const heat = (1.0 - prog) * (1.0 - prog) * 4.2;
+        // Core blinding yellow-orange fireball
+        writeInst(fx.x, fx.y + 0.7 + prog * 0.9, fx.z, prog * 2.2, baseS * 1.05, baseS * (1.15 - prog * 0.35), baseS * 1.05, 0.3, 1.0, 0.68 - prog * 0.38, 0.14, heat);
+        // 3 radial secondary fireball lobes + billowing dark smoke plume
+        for (let k = 0; k < 3; k++) {
+          const ang = (k / 3) * Math.PI * 2 + fx.x * 0.7 + prog * 1.2;
+          const rOff = fx.scale * (0.35 + prog * 1.25);
+          const px = fx.x + Math.cos(ang) * rOff;
+          const pz = fx.z + Math.sin(ang) * rOff;
+          const subS = baseS * (0.72 - prog * 0.15);
+          writeInst(px, fx.y + 0.55 + prog * 1.1, pz, ang, subS, subS * 0.95, subS, 0.25, 1.0, 0.42 * (1 - prog * 0.6), 0.08, heat * 0.75);
+          const smS = fx.scale * (0.75 + prog * 2.1);
+          const smShade = 0.18 - prog * 0.06;
+          writeInst(px * 0.98 + fx.x * 0.02, fx.y + 1.2 + prog * 3.4 + k * 0.35, pz * 0.98 + fx.z * 0.02, ang + 1.1, smS, smS * 0.92, smS, 0.4, smShade, smShade, smShade * 1.04, 0.05 * (1.0 - prog));
+        }
       } else if (fx.kind === 'beam') {
         const dx = fx.tx - fx.x;
         const dz = fx.tz - fx.z;
@@ -1159,7 +1246,10 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       camState.targetZ,
       camState.height,
       mapRev,
-      (lvp) => modelFactory.renderShadowPass(lvp, true, shadowCtx),
+      (lvp) => {
+        modelFactory.renderShadowPass(lvp, true, shadowCtx);
+        propsRenderer?.renderShadowPass(lvp, shadowCtx);
+      },
       (lvp) => modelFactory.renderShadowPass(lvp, false, shadowCtx)
     );
     rendererInfo.render.calls += shadowCtx.calls;
@@ -1183,6 +1273,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       camUp,
       camHeight: camState.height,
       lightDir: shadowSys.lightDir,
+      worldSize: WORLD_SIZE,
       time: elapsedSec,
       waveScale: quality.gerstnerWaves >= 4 ? 1.0 : 0.55,
       noFog: Boolean(uiState.noFog),
@@ -1225,6 +1316,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     // 2c. 3D Articulated Units & Buildings (1 Draw Call per active typeId!)
     modelFactory.renderMainPass(frameCtx);
     modelFactory.renderXRayPass(frameCtx);
+    propsRenderer?.renderMainPass(frameCtx);
 
     // 2d. Dynamic 4-Wave Gerstner Ocean (1 Draw Call)
     waterRenderer.render(frameCtx);
@@ -1389,6 +1481,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       modelFactory.dispose();
       billboardRenderer.dispose();
       decalPool.dispose();
+      propsRenderer?.dispose?.();
       disposeRenderTarget(gl, sceneRT);
       disposeRenderTarget(gl, bloomRT0);
       disposeRenderTarget(gl, bloomRT1);

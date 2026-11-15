@@ -718,6 +718,47 @@ function createMeshBuilder() {
   };
 }
 
+// Shared RA2-style beveled concrete foundation plinth + hazard trim + corner bollards
+function addConcretePad(b, w, d, h = 0.44, apronScale = 0.92, hasHazard = true) {
+  b.addTrapezoid(0, h * 0.5, 0, w, d, w * 0.94, d * 0.94, h, 0, 0, 3);
+  if (hasHazard) {
+    b.addBeveledBox(0, h + 0.04, 0, w * apronScale, 0.08, d * apronScale, 0.02, 0, 4);
+  }
+  const bx = w * 0.45;
+  const bz = d * 0.45;
+  for (const [cx, cz] of [[-bx, -bz], [bx, -bz], [-bx, bz], [bx, bz]]) {
+    b.addCylinder(cx, h + 0.14, cz, 0.14, 0.12, 0.28, 6, 'Y', 0, 1);
+  }
+}
+
+// Shared RA2 vaulted industrial hangar/barracks roof with arched ribs & glass skylights
+function addVaultedHall(b, cx, baseY, cz, w, d, h, ribCount = 4, wallTone = 0, ribTone = 3) {
+  const wallH = h * 0.52;
+  b.addBeveledBox(cx, baseY + wallH * 0.5, cz, w, wallH, d, 0.08, 0, wallTone);
+  // Arched upper shell (stepped bevel + crown prism)
+  b.addTrapezoid(cx, baseY + wallH + h * 0.24, cz, w * 0.96, d * 0.98, w * 0.58, d * 0.94, h * 0.48, 0, 0, wallTone);
+  b.addBeveledBox(cx, baseY + h * 0.96, cz, w * 0.48, h * 0.16, d * 0.88, 0.06, 0, 5);
+  // Reflective glass clerestory side strips
+  b.addBox(cx - w * 0.505, baseY + wallH * 0.68, cz, 0.06, wallH * 0.34, d * 0.72, 0, 6);
+  b.addBox(cx + w * 0.505, baseY + wallH * 0.68, cz, 0.06, wallH * 0.34, d * 0.72, 0, 6);
+  // Structural metal truss ribs spanning across Z or X
+  for (let i = 0; i < ribCount; i++) {
+    const t = ribCount === 1 ? 0 : (i / (ribCount - 1) - 0.5) * (d * 0.76);
+    b.addBeveledBox(cx, baseY + wallH * 0.95, cz + t, w * 1.03, h * 0.12, 0.24, 0.03, 0, ribTone);
+  }
+}
+
+// Smooth hyperboloid industrial cooling tower
+function addCoolingTower(b, cx, baseY, cz, baseR, waistR, topR, h, coreGlow = false) {
+  b.addLathe(cx, baseY, cz, [
+    [0, baseR], [h * 0.28, baseR * 0.82], [h * 0.66, waistR], [h * 0.92, topR], [h, topR * 0.92]
+  ], 14, 'Y', 0, 3);
+  b.addCylinder(cx, baseY + h + 0.06, cz, topR * 0.96, topR * 0.96, 0.16, 14, 'Y', 0, 1);
+  if (coreGlow) {
+    b.addCylinder(cx, baseY + h + 0.08, cz, waistR * 0.72, waistR * 0.72, 0.18, 12, 'Y', 0, 2);
+  }
+}
+
 // Shared articulated military trooper anatomy (1:7 heroic scale, contoured NATO helmet, tapered vest, knees & arms gripping weapon)
 function addTrooperRig(b, cfg) {
   const {
@@ -892,98 +933,134 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'harvester': {
-      // Heavy Armed Ore Harvester with sloped hazard ore scoop & rotating crusher drum
-      b.addTrapezoid(0, 0.5, -0.2, 1.82, 2.9, 1.66, 2.6, 0.64, 0, 0, 0);
-      b.addTrackAssembly(-1.08, 0.46, -0.2, 0.46, 0.78, 3.05, 4, 0);
-      b.addTrackAssembly(1.08, 0.46, -0.2, 0.46, 0.78, 3.05, 4, 0);
-      b.addTrapezoid(0, 1.18, -0.65, 1.65, 1.75, 1.75, 1.9, 0.74, 0, 0, 3);
-      b.addTrapezoid(0, 1.16, 0.68, 1.5, 0.95, 1.32, 0.75, 0.76, -0.05, 0, 0);
-      b.addBox(0, 1.25, 1.12, 1.18, 0.32, 0.14, 0, 2);
-      // Articulated Hazard Front Scoop (part 2)
-      b.addTrapezoid(0, 0.56, 1.58, 2.05, 0.85, 1.92, 0.55, 0.56, -0.1, 2, 4);
-      b.addCylinder(0, 0.54, 1.98, 0.34, 0.34, 1.85, 8, 'X', 2, 1);
+      // Heavy Armed Ore Harvester: Beveled reinforced hull, panoramic cab glass, armored ore dump hopper & helical hazard crusher
+      b.addTrapezoid(0, 0.52, -0.2, 1.88, 3.0, 1.72, 2.7, 0.66, 0, 0, 0);
+      b.addTrackAssembly(-1.12, 0.46, -0.2, 0.48, 0.78, 3.15, 5, 0);
+      b.addTrackAssembly(1.12, 0.46, -0.2, 0.48, 0.78, 3.15, 5, 0);
+      // Armored rear ore dump bin + faction side rails + exhaust stacks
+      b.addTrapezoid(0, 1.24, -0.72, 1.76, 1.88, 1.92, 2.04, 0.78, 0, 0, 3);
+      b.addBeveledBox(-0.92, 1.28, -0.72, 0.16, 0.56, 1.75, 0.03, 0, 5);
+      b.addBeveledBox(0.92, 1.28, -0.72, 0.16, 0.56, 1.75, 0.03, 0, 5);
+      b.addCylinder(-0.62, 1.52, -1.64, 0.08, 0.08, 0.85, 8, 'Y', 0, 1);
+      b.addCylinder(0.62, 1.52, -1.64, 0.08, 0.08, 0.85, 8, 'Y', 0, 1);
+      // Forward armored cab + panoramic tinted glass
+      b.addTrapezoid(0, 1.18, 0.68, 1.58, 0.98, 1.38, 0.78, 0.78, -0.06, 0, 0);
+      b.addBeveledBox(0, 1.28, 1.12, 1.22, 0.34, 0.18, 0.03, 0, 6);
+      b.addCylinder(0, 1.66, 0.68, 0.12, 0.10, 0.18, 8, 'Y', 0, 2); // Warning beacon
+      // Articulated Hazard Front Scoop & Helical Crusher Drum (part 2)
+      b.addTrapezoid(0, 0.56, 1.58, 2.12, 0.86, 1.96, 0.56, 0.56, -0.1, 2, 4);
+      b.addCylinder(0, 0.54, 1.98, 0.36, 0.36, 1.94, 12, 'X', 2, 1);
+      b.addBox(0, 0.54, 1.98, 1.72, 0.52, 0.12, 2, 3);
       break;
     }
 
     case 'mcv': {
-      // Massive 6-Wheel Heavy Mobile Construction Vehicle
-      b.addTrapezoid(0, 0.65, 0, 2.15, 4.2, 1.95, 3.9, 0.78, 0, 0, 0);
-      for (const wz of [-1.3, 0.05, 1.4]) {
-        b.addCylinder(-1.18, 0.46, wz, 0.46, 0.46, 0.36, 10, 'X', 0, 1);
-        b.addCylinder(1.18, 0.46, wz, 0.46, 0.46, 0.36, 10, 'X', 0, 1);
+      // Massive 6-Wheel Mobile Construction Vehicle with beveled sleeper cab, folded crane boom & hazard command module
+      b.addTrapezoid(0, 0.66, 0, 2.22, 4.35, 2.02, 4.05, 0.82, 0, 0, 0);
+      for (const wz of [-1.35, 0.05, 1.45]) {
+        b.addCylinder(-1.24, 0.48, wz, 0.48, 0.48, 0.40, 12, 'X', 0, 1);
+        b.addCylinder(-1.24, 0.48, wz, 0.24, 0.24, 0.44, 10, 'X', 0, 3);
+        b.addCylinder(1.24, 0.48, wz, 0.48, 0.48, 0.40, 12, 'X', 0, 1);
+        b.addCylinder(1.24, 0.48, wz, 0.24, 0.24, 0.44, 10, 'X', 0, 3);
       }
-      b.addTrapezoid(0, 1.45, -0.45, 1.88, 2.45, 1.65, 2.15, 0.86, 0, 0, 4);
-      b.addTrapezoid(0, 1.4, 1.45, 1.92, 1.15, 1.65, 0.85, 0.82, -0.08, 0, 0);
-      b.addBox(0, 1.55, 1.96, 1.45, 0.28, 0.14, 0, 2);
-      b.addBox(0, 2.04, -0.5, 0.62, 0.34, 2.25, 1, 1);
+      // Rear folded prefab assembly core + faction armor panels + twin crane rails
+      b.addBeveledBox(0, 1.52, -0.52, 1.96, 0.94, 2.45, 0.08, 0, 4);
+      b.addBeveledBox(-1.0, 1.52, -0.52, 0.14, 0.72, 2.2, 0.03, 0, 5);
+      b.addBeveledBox(1.0, 1.52, -0.52, 0.14, 0.72, 2.2, 0.03, 0, 5);
+      b.addBeveledBox(0, 2.08, -0.52, 0.72, 0.34, 2.35, 0.05, 1, 1);
+      // Forward armored command truck nose + panoramic blue cockpit glass + radar mast
+      b.addTrapezoid(0, 1.44, 1.48, 2.0, 1.18, 1.72, 0.88, 0.84, -0.08, 0, 0);
+      b.addBeveledBox(0, 1.56, 1.98, 1.52, 0.32, 0.16, 0.03, 0, 6);
+      b.addBox(0, 1.18, 2.12, 1.86, 0.22, 0.16, 0, 4);
+      b.addCylinder(-0.82, 1.88, 1.12, 0.07, 0.06, 0.78, 8, 'Y', 0, 1);
+      b.addCylinder(0.82, 1.88, 1.12, 0.07, 0.06, 0.78, 8, 'Y', 0, 1);
       break;
     }
 
     case 'conyard': {
-      b.addTrapezoid(0, 0.26, 0, 7.8, 7.8, 7.4, 7.4, 0.52, 0, 0, 3);
-      b.addBox(0, 0.54, 0, 7.2, 0.08, 7.2, 0, 4);
-      b.addTrapezoid(-1.55, 1.55, -1.55, 3.8, 3.8, 3.1, 3.1, 2.2, 0, 0, 0);
-      b.addTrapezoid(1.85, 1.15, 1.5, 3.1, 3.3, 2.7, 2.9, 1.5, 0, 0, 1);
-      b.addBox(-1.55, 2.8, -1.55, 1.5, 0.45, 1.5, 0, 2);
-      b.addCylinder(1.2, 2.25, -1.2, 0.58, 0.44, 3.3, 8, 'Y', 1, 4);
-      b.addBox(1.2, 4.0, 0.25, 0.72, 0.52, 4.4, 1, 0);
-      b.addBox(1.2, 3.35, 2.1, 0.38, 1.15, 0.38, 2, 2);
+      // Iconic RA2 Construction Yard: Beveled concrete deck, central vaulted assembly bay, glass command tower & articulated truss crane
+      addConcretePad(b, 7.8, 7.8, 0.52, 0.92, true);
+      addVaultedHall(b, -1.45, 0.52, -1.15, 3.85, 4.4, 2.35, 4, 0, 3);
+      // Central glass-walled command bunker + glowing assembly beacon
+      b.addBeveledBox(1.65, 1.32, 1.35, 3.1, 1.6, 3.2, 0.1, 0, 1);
+      b.addBeveledBox(1.65, 1.68, 2.94, 2.2, 0.42, 0.12, 0.03, 0, 6);
+      b.addBeveledBox(-1.45, 3.05, -1.15, 1.65, 0.38, 1.65, 0.05, 0, 2);
+      // Rotating heavy fabrication crane boom (part 1 & 2) with truss jib
+      b.addCylinder(1.35, 1.95, -1.45, 0.78, 0.56, 2.9, 12, 'Y', 1, 4);
+      b.addCylinder(1.35, 3.45, -1.45, 0.62, 0.48, 0.38, 12, 'Y', 1, 5);
+      b.addLimb([1.35, 3.55, -1.45], [1.35, 4.65, 1.65], 0.34, 0.24, 8, 1, 5);
+      b.addLimb([1.35, 3.45, -2.55], [1.35, 4.65, 1.65], 0.14, 0.10, 6, 1, 3);
+      b.addBeveledBox(1.35, 3.5, -2.6, 1.15, 0.75, 1.15, 0.06, 1, 1); // Counterweight block
+      b.addLimb([1.35, 4.65, 1.65], [1.35, 3.35, 1.65], 0.10, 0.08, 6, 2, 3); // Hoist cable
+      b.addBeveledBox(1.35, 3.15, 1.65, 0.56, 0.42, 0.56, 0.05, 2, 2); // Crane electromagnet
       break;
     }
 
     case 'power_plant': {
-      b.addTrapezoid(0, 0.22, 0, 3.8, 3.8, 3.55, 3.55, 0.44, 0, 0, 3);
-      b.addTrapezoid(0, 1.02, -0.8, 3.25, 1.75, 2.85, 1.45, 1.4, 0, 0, 0);
-      for (const px of [-0.85, 0.85]) {
-        b.addCylinder(px, 1.35, 0.75, 0.68, 0.46, 1.8, 10, 'Y', 0, 1);
-        b.addCylinder(px, 2.35, 0.75, 0.46, 0.58, 0.65, 10, 'Y', 0, 1);
-        b.addCylinder(px, 2.75, 0.75, 0.44, 0.44, 0.25, 10, 'Y', 0, 2);
+      addConcretePad(b, 3.9, 3.9, 0.44, 0.88, false);
+      addVaultedHall(b, 0, 0.44, -0.82, 3.3, 1.85, 1.45, 3, 0, 5);
+      for (const px of [-0.88, 0.88]) {
+        addCoolingTower(b, px, 0.44, 0.78, 0.74, 0.50, 0.64, 2.25, true);
+        b.addLimb([px, 1.2, 0.1], [px, 1.2, -0.4], 0.14, 0.14, 8, 0, 3);
       }
       break;
     }
 
     case 'nuclear_reactor': {
-      const sx = 5.7, sz = 5.7;
-      b.addTrapezoid(0, 0.24, 0, sx, sz, sx * 0.94, sz * 0.94, 0.48, 0, 0, 3);
-      b.addBox(0, 0.52, 0, sx * 0.9, 0.08, sz * 0.9, 0, 4);
-      b.addCylinder(-0.6, 1.7, -0.5, 1.55, 1.25, 2.4, 12, 'Y', 0, 0);
-      b.addCylinder(-0.6, 3.05, -0.5, 1.25, 0.45, 0.55, 12, 'Y', 0, 1);
-      b.addCylinder(1.5, 1.65, 1.2, 0.85, 0.62, 2.3, 10, 'Y', 0, 1);
-      b.addCylinder(1.5, 2.88, 1.2, 0.56, 0.56, 0.3, 10, 'Y', 0, 2);
+      addConcretePad(b, 5.8, 5.8, 0.48, 0.90, true);
+      addCoolingTower(b, -0.75, 0.48, -0.65, 1.65, 1.12, 1.42, 2.95, true);
+      // Secondary steam dome containment vessel + glowing cooling pipes
+      b.addLathe(1.45, 0.48, 1.15, [[0, 1.18], [1.35, 1.15], [1.95, 0.78], [2.25, 0.15]], 14, 'Y', 0, 0);
+      b.addTorus(1.45, 1.75, 1.15, 1.05, 0.12, 16, 8, 0, 0, 0, 5);
+      b.addLimb([-0.75, 1.6, -0.65], [1.45, 1.45, 1.15], 0.24, 0.22, 8, 0, 3);
+      b.addCylinder(1.45, 2.75, 1.15, 0.28, 0.28, 0.4, 10, 'Y', 0, 2);
       break;
     }
 
     case 'refinery': {
-      b.addTrapezoid(0, 0.22, 0, 5.7, 5.7, 5.4, 5.4, 0.44, 0, 0, 3);
-      b.addTrapezoid(-1.1, 1.5, -1.0, 2.9, 3.1, 2.45, 2.65, 2.45, 0, 0, 0);
-      b.addCylinder(1.4, 1.8, -1.1, 0.98, 0.82, 2.8, 10, 'Y', 0, 1);
-      b.addCylinder(1.4, 3.3, -1.1, 0.68, 0.68, 0.38, 10, 'Y', 0, 2);
-      b.addBox(0.2, 0.68, 1.65, 3.8, 0.55, 1.85, 0, 1);
-      b.addBox(0.2, 1.0, 2.45, 3.6, 0.22, 0.35, 0, 4);
+      addConcretePad(b, 5.8, 5.8, 0.44, 0.90, false);
+      addVaultedHall(b, -1.15, 0.44, -1.05, 2.95, 3.15, 2.35, 3, 0, 3);
+      // Molten ore smelter vessel + glowing top crucible + twin smoke stacks
+      b.addCylinder(1.45, 1.75, -1.05, 1.05, 0.84, 2.65, 12, 'Y', 0, 1);
+      b.addTorus(1.45, 2.95, -1.05, 0.78, 0.14, 14, 8, 0, 0, 0, 2);
+      b.addCylinder(1.15, 2.9, -2.05, 0.24, 0.18, 1.85, 8, 'Y', 0, 1);
+      b.addCylinder(1.85, 2.9, -1.85, 0.24, 0.18, 1.85, 8, 'Y', 0, 1);
+      // Unloading dock apron & conveyor ramp
+      b.addBeveledBox(0.2, 0.72, 1.65, 4.1, 0.56, 1.95, 0.06, 0, 1);
+      b.addBox(0.2, 1.04, 2.48, 3.85, 0.22, 0.38, 0, 4);
+      b.addLimb([-0.5, 1.05, 1.1], [1.25, 2.1, -0.7], 0.26, 0.22, 8, 0, 3);
       break;
     }
 
     case 'war_factory': {
-      b.addTrapezoid(0, 0.22, 0, 7.7, 5.7, 7.4, 5.4, 0.44, 0, 0, 3);
-      b.addTrapezoid(0, 1.65, -1.1, 6.9, 3.1, 6.1, 2.55, 2.65, 0, 0, 0);
-      b.addBox(-2.5, 1.4, 1.1, 1.6, 2.2, 2.6, 0, 1);
-      b.addBox(2.5, 1.4, 1.1, 1.6, 2.2, 2.6, 0, 1);
-      b.addBox(0, 2.38, 1.1, 3.8, 0.62, 2.4, 0, 0);
-      b.addBox(0, 0.48, 2.2, 3.6, 0.12, 1.1, 0, 4);
-      b.addBox(0, 3.05, -1.1, 2.3, 0.36, 1.5, 0, 2);
+      // RA2 Iconic Vaulted Tank Assembly Hangar + Wide Hazard Apron + Double Blast Doors + Twin Stacks
+      addConcretePad(b, 7.8, 5.8, 0.46, 0.94, false);
+      addVaultedHall(b, 0, 0.46, -0.95, 7.0, 3.35, 2.85, 5, 0, 3);
+      // Double armored flanking piers & illuminated bay portal
+      b.addBeveledBox(-2.55, 1.48, 1.15, 1.75, 2.15, 2.55, 0.08, 0, 1);
+      b.addBeveledBox(2.55, 1.48, 1.15, 1.75, 2.15, 2.55, 0.08, 0, 1);
+      b.addBeveledBox(0, 2.48, 1.15, 3.9, 0.62, 2.35, 0.06, 0, 5);
+      b.addBeveledBox(0, 1.38, 0.42, 3.35, 1.72, 0.16, 0.03, 0, 6); // Blast bay skylight
+      b.addBox(0, 0.52, 2.15, 3.7, 0.12, 1.25, 0, 4); // Exit hazard stripes
+      b.addBox(-2.55, 2.7, 1.15, 0.65, 0.45, 0.65, 0, 2);
+      b.addBox(2.55, 2.7, 1.15, 0.65, 0.45, 0.65, 0, 2);
       break;
     }
 
     case 'naval_yard': {
-      b.addBox(-2.7, 0.75, 0, 1.9, 1.2, 7.4, 0, 3);
-      b.addBox(2.7, 0.75, 0, 1.9, 1.2, 7.4, 0, 3);
-      b.addBox(0, 0.9, -2.9, 7.2, 1.4, 1.6, 0, 0);
-      b.addBox(-2.7, 1.5, 0, 0.6, 0.3, 6.8, 0, 4);
-      b.addBox(2.7, 1.5, 0, 0.6, 0.3, 6.8, 0, 4);
-      // Gantry crane bridge
-      b.addBox(0, 3.3, 0.8, 6.8, 0.55, 0.9, 0, 4);
-      b.addBox(-2.8, 2.1, 0.8, 0.45, 2.4, 0.55, 0, 1);
-      b.addBox(2.8, 2.1, 0.8, 0.45, 2.4, 0.55, 0, 1);
+      b.addBeveledBox(-2.75, 0.78, 0, 1.95, 1.25, 7.45, 0.08, 0, 3);
+      b.addBeveledBox(2.75, 0.78, 0, 1.95, 1.25, 7.45, 0.08, 0, 3);
+      b.addBeveledBox(0, 0.94, -2.95, 7.3, 1.5, 1.65, 0.08, 0, 0);
+      b.addBeveledBox(-2.75, 1.52, 0, 0.62, 0.28, 6.85, 0.03, 0, 4);
+      b.addBeveledBox(2.75, 1.52, 0, 0.62, 0.28, 6.85, 0.03, 0, 4);
+      // Heavy overhead gantry crane truss + floodlight beacons
+      b.addBeveledBox(0, 3.45, 0.85, 6.95, 0.58, 0.95, 0.06, 0, 4);
+      b.addLimb([-2.85, 1.4, 0.85], [-2.85, 3.45, 0.85], 0.24, 0.20, 8, 0, 1);
+      b.addLimb([2.85, 1.4, 0.85], [2.85, 3.45, 0.85], 0.24, 0.20, 8, 0, 1);
+      b.addLimb([-2.85, 1.4, 0.2], [-2.85, 3.35, 0.85], 0.12, 0.12, 6, 0, 3);
+      b.addLimb([2.85, 1.4, 0.2], [2.85, 3.35, 0.85], 0.12, 0.12, 6, 0, 3);
+      b.addBox(-2.85, 3.82, 0.85, 0.42, 0.25, 0.42, 0, 2);
+      b.addBox(2.85, 3.82, 0.85, 0.42, 0.25, 0.42, 0, 2);
       break;
     }
 
@@ -1219,8 +1296,12 @@ export function buildProceduralGeometryData(typeId) {
       b.addLathe(0, 0.68, 0, [
         [-3.25, 0.04], [-2.55, 0.76], [-1.35, 1.32], [0.25, 1.52], [1.65, 1.44], [2.65, 1.02], [3.2, 0.34], [3.42, 0.02]
       ], 16, 'Z', 0, 0);
-      // Crimson dorsal livery stripe + Shark snout tip
+      // Crimson dorsal livery stripe + Shark snout tip + metallic rib hoops
       b.addLathe(0, 0.68, 0, [[2.58, 1.05], [3.18, 0.36], [3.44, 0.02]], 16, 'Z', 0, 5);
+      for (const rz of [-1.4, -0.3, 0.8, 1.85]) {
+        const rr = rz === -0.3 || rz === 0.8 ? 1.51 : 1.32;
+        b.addCylinder(0, 0.68, rz, rr, rr, 0.10, 16, 'Z', 0, 3);
+      }
       b.addCylinder(0, 0.68, 2.38, 1.18, 1.14, 0.24, 16, 'Z', 0, 4); // Shark-tooth warning band
       // Underslung armored bomb bay gondola + glass bridge + glowing thrusters
       b.addBeveledBox(0, -0.96, 0.05, 0.88, 0.66, 2.55, 0.1, 0, 0);
@@ -1318,59 +1399,74 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'barracks': {
-      b.addTrapezoid(0, 0.22, 0, 5.7, 3.8, 5.4, 3.5, 0.44, 0, 0, 3);
-      b.addTrapezoid(0, 1.25, -0.35, 4.9, 2.6, 4.2, 2.1, 1.75, 0, 0, 0);
-      b.addBox(0, 1.05, 1.25, 2.2, 1.35, 0.85, 0, 1);
-      b.addBox(0, 0.52, 1.65, 2.0, 0.16, 0.45, 0, 4);
-      b.addBox(-1.75, 2.35, -0.35, 0.55, 0.85, 0.55, 0, 2);
+      addConcretePad(b, 5.8, 3.9, 0.44, 0.90, false);
+      addVaultedHall(b, 0, 0.44, -0.35, 4.95, 2.65, 1.85, 4, 0, 3);
+      b.addBeveledBox(0, 1.12, 1.25, 2.35, 1.4, 0.92, 0.06, 0, 1);
+      b.addBeveledBox(0, 1.24, 1.72, 1.55, 0.42, 0.08, 0.02, 0, 6);
+      b.addBox(0, 0.52, 1.68, 2.15, 0.16, 0.48, 0, 4);
+      b.addCylinder(-1.8, 2.45, -0.35, 0.12, 0.08, 1.15, 8, 'Y', 0, 3);
+      b.addBox(-1.8, 3.05, -0.35, 0.35, 0.28, 0.35, 0, 2);
       break;
     }
 
     case 'airforce_radar': {
-      b.addTrapezoid(0, 0.2, 0, 5.8, 5.8, 5.5, 5.5, 0.4, 0, 0, 3);
-      for (const px of [-1.6, 1.6]) {
-        for (const pz of [-1.6, 1.6]) {
-          b.addBox(px, 0.45, pz, 1.85, 0.1, 1.85, 0, 4); // 4 landing pads
+      addConcretePad(b, 5.9, 5.9, 0.40, 0.94, false);
+      for (const px of [-1.65, 1.65]) {
+        for (const pz of [-1.65, 1.65]) {
+          b.addBeveledBox(px, 0.44, pz, 1.9, 0.09, 1.9, 0.02, 0, 4); // 4 landing pads
+          b.addBox(px, 0.49, pz, 0.32, 0.04, 0.32, 0, 2);
         }
       }
-      b.addTrapezoid(0, 1.25, 0, 1.6, 1.6, 1.2, 1.2, 1.75, 0, 0, 0);
-      b.addCylinder(0, 2.55, 0, 0.85, 0.25, 0.45, 10, 'Z', 1, 2); // Rotating radar dish
+      b.addTrapezoid(0, 1.32, 0, 1.75, 1.75, 1.25, 1.25, 1.85, 0, 0, 0);
+      b.addCylinder(0, 2.25, 0, 0.88, 0.98, 0.48, 12, 'Y', 0, 6); // Glass air traffic cab
+      b.addCylinder(0, 2.62, 0, 0.92, 0.22, 0.28, 12, 'Y', 0, 5);
+      // Rotating sweeping radar dish (part 1)
+      b.addBeveledBox(0, 2.98, 0.18, 1.45, 0.56, 0.22, 0.05, 1, 3);
+      b.addBox(0, 3.02, 0.32, 0.42, 0.18, 0.12, 1, 2);
       break;
     }
 
     case 'service_depot': {
-      b.addTrapezoid(0, 0.16, 0, 5.7, 5.7, 5.5, 5.5, 0.32, 0, 0, 3);
-      b.addBox(0, 0.35, 0, 4.8, 0.08, 4.8, 0, 4);
-      b.addBox(-2.2, 1.15, -2.2, 0.55, 1.75, 0.55, 0, 1);
-      b.addBox(2.2, 1.15, -2.2, 0.55, 1.75, 0.55, 0, 1);
-      b.addBox(0, 2.1, -0.5, 0.55, 0.42, 3.6, 1, 0); // Rotating repair crane arm
-      b.addBox(0, 1.65, 1.1, 0.28, 0.65, 0.28, 1, 2);
+      addConcretePad(b, 5.8, 5.8, 0.32, 0.92, true);
+      b.addBeveledBox(-2.25, 1.22, -2.25, 0.64, 1.85, 0.64, 0.06, 0, 1);
+      b.addBeveledBox(2.25, 1.22, -2.25, 0.64, 1.85, 0.64, 0.06, 0, 1);
+      b.addLimb([-2.25, 2.0, -2.25], [2.25, 2.0, -2.25], 0.18, 0.18, 8, 0, 5);
+      // Rotating hydraulic repair gantry & laser torch (part 1 & 2)
+      b.addCylinder(0, 1.15, -2.05, 0.52, 0.42, 1.75, 10, 'Y', 1, 4);
+      b.addLimb([0, 2.05, -2.05], [0, 2.45, 1.15], 0.24, 0.18, 8, 1, 0);
+      b.addBeveledBox(0, 1.85, 1.15, 0.38, 0.72, 0.38, 0.04, 1, 2);
       break;
     }
 
     case 'battle_lab': {
-      b.addTrapezoid(0, 0.24, 0, 5.7, 5.7, 5.4, 5.4, 0.48, 0, 0, 3);
-      b.addTrapezoid(-0.85, 1.25, 0, 3.2, 3.8, 2.6, 3.2, 1.65, 0, 0, 0);
-      b.addCylinder(1.25, 1.75, -0.65, 0.95, 0.38, 2.25, 12, 'Y', 0, 2); // Science dome spire
-      b.addCylinder(1.25, 2.95, 1.15, 0.35, 0.22, 1.6, 8, 'Y', 1, 1);
+      addConcretePad(b, 5.8, 5.8, 0.48, 0.92, false);
+      b.addBeveledBox(-0.85, 1.28, 0, 3.25, 1.68, 3.9, 0.1, 0, 0);
+      b.addBeveledBox(-0.85, 1.45, 0, 3.35, 0.52, 2.6, 0.04, 0, 6); // Glass atrium wrap
+      b.addLathe(1.32, 0.48, -0.65, [[0, 1.15], [1.2, 1.08], [1.95, 0.62], [2.25, 0.12]], 14, 'Y', 0, 3);
+      b.addTorus(1.32, 1.82, -0.65, 1.08, 0.10, 16, 8, 0, 0, 0, 2);
+      b.addCylinder(1.32, 2.95, 1.25, 0.36, 0.24, 1.75, 10, 'Y', 1, 5);
+      b.addBeveledBox(1.32, 3.85, 1.35, 1.05, 0.55, 0.24, 0.04, 1, 3);
       break;
     }
 
     case 'pillbox': {
-      b.addTrapezoid(0, 0.22, 0, 1.9, 1.9, 1.7, 1.7, 0.44, 0, 0, 3);
-      b.addCylinder(0, 0.72, 0, 0.85, 0.72, 0.65, 8, 'Y', 0, 3); // Concrete octagon casemate
-      b.addTrapezoid(0, 1.18, 0, 1.05, 1.05, 0.78, 0.78, 0.38, 0, 1, 0); // Armored gun cupola
-      b.addCylinder(-0.14, 1.16, 0.78, 0.06, 0.05, 1.1, 6, 'Z', 2, 1); // Twin HMGs
-      b.addCylinder(0.14, 1.16, 0.78, 0.06, 0.05, 1.1, 6, 'Z', 2, 1);
+      addConcretePad(b, 2.0, 2.0, 0.44, 0.86, false);
+      b.addCylinder(0, 0.76, 0, 0.92, 0.76, 0.68, 8, 'Y', 0, 3);
+      b.addTrapezoid(0, 1.24, 0, 1.12, 1.12, 0.82, 0.82, 0.42, 0, 1, 0);
+      b.addBeveledBox(0, 1.24, 0.52, 0.62, 0.18, 0.18, 0.03, 1, 5);
+      b.addCylinder(-0.15, 1.2, 0.82, 0.065, 0.055, 1.15, 8, 'Z', 2, 1);
+      b.addCylinder(0.15, 1.2, 0.82, 0.065, 0.055, 1.15, 8, 'Z', 2, 1);
       break;
     }
 
     case 'aa_turret': {
-      b.addTrapezoid(0, 0.22, 0, 1.9, 1.9, 1.7, 1.7, 0.44, 0, 0, 3);
-      b.addCylinder(0, 0.85, 0, 0.72, 0.56, 0.95, 8, 'Y', 0, 1);
-      b.addTrapezoid(0, 1.48, 0, 1.02, 1.08, 0.76, 0.82, 0.52, 0, 1, 0);
-      for (const ox of [-0.28, -0.09, 0.09, 0.28]) {
-        b.addCylinder(ox, 1.58, 0.85, 0.06, 0.05, 1.25, 6, 'Z', 2, 1);
+      addConcretePad(b, 2.0, 2.0, 0.44, 0.86, true);
+      b.addCylinder(0, 0.88, 0, 0.76, 0.58, 0.96, 10, 'Y', 0, 1);
+      b.addTrapezoid(0, 1.52, 0, 1.08, 1.12, 0.80, 0.86, 0.56, 0, 1, 0);
+      b.addBeveledBox(0, 1.78, -0.25, 0.74, 0.24, 0.52, 0.04, 1, 5);
+      for (const ox of [-0.28, -0.095, 0.095, 0.28]) {
+        b.addCylinder(ox, 1.58, 0.88, 0.065, 0.055, 1.32, 8, 'Z', 2, 1);
+        b.addCylinder(ox, 1.58, 1.52, 0.085, 0.075, 0.14, 8, 'Z', 2, 3);
       }
       break;
     }
