@@ -197,12 +197,12 @@ void main() {
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
-  vec3 ambient = baseCol * (0.26 + 0.18 * max(N.y, 0.0)) * detail.a;
-  vec3 direct = (baseCol * 1.25 + vec3(spec)) * NdotL * mix(0.26, 1.0, shadow);
+  vec3 ambient = baseCol * (0.20 + 0.16 * max(N.y, 0.0)) * detail.a;
+  vec3 direct = (baseCol * 1.28 + vec3(spec)) * NdotL * mix(0.24, 1.0, shadow);
 
   // Height-adaptive faction Fresnel rim + glossy canopy sky reflection
-  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-  float rimScale = mix(0.18, 1.05, smoothstep(16.0, 68.0, uCamHeight));
+  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.4);
+  float rimScale = mix(0.06, 0.92, smoothstep(22.0, 72.0, uCamHeight));
   vec3 rim = teamCol * fresnel * rimScale + vec3(0.45, 0.65, 0.88) * fresnel * glassFactor * 0.85;
 
   // Emissive energy core + subtle crystal internal glow + Low-HP embers
@@ -633,6 +633,60 @@ function createMeshBuilder() {
     addLathe(cx, cy, cz, prof, segs, axis, partId, tone);
   }
 
+  // Smooth oriented limb/bone with hemispherical end-caps between arbitrary 3D joints p0 -> p1
+  function addLimb(p0, p1, r0, r1 = r0, segs = 10, partId = 0, tone = 0) {
+    const dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-4) return;
+    const ax = dx / len, ay = dy / len, az = dz / len;
+    // Construct stable orthonormal frame (U, V) perpendicular to axis A
+    const refX = Math.abs(ay) < 0.9 ? 0 : 1;
+    const refY = Math.abs(ay) < 0.9 ? 1 : 0;
+    const refZ = 0;
+    let ux = refY * az - refZ * ay;
+    let uy = refZ * ax - refX * az;
+    let uz = refX * ay - refY * ax;
+    const uLen = Math.hypot(ux, uy, uz) || 1;
+    ux /= uLen; uy /= uLen; uz /= uLen;
+    const vx = ay * uz - az * uy;
+    const vy = az * ux - ax * uz;
+    const vz = ax * uy - ay * ux;
+
+    const ringPts = (cx, cy, cz, rad, axialShift = 0) => {
+      const pts = [];
+      const nrms = [];
+      for (let i = 0; i <= segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const c = Math.cos(a), s = Math.sin(a);
+        const rx = ux * c + vx * s;
+        const ry = uy * c + vy * s;
+        const rz = uz * c + vz * s;
+        pts.push([cx + ax * axialShift + rx * rad, cy + ay * axialShift + ry * rad, cz + az * axialShift + rz * rad]);
+        const nx = rx + ax * (axialShift !== 0 ? Math.sign(axialShift) * 0.55 : 0);
+        const ny = ry + ay * (axialShift !== 0 ? Math.sign(axialShift) * 0.55 : 0);
+        const nz = rz + az * (axialShift !== 0 ? Math.sign(axialShift) * 0.55 : 0);
+        const nl = Math.hypot(nx, ny, nz) || 1;
+        nrms.push([nx / nl, ny / nl, nz / nl]);
+      }
+      return { pts, nrms };
+    };
+
+    const rings = [
+      ringPts(p0[0], p0[1], p0[2], r0 * 0.35, -r0 * 0.85),
+      ringPts(p0[0], p0[1], p0[2], r0, 0),
+      ringPts(p1[0], p1[1], p1[2], r1, 0),
+      ringPts(p1[0], p1[1], p1[2], r1 * 0.35, r1 * 0.85)
+    ];
+
+    for (let rIdx = 0; rIdx < rings.length - 1; rIdx++) {
+      const a = rings[rIdx], c = rings[rIdx + 1];
+      for (let i = 0; i < segs; i++) {
+        addSmoothTri(a.pts[i], c.pts[i], c.pts[i + 1], a.nrms[i], c.nrms[i], c.nrms[i + 1], 0, 0, 0, 1, 1, 1, partId, tone);
+        addSmoothTri(a.pts[i], c.pts[i + 1], a.pts[i + 1], a.nrms[i], c.nrms[i + 1], a.nrms[i + 1], 0, 0, 1, 1, 1, 0, partId, tone);
+      }
+    }
+  }
+
   return {
     addBox,
     addBeveledBox,
@@ -643,6 +697,7 @@ function createMeshBuilder() {
     addTorus,
     addSweptWing,
     addCapsule,
+    addLimb,
     build() {
       return {
         vertices: new Float32Array(verts),
@@ -651,6 +706,95 @@ function createMeshBuilder() {
       };
     }
   };
+}
+
+// Shared articulated military trooper anatomy (1:7 heroic scale, contoured NATO helmet, tapered vest, knees & arms gripping weapon)
+function addTrooperRig(b, cfg) {
+  const {
+    armorTone = 5,
+    clothTone = 7,
+    helmetTone = 5,
+    visorTone = 6,
+    bootTone = 1,
+    scale = 1.0,
+    heavy = false,
+    kneeling = false,
+    weaponHands = 'rifle' // 'rifle' | 'heavy' | 'dual' | 'cannon'
+  } = cfg;
+  const S = scale;
+  const P = (x, y, z) => [x * S, y * S, z * S];
+
+  // Legs + boots
+  if (kneeling) {
+    // Left knee down behind sandbags, right foot planted forward
+    b.addLimb(P(-0.14, 0.56, -0.10), P(-0.17, 0.14, 0.10), 0.088 * S, 0.072 * S, 10, 0, clothTone);
+    b.addLimb(P(-0.17, 0.14, 0.10), P(-0.19, 0.08, -0.32), 0.068 * S, 0.056 * S, 10, 0, clothTone);
+    b.addBeveledBox(-0.19 * S, 0.07 * S, -0.37 * S, 0.11 * S, 0.10 * S, 0.18 * S, 0.02 * S, 0, bootTone);
+    b.addLimb(P(0.14, 0.56, -0.06), P(0.18, 0.44, 0.24), 0.090 * S, 0.074 * S, 10, 0, clothTone);
+    b.addLimb(P(0.18, 0.44, 0.24), P(0.18, 0.09, 0.20), 0.070 * S, 0.058 * S, 10, 0, clothTone);
+    b.addBeveledBox(0.18 * S, 0.065 * S, 0.25 * S, 0.12 * S, 0.11 * S, 0.22 * S, 0.02 * S, 0, bootTone);
+  } else {
+    const legW = heavy ? 0.15 : 0.12;
+    const legR = heavy ? 0.105 : 0.082;
+    const ankleR = heavy ? 0.085 : 0.062;
+    const hipY = heavy ? 0.72 : 0.68;
+    const kneeY = heavy ? 0.40 : 0.37;
+    // Slight combat stance stagger
+    b.addLimb(P(-legW, hipY, -0.02), P(-legW - 0.02, kneeY, 0.04), legR * S, ankleR * S, 10, 0, clothTone);
+    b.addLimb(P(-legW - 0.02, kneeY, 0.04), P(-legW - 0.02, 0.09, 0.02), ankleR * S, (ankleR * 0.85) * S, 10, 0, clothTone);
+    b.addBeveledBox((-legW - 0.02) * S, 0.065 * S, 0.07 * S, (heavy ? 0.17 : 0.12) * S, 0.11 * S, 0.24 * S, 0.025 * S, 0, bootTone);
+
+    b.addLimb(P(legW, hipY, -0.04), P(legW + 0.02, kneeY, -0.06), legR * S, ankleR * S, 10, 0, clothTone);
+    b.addLimb(P(legW + 0.02, kneeY, -0.06), P(legW + 0.02, 0.09, -0.10), ankleR * S, (ankleR * 0.85) * S, 10, 0, clothTone);
+    b.addBeveledBox((legW + 0.02) * S, 0.065 * S, -0.04 * S, (heavy ? 0.17 : 0.12) * S, 0.11 * S, 0.24 * S, 0.025 * S, 0, bootTone);
+  }
+
+  const pelvisY = kneeling ? 0.56 : (heavy ? 0.72 : 0.68);
+  const torsoY = pelvisY + 0.24;
+  const shY = torsoY + 0.14;
+  const neckY = torsoY + 0.24;
+  const wScale = heavy ? 1.38 : 1.0;
+
+  // Pelvis, tactical belt, V-tapered chest armor rig
+  b.addTrapezoid(0, pelvisY * S, (kneeling ? -0.08 : -0.02) * S, 0.30 * wScale * S, 0.20 * wScale * S, 0.26 * wScale * S, 0.18 * wScale * S, 0.14 * S, 0, 0, clothTone);
+  b.addBeveledBox(0, (pelvisY + 0.06) * S, (kneeling ? -0.08 : -0.02) * S, 0.29 * wScale * S, 0.075 * S, 0.21 * wScale * S, 0.02 * S, 0, bootTone);
+  b.addTrapezoid(0, torsoY * S, (kneeling ? -0.06 : -0.02) * S, 0.27 * wScale * S, 0.19 * wScale * S, 0.39 * wScale * S, 0.24 * wScale * S, 0.36 * S, 0.02 * S, 0, armorTone);
+  b.addBeveledBox(0, (torsoY + 0.02) * S, (kneeling ? 0.06 : 0.09) * S, 0.26 * wScale * S, 0.24 * S, 0.06 * S, 0.02 * S, 0, 0);
+
+  // Articulated arms & shoulder pads
+  const shX = (heavy ? 0.29 : 0.22);
+  const shZ = kneeling ? -0.05 : -0.02;
+  b.addCapsule(-shX * S, shY * S, shZ * S, (heavy ? 0.11 : 0.075) * S, 0.08 * S, 'Z', 10, 0, armorTone);
+  b.addCapsule(shX * S, shY * S, shZ * S, (heavy ? 0.11 : 0.075) * S, 0.08 * S, 'Z', 10, 0, armorTone);
+
+  if (weaponHands === 'dual') {
+    b.addLimb(P(-shX, shY, shZ), P(-0.27, shY - 0.14, 0.10), 0.058 * S, 0.048 * S, 8, 0, clothTone);
+    b.addLimb(P(-0.27, shY - 0.14, 0.10), P(-0.22, shY - 0.10, 0.30), 0.048 * S, 0.040 * S, 8, 0, bootTone);
+    b.addLimb(P(shX, shY, shZ), P(0.27, shY - 0.14, 0.10), 0.058 * S, 0.048 * S, 8, 0, clothTone);
+    b.addLimb(P(0.27, shY - 0.14, 0.10), P(0.22, shY - 0.10, 0.30), 0.048 * S, 0.040 * S, 8, 0, bootTone);
+  } else {
+    const gunY = kneeling ? 0.72 : (heavy ? shY - 0.10 : shY - 0.12);
+    const gripX = heavy ? 0.28 : 0.17;
+    const foreX = heavy ? 0.18 : 0.11;
+    // Right trigger arm
+    b.addLimb(P(shX, shY, shZ), P(shX + 0.06, gunY - 0.02, 0.08), (heavy ? 0.078 : 0.058) * S, 0.050 * S, 8, 0, armorTone);
+    b.addLimb(P(shX + 0.06, gunY - 0.02, 0.08), P(gripX, gunY, 0.25), 0.052 * S, 0.044 * S, 8, 0, bootTone);
+    // Left support arm reaching across to weapon handguard
+    b.addLimb(P(-shX, shY, shZ), P(-0.15, gunY - 0.05, 0.20), (heavy ? 0.078 : 0.058) * S, 0.050 * S, 8, 0, armorTone);
+    b.addLimb(P(-0.15, gunY - 0.05, 0.20), P(foreX, gunY - 0.01, 0.48), 0.052 * S, 0.042 * S, 8, 0, bootTone);
+  }
+
+  // Head + contoured tactical helmet brim + visor (1:7 heroic proportion)
+  const headZ = kneeling ? 0.0 : 0.0;
+  b.addCapsule(0, (neckY + 0.05) * S, headZ * S, 0.095 * S, 0.06 * S, 'Y', 12, 1, 7); // Face / balaclava chin
+  b.addLathe(0, (neckY + 0.12) * S, (headZ - 0.01) * S, [
+    [-0.045 * S, 0.148 * S],
+    [-0.015 * S, 0.142 * S],
+    [0.035 * S, 0.132 * S],
+    [0.082 * S, 0.098 * S],
+    [0.105 * S, 0.015 * S]
+  ], 14, 'Y', 1, helmetTone);
+  b.addBeveledBox(0, (neckY + 0.07) * S, (headZ + 0.092) * S, 0.145 * S, 0.045 * S, 0.055 * S, 0.015 * S, 1, visorTone);
 }
 
 // High-detail procedural CAD blueprints for units & buildings + clean coverage for all 49 canonical IDs.
@@ -862,137 +1006,115 @@ function buildProceduralGeometryData(typeId) {
     }
 
     case 'gi': {
-      // Tactical GI behind curved layered sandbags with deployed LMG + NATO helmet + Tone 5 blue pauldrons
-      // Curved sandbag breastwork (Tone 7 khaki cloth)
-      for (let i = -2; i <= 2; i++) {
-        const ax = i * 0.22;
-        const az = 0.54 - Math.abs(i) * 0.07;
-        b.addCapsule(ax, 0.14, az, 0.11, 0.16, 'X', 10, 0, 7);
-        if (Math.abs(i) <= 1) b.addCapsule(ax, 0.32, az - 0.02, 0.105, 0.15, 'X', 10, 0, 7);
+      // Tactical GI: kneeling behind continuous 2-tier overlapping curved sandbags with bipod heavy LMG
+      for (let i = -3; i <= 3; i++) {
+        const ang = i * 0.31;
+        const bx = Math.sin(ang) * 0.72;
+        const bz = Math.cos(ang) * 0.68 - 0.02;
+        b.addLimb([bx - Math.cos(ang) * 0.14, 0.11, bz + Math.sin(ang) * 0.14], [bx + Math.cos(ang) * 0.14, 0.11, bz - Math.sin(ang) * 0.14], 0.115, 0.115, 10, 0, 7);
       }
-      // Trooper legs, armored vest, blue shoulder pads, arms, NATO helmet & visor
-      b.addCapsule(-0.12, 0.34, -0.05, 0.095, 0.36, 'Y', 10, 0, 1);
-      b.addCapsule(0.12, 0.34, -0.05, 0.095, 0.36, 'Y', 10, 0, 1);
-      b.addBeveledBox(0, 0.72, -0.04, 0.42, 0.46, 0.3, 0.06, 0, 0);
-      b.addBeveledBox(-0.26, 0.84, -0.04, 0.14, 0.18, 0.26, 0.04, 0, 5); // Abyssal blue pauldron
-      b.addBeveledBox(0.26, 0.84, -0.04, 0.14, 0.18, 0.26, 0.04, 0, 5);
-      b.addCapsule(0, 1.12, 0, 0.19, 0.06, 'Y', 12, 1, 5); // NATO helmet dome
-      b.addBox(0, 1.08, 0.14, 0.22, 0.08, 0.12, 1, 6); // Tinted visor
-      // Heavy deployed LMG + bipod
-      b.addCylinder(0.16, 0.72, 0.48, 0.048, 0.042, 0.88, 10, 'Z', 2, 1);
-      b.addBox(0.16, 0.66, 0.36, 0.12, 0.16, 0.18, 2, 7); // Ammo box
+      for (let i = -2; i <= 2; i++) {
+        const ang = i * 0.34;
+        const bx = Math.sin(ang) * 0.70;
+        const bz = Math.cos(ang) * 0.66 - 0.02;
+        b.addLimb([bx - Math.cos(ang) * 0.13, 0.28, bz + Math.sin(ang) * 0.13], [bx + Math.cos(ang) * 0.13, 0.28, bz - Math.sin(ang) * 0.13], 0.105, 0.105, 10, 0, 7);
+      }
+      addTrooperRig(b, { armorTone: 5, clothTone: 7, helmetTone: 5, visorTone: 6, kneeling: true, weaponHands: 'heavy' });
+      // Heavy LMG + buttstock + ammo drum + brass belt + planted A-frame bipod on sandbags
+      b.addBeveledBox(0.16, 0.74, 0.20, 0.06, 0.10, 0.22, 0.015, 2, 1); // Buttstock
+      b.addBeveledBox(0.16, 0.75, 0.44, 0.085, 0.11, 0.34, 0.018, 2, 0); // Receiver
+      b.addCylinder(0.16, 0.76, 0.80, 0.036, 0.028, 0.56, 10, 'Z', 2, 1); // Barrel & shroud
+      b.addBeveledBox(0.06, 0.69, 0.44, 0.11, 0.14, 0.16, 0.02, 2, 7); // Ammo drum
+      b.addBox(0.11, 0.74, 0.44, 0.06, 0.04, 0.08, 2, 4); // Brass belt
+      b.addLimb([0.16, 0.73, 0.72], [0.02, 0.36, 0.68], 0.02, 0.018, 6, 2, 1); // Bipod L
+      b.addLimb([0.16, 0.73, 0.72], [0.30, 0.36, 0.68], 0.02, 0.018, 6, 2, 1); // Bipod R
       break;
     }
 
     case 'conscript': {
-      // Soviet-style Crimson Greatcoat Conscript: khaki trenchcoat, crimson collar/pads, ushanka cap, AK rifle
-      b.addCylinder(0, 0.34, 0, 0.24, 0.18, 0.56, 12, 'Y', 0, 7); // Trenchcoat flare
-      b.addBeveledBox(0, 0.76, 0, 0.4, 0.44, 0.28, 0.05, 0, 5); // Crimson breastplate/coat
-      b.addBeveledBox(-0.24, 0.84, 0, 0.12, 0.18, 0.22, 0.04, 0, 0);
-      b.addBeveledBox(0.24, 0.84, 0, 0.12, 0.18, 0.22, 0.04, 0, 0);
-      b.addCylinder(0, 1.14, 0, 0.19, 0.17, 0.26, 12, 'Y', 1, 1); // Fur ushanka
-      b.addBox(0, 1.16, 0.14, 0.12, 0.08, 0.08, 1, 5);
-      b.addCylinder(0.2, 0.76, 0.42, 0.04, 0.032, 0.92, 10, 'Z', 2, 1); // Assault rifle
+      // Crimson Foundry Trenchcoat Rifleman: greatcoat skirt + crimson collar + fur ushanka + assault rifle
+      addTrooperRig(b, { armorTone: 5, clothTone: 7, helmetTone: 1, visorTone: 7, weaponHands: 'rifle' });
+      b.addCylinder(0, 0.44, -0.02, 0.25, 0.18, 0.42, 14, 'Y', 0, 7); // Khaki trenchcoat flare
+      b.addCylinder(0, 1.32, 0, 0.155, 0.145, 0.18, 12, 'Y', 1, 1); // Ushanka cap
+      b.addBox(0, 1.33, 0.13, 0.08, 0.06, 0.04, 1, 5);
+      // AK Assault rifle + banana mag
+      b.addBeveledBox(0.16, 0.90, 0.22, 0.05, 0.08, 0.20, 0.012, 2, 7);
+      b.addBeveledBox(0.16, 0.91, 0.44, 0.06, 0.09, 0.32, 0.015, 2, 1);
+      b.addCylinder(0.16, 0.92, 0.76, 0.024, 0.020, 0.46, 8, 'Z', 2, 1);
+      b.addLimb([0.16, 0.87, 0.46], [0.16, 0.74, 0.52], 0.024, 0.020, 6, 2, 1);
       break;
     }
 
     case 'flak_trooper': {
-      // Heavy Flak Trooper: khaki fatigues + dark armored vest + twin flak fuel tanks + shoulder flak cannon
-      b.addCapsule(-0.12, 0.3, 0, 0.1, 0.36, 'Y', 10, 0, 7);
-      b.addCapsule(0.12, 0.3, 0, 0.1, 0.36, 'Y', 10, 0, 7);
-      b.addBeveledBox(0, 0.74, 0, 0.48, 0.5, 0.34, 0.06, 0, 0);
-      b.addCapsule(-0.16, 0.76, -0.26, 0.11, 0.36, 'Y', 10, 0, 5); // Twin crimson flak cylinders
-      b.addCapsule(0.16, 0.76, -0.26, 0.11, 0.36, 'Y', 10, 0, 5);
-      b.addCapsule(0, 1.14, 0, 0.19, 0.06, 'Y', 12, 1, 0);
-      b.addCylinder(0.26, 0.9, 0.44, 0.11, 0.095, 1.02, 12, 'Z', 2, 1); // Heavy flak cannon
+      // Heavy Flak Trooper: olive/dark flak vest, crimson twin propellant cylinders, shoulder flak cannon
+      addTrooperRig(b, { armorTone: 0, clothTone: 7, helmetTone: 5, visorTone: 6, heavy: true, scale: 1.04, weaponHands: 'heavy' });
+      b.addCapsule(-0.15, 0.92, -0.26, 0.095, 0.32, 'Y', 10, 0, 5);
+      b.addCapsule(0.15, 0.92, -0.26, 0.095, 0.32, 'Y', 10, 0, 5);
+      b.addCylinder(0.24, 0.98, 0.46, 0.095, 0.082, 0.96, 12, 'Z', 2, 1);
+      b.addCylinder(0.24, 0.98, 0.94, 0.11, 0.09, 0.16, 12, 'Z', 2, 3);
       break;
     }
 
     case 'engineer': {
-      // Hazard Yellow Engineer: articulated yellow suit, armored gray chest, hard hat, wrench/repair pack
-      b.addCapsule(-0.11, 0.28, 0, 0.09, 0.34, 'Y', 10, 0, 4);
-      b.addCapsule(0.11, 0.28, 0, 0.09, 0.34, 'Y', 10, 0, 4);
-      b.addBeveledBox(0, 0.7, 0, 0.42, 0.44, 0.28, 0.05, 0, 0);
-      b.addBeveledBox(0, 0.72, -0.22, 0.34, 0.4, 0.2, 0.04, 0, 4); // Hazard toolkit
-      b.addCapsule(0, 1.1, 0, 0.19, 0.05, 'Y', 12, 1, 4); // Yellow hard-hat
-      b.addBox(0, 1.08, 0.15, 0.2, 0.07, 0.08, 1, 6);
-      b.addBeveledBox(0.24, 0.68, 0.26, 0.1, 0.12, 0.44, 0.02, 2, 3); // Steel tool
+      // Hazard Yellow Engineer: articulated safety suit, armored toolkit backpack, hard-hat, heavy wrench
+      addTrooperRig(b, { armorTone: 4, clothTone: 4, helmetTone: 4, visorTone: 6, bootTone: 1, weaponHands: 'dual' });
+      b.addBeveledBox(0, 0.92, -0.21, 0.32, 0.36, 0.18, 0.04, 0, 0); // Tool pack
+      b.addLimb([0.22, 0.84, 0.30], [0.22, 1.02, 0.54], 0.032, 0.032, 8, 2, 3); // Steel pipe wrench
+      b.addBeveledBox(0.22, 1.04, 0.56, 0.09, 0.09, 0.12, 0.015, 2, 3);
       break;
     }
 
     case 'rocketeer': {
-      // Jet-pack Abyssal Rocketeer: sleek blue/titanium flight suit + twin jetpack nozzles + swept jump wings + visor
-      b.addCapsule(-0.11, 0.3, 0, 0.09, 0.36, 'Y', 10, 0, 0);
-      b.addCapsule(0.11, 0.3, 0, 0.09, 0.36, 'Y', 10, 0, 0);
-      b.addBeveledBox(0, 0.72, 0, 0.42, 0.48, 0.3, 0.06, 0, 5);
-      b.addCapsule(-0.16, 0.76, -0.24, 0.11, 0.36, 'Y', 10, 0, 1);
-      b.addCapsule(0.16, 0.76, -0.24, 0.11, 0.36, 'Y', 10, 0, 1);
-      b.addCylinder(-0.16, 0.48, -0.24, 0.08, 0.06, 0.14, 10, 'Y', 0, 2); // Twin glowing jet exhaust
-      b.addCylinder(0.16, 0.48, -0.24, 0.08, 0.06, 0.14, 10, 'Y', 0, 2);
-      b.addSweptWing(-1, -0.18, 0.84, -0.24, 0.65, 0.34, 0.16, 0.18, 0.08, 0.06, 0, 5);
-      b.addSweptWing(1, 0.18, 0.84, -0.24, 0.65, 0.34, 0.16, 0.18, 0.08, 0.06, 0, 5);
-      b.addCapsule(0, 1.12, 0, 0.19, 0.06, 'Y', 12, 1, 5);
-      b.addBox(0, 1.12, 0.15, 0.22, 0.09, 0.09, 1, 6);
-      b.addCylinder(-0.26, 0.94, 0.24, 0.075, 0.065, 0.78, 10, 'Z', 2, 1);
+      // Abyssal Jump-Jet Rocketeer: sleek cobalt armor, twin thrusters, swept jump wings, shoulder rocket pod
+      addTrooperRig(b, { armorTone: 5, clothTone: 0, helmetTone: 5, visorTone: 2, weaponHands: 'heavy' });
+      b.addCapsule(-0.14, 0.92, -0.22, 0.095, 0.32, 'Y', 10, 0, 1);
+      b.addCapsule(0.14, 0.92, -0.22, 0.095, 0.32, 'Y', 10, 0, 1);
+      b.addCylinder(-0.14, 0.68, -0.22, 0.07, 0.045, 0.14, 10, 'Y', 0, 2);
+      b.addCylinder(0.14, 0.68, -0.22, 0.07, 0.045, 0.14, 10, 'Y', 0, 2);
+      b.addSweptWing(-1, -0.16, 0.98, -0.22, 0.62, 0.32, 0.14, 0.16, 0.08, 0.05, 0, 5);
+      b.addSweptWing(1, 0.16, 0.98, -0.22, 0.62, 0.32, 0.14, 0.16, 0.08, 0.05, 0, 5);
+      b.addCylinder(-0.22, 1.06, 0.28, 0.072, 0.064, 0.80, 10, 'Z', 2, 1);
       break;
     }
 
     case 'tesla_trooper': {
-      // Heavy Crimson Exo-Suit Tesla Trooper: thick articulated powered armor + dorsal twin copper Tesla coils + shock emitter
-      b.addCapsule(-0.17, 0.34, 0, 0.135, 0.38, 'Y', 10, 0, 0);
-      b.addCapsule(0.17, 0.34, 0, 0.135, 0.38, 'Y', 10, 0, 0);
-      b.addBeveledBox(0, 0.82, 0, 0.66, 0.6, 0.46, 0.08, 0, 5); // Crimson exo chest
-      b.addBeveledBox(-0.4, 0.94, 0, 0.22, 0.26, 0.36, 0.05, 0, 0);
-      b.addBeveledBox(0.4, 0.94, 0, 0.22, 0.26, 0.36, 0.05, 0, 0);
-      b.addCylinder(-0.22, 1.02, -0.32, 0.12, 0.1, 0.65, 12, 'Y', 0, 4); // Twin dorsal coils
-      b.addCylinder(0.22, 1.02, -0.32, 0.12, 0.1, 0.65, 12, 'Y', 0, 4);
-      b.addCapsule(-0.22, 1.38, -0.32, 0.12, 0.02, 'Y', 10, 0, 2); // Electric arc orbs
-      b.addCapsule(0.22, 1.38, -0.32, 0.12, 0.02, 'Y', 10, 0, 2);
-      b.addCapsule(0, 1.24, 0, 0.21, 0.05, 'Y', 12, 1, 5);
-      b.addBox(0, 1.24, 0.17, 0.24, 0.07, 0.08, 1, 2); // Glowing eye slit
-      b.addCylinder(0.38, 0.82, 0.44, 0.11, 0.07, 0.88, 12, 'Z', 2, 3); // Shock gauntlet
-      b.addCapsule(0.38, 0.82, 0.92, 0.09, 0.02, 'Z', 10, 2, 2);
+      // Heavy Crimson Exo-Suit Tesla Trooper: bulky exo plates, twin dorsal copper coils, lightning emitter
+      addTrooperRig(b, { armorTone: 5, clothTone: 0, helmetTone: 5, visorTone: 2, heavy: true, scale: 1.14, weaponHands: 'heavy' });
+      b.addCylinder(-0.20, 1.18, -0.30, 0.095, 0.08, 0.56, 12, 'Y', 0, 4);
+      b.addCylinder(0.20, 1.18, -0.30, 0.095, 0.08, 0.56, 12, 'Y', 0, 4);
+      b.addTorus(-0.20, 1.38, -0.30, 0.12, 0.028, 12, 6, 0, 0, 0, 3);
+      b.addTorus(0.20, 1.38, -0.30, 0.12, 0.028, 12, 6, 0, 0, 0, 3);
+      b.addCapsule(-0.20, 1.48, -0.30, 0.075, 0.01, 'Y', 10, 0, 2);
+      b.addCapsule(0.20, 1.48, -0.30, 0.075, 0.01, 'Y', 10, 0, 2);
+      b.addCylinder(0.28, 1.02, 0.52, 0.095, 0.058, 0.78, 12, 'Z', 2, 3);
+      b.addCapsule(0.28, 1.02, 0.94, 0.075, 0.01, 'Z', 10, 2, 2);
       break;
     }
 
     case 'chrono': {
-      // Silver-White & Cyan Chrono Legionnaire: sleek armored suit + tilted chrono torus backpack + cyan visor + rifle
-      b.addCapsule(-0.12, 0.3, 0, 0.1, 0.36, 'Y', 10, 0, 3);
-      b.addCapsule(0.12, 0.3, 0, 0.1, 0.36, 'Y', 10, 0, 3);
-      b.addBeveledBox(0, 0.74, 0, 0.46, 0.5, 0.32, 0.06, 0, 3);
-      b.addBeveledBox(0, 0.78, 0.16, 0.24, 0.24, 0.04, 0.02, 0, 5);
-      b.addTorus(0, 0.86, -0.26, 0.24, 0.055, 16, 8, Math.PI * 0.5, 0, 0, 2); // Glowing chrono ring pack
-      b.addCapsule(0, 1.14, 0, 0.19, 0.06, 'Y', 12, 1, 3);
-      b.addBox(0, 1.14, 0.16, 0.22, 0.09, 0.09, 1, 2);
-      b.addCylinder(0.28, 0.78, 0.48, 0.085, 0.06, 0.94, 12, 'Z', 2, 0); // Chrono phase rifle
-      b.addBox(0.28, 0.8, 0.94, 0.08, 0.08, 0.16, 2, 2);
+      // Silver-White Chrono Legionnaire: sleek titanium suit, tilted glowing Chrono gyro pack, phase carbine
+      addTrooperRig(b, { armorTone: 3, clothTone: 0, helmetTone: 3, visorTone: 2, weaponHands: 'rifle' });
+      b.addBeveledBox(0, 0.94, 0.12, 0.20, 0.20, 0.04, 0.02, 0, 5);
+      b.addTorus(0, 1.02, -0.24, 0.22, 0.048, 16, 8, Math.PI * 0.5, 0, 0, 2);
+      b.addCylinder(0.16, 0.91, 0.46, 0.068, 0.048, 0.86, 12, 'Z', 2, 0);
+      b.addBeveledBox(0.16, 0.92, 0.86, 0.075, 0.075, 0.14, 0.015, 2, 2);
       break;
     }
 
     case 'shadow': {
-      // Tactical Stealth Commando "Shadow": matte carbon suit + blue trim + NVG visor + twin silenced pistols
-      b.addCapsule(-0.11, 0.29, 0, 0.09, 0.36, 'Y', 10, 0, 1);
-      b.addCapsule(0.11, 0.29, 0, 0.09, 0.36, 'Y', 10, 0, 1);
-      b.addBeveledBox(0, 0.7, 0, 0.42, 0.46, 0.28, 0.05, 0, 1);
-      b.addBeveledBox(-0.24, 0.82, 0, 0.12, 0.18, 0.2, 0.03, 0, 5);
-      b.addBeveledBox(0.24, 0.82, 0, 0.12, 0.18, 0.2, 0.03, 0, 5);
-      b.addCapsule(0, 1.1, 0, 0.175, 0.06, 'Y', 12, 1, 1);
-      b.addBox(0, 1.12, 0.15, 0.24, 0.065, 0.1, 1, 2); // Cyan NVG visor
-      b.addCylinder(-0.24, 0.74, 0.36, 0.04, 0.035, 0.5, 8, 'Z', 2, 1);
-      b.addCylinder(0.24, 0.74, 0.36, 0.04, 0.035, 0.5, 8, 'Z', 2, 1);
+      // Tactical Stealth Commando "Shadow": carbon stealth armor, NVG optics, twin suppressed pistols
+      addTrooperRig(b, { armorTone: 1, clothTone: 1, helmetTone: 1, visorTone: 2, weaponHands: 'dual' });
+      b.addBeveledBox(0, 0.94, 0.11, 0.22, 0.18, 0.04, 0.02, 0, 5);
+      b.addCylinder(-0.22, 0.94, 0.44, 0.036, 0.03, 0.44, 8, 'Z', 2, 1);
+      b.addCylinder(0.22, 0.94, 0.44, 0.036, 0.03, 0.44, 8, 'Z', 2, 1);
       break;
     }
 
     case 'sledge': {
-      // Juggernaut Demo Hero "Sledge": massive red/iron juggernaut exo + hazard shoulder + shoulder siege mortar
-      b.addCapsule(-0.2, 0.36, 0, 0.16, 0.42, 'Y', 10, 0, 0);
-      b.addCapsule(0.2, 0.36, 0, 0.16, 0.42, 'Y', 10, 0, 0);
-      b.addBeveledBox(0, 0.9, 0, 0.78, 0.7, 0.54, 0.08, 0, 5);
-      b.addBeveledBox(-0.48, 1.02, 0.04, 0.28, 0.38, 0.42, 0.05, 1, 4);
-      b.addBeveledBox(0.48, 1.02, 0.04, 0.28, 0.38, 0.42, 0.05, 1, 0);
-      b.addCapsule(0, 1.38, 0, 0.23, 0.06, 'Y', 12, 1, 5);
-      b.addBox(0, 1.38, 0.19, 0.24, 0.07, 0.09, 1, 2);
-      b.addCylinder(0.52, 0.98, 0.52, 0.15, 0.14, 0.95, 12, 'Z', 2, 1); // Hand siege cannon
+      // Juggernaut Demo Hero "Sledge": massive powered crimson exo + hazard shoulder + siege mortar
+      addTrooperRig(b, { armorTone: 5, clothTone: 0, helmetTone: 5, visorTone: 2, heavy: true, scale: 1.28, weaponHands: 'heavy' });
+      b.addBeveledBox(-0.42, 1.24, 0.02, 0.24, 0.28, 0.32, 0.04, 1, 4);
+      b.addCylinder(0.36, 1.14, 0.56, 0.135, 0.125, 0.96, 12, 'Z', 2, 1);
       break;
     }
 
@@ -1593,6 +1715,30 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
 
+  function drawBatchSlice(batch, count, baseInstanceOffset, ctx) {
+    if (count <= 0) return;
+    gl.bindVertexArray(batch.vao);
+    if (baseInstanceOffset > 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, batch.instVbo);
+      const iStride = FLOATS_PER_INST * 4;
+      const byteOff = baseInstanceOffset * iStride;
+      for (let c = 0; c < 4; c++) {
+        gl.vertexAttribPointer(5 + c, 4, gl.FLOAT, false, iStride, byteOff + c * 16);
+      }
+      gl.vertexAttribPointer(9, 4, gl.FLOAT, false, iStride, byteOff + 64);
+    }
+    gl.drawElementsInstanced(gl.TRIANGLES, batch.indexCount, batch.indexType, 0, count);
+    ctx.calls++;
+    if (baseInstanceOffset > 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, batch.instVbo);
+      const iStride = FLOATS_PER_INST * 4;
+      for (let c = 0; c < 4; c++) {
+        gl.vertexAttribPointer(5 + c, 4, gl.FLOAT, false, iStride, c * 16);
+      }
+      gl.vertexAttribPointer(9, 4, gl.FLOAT, false, iStride, 64);
+    }
+  }
+
   function renderShadowPass(lightViewProj, onlyStatic, ctx) {
     gl.useProgram(shadowProg);
     gl.uniformMatrix4fv(shadowLightLoc, false, lightViewProj);
@@ -1600,29 +1746,8 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     for (let i = 0; i < list.length; i++) {
       const batch = list[i];
       const count = onlyStatic ? batch.staticCount : batch.dynamicCount;
-      if (count <= 0) continue;
       const baseInstanceOffset = onlyStatic ? 0 : batch.staticCount;
-      gl.bindVertexArray(batch.vao);
-      // Adjust attribute base pointer cleanly when drawing dynamic subset after static subset
-      if (baseInstanceOffset > 0) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, batch.instVbo);
-        const iStride = FLOATS_PER_INST * 4;
-        const byteOff = baseInstanceOffset * iStride;
-        for (let c = 0; c < 4; c++) {
-          gl.vertexAttribPointer(5 + c, 4, gl.FLOAT, false, iStride, byteOff + c * 16);
-        }
-        gl.vertexAttribPointer(9, 4, gl.FLOAT, false, iStride, byteOff + 64);
-      }
-      gl.drawElementsInstanced(gl.TRIANGLES, batch.indexCount, batch.indexType, 0, count);
-      ctx.calls++;
-      if (baseInstanceOffset > 0) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, batch.instVbo);
-        const iStride = FLOATS_PER_INST * 4;
-        for (let c = 0; c < 4; c++) {
-          gl.vertexAttribPointer(5 + c, 4, gl.FLOAT, false, iStride, c * 16);
-        }
-        gl.vertexAttribPointer(9, 4, gl.FLOAT, false, iStride, 64);
-      }
+      drawBatchSlice(batch, count, baseInstanceOffset, ctx);
     }
     gl.bindVertexArray(null);
   }
@@ -1657,19 +1782,34 @@ export function createModelFactory(gl, compileProgram, worldSize) {
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
-    for (const batch of meshes.values()) {
-      const total = batch.staticCount + batch.dynamicCount;
-      if (total === 0) continue;
-      gl.bindVertexArray(batch.vao);
-      gl.drawElementsInstanced(gl.TRIANGLES, batch.indexCount, batch.indexType, 0, total);
-      ctx.calls++;
+    gl.enable(gl.STENCIL_TEST);
+
+    // Draw dynamic units first leaving stencil = 0 so unobstructed units never trigger self-X-ray
+    gl.stencilMask(0x00);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    for (let i = 0; i < dynamicBatches.length; i++) {
+      const batch = dynamicBatches[i];
+      drawBatchSlice(batch, batch.dynamicCount, batch.staticCount, ctx);
     }
+
+    // Draw static buildings marking stencil = 1 on foreground building pixels that win depth test
+    gl.stencilMask(0xFF);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xFF);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    for (let i = 0; i < staticBatches.length; i++) {
+      const batch = staticBatches[i];
+      drawBatchSlice(batch, batch.staticCount, 0, ctx);
+    }
+
+    gl.stencilMask(0xFF);
+    gl.disable(gl.STENCIL_TEST);
     gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(null);
   }
 
   function renderXRayPass(ctx) {
-    if (dynamicBatches.length === 0) return;
+    if (dynamicBatches.length === 0 || staticBatches.length === 0) return;
     gl.useProgram(xrayProg);
     gl.uniformMatrix4fv(xrayLoc.uViewProj, false, ctx.viewProj);
     gl.uniform3fv(xrayLoc.uCamPos, ctx.camPos);
@@ -1683,18 +1823,21 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.GREATER);
     gl.depthMask(false);
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0x00);
+    gl.stencilFunc(gl.EQUAL, 1, 0xFF);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.enable(gl.CULL_FACE);
 
     for (let i = 0; i < dynamicBatches.length; i++) {
       const batch = dynamicBatches[i];
-      if (batch.dynamicCount <= 0) continue;
-      gl.bindVertexArray(batch.vao);
-      gl.drawElementsInstanced(gl.TRIANGLES, batch.indexCount, batch.indexType, 0, batch.dynamicCount);
-      ctx.calls++;
+      drawBatchSlice(batch, batch.dynamicCount, batch.staticCount, ctx);
     }
 
+    gl.stencilMask(0xFF);
+    gl.disable(gl.STENCIL_TEST);
     gl.depthFunc(gl.LESS);
     gl.depthMask(true);
     gl.disable(gl.BLEND);

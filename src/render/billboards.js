@@ -183,13 +183,15 @@ export function createBillboardRenderer(gl, compileProgram) {
       // Draw HP bar when selected, damaged, or harvester/veteran
       if (isSelected || hpRatio < 0.99 || ent.veterancy > 0 || ent.typeId === 'harvester') {
         const off = count++ * FLOATS_PER_INST;
-        const barW = ent.isBuilding ? Math.max(3.0, ent.footprintW * 1.15) : Math.max(2.1, (ent.radius ?? 1.0) * 1.85);
-        const yOff = ent.isBuilding ? 3.8 : 2.35;
+        const smallUnit = !ent.isBuilding && (ent.radius ?? 1.0) < 0.85;
+        const barW = ent.isBuilding ? Math.max(3.0, ent.footprintW * 1.15) : Math.max(smallUnit ? 1.18 : 2.1, (ent.radius ?? 1.0) * 1.8);
+        const barH = smallUnit ? 0.42 : 0.62;
+        const yOff = ent.isBuilding ? 3.8 : (smallUnit ? 1.85 : 2.35);
         instData[off + 0] = ix;
         instData[off + 1] = iy + yOff;
         instData[off + 2] = iz;
         instData[off + 3] = barW;
-        instData[off + 4] = 0.72;
+        instData[off + 4] = barH;
         instData[off + 5] = 1; // kind=1 billboard bar
         instData[off + 6] = hpRatio;
         instData[off + 7] = isSelected ? 1 : 0;

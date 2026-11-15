@@ -126,8 +126,8 @@ function createColorRenderTarget(gl, width, height, preferFloat, withDepth) {
     if (withDepth) {
       rbo = gl.createRenderbuffer();
       gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
-      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
-      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rbo);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rbo);
       gl.bindRenderbuffer(gl.RENDERBUFFER, null);
     }
 
@@ -209,14 +209,15 @@ void main() {
   vec4 detail = texture(uDetailTex, tileUv);
 
   float slope = 1.0 - max(vNormal.y, 0.0);
-  vec3 grassCol = vec3(0.14, 0.21, 0.11) * (0.76 + 0.48 * detail.r);
-  vec3 earthCol = vec3(0.18, 0.14, 0.10) * (0.78 + 0.44 * detail.g);
-  vec3 rockCol  = vec3(0.17, 0.18, 0.21) * (0.74 + 0.52 * detail.b);
-  vec3 sandCol  = vec3(0.27, 0.23, 0.16) * (0.80 + 0.40 * detail.r);
+  vec3 grassCol = vec3(0.13, 0.20, 0.10) * (0.74 + 0.52 * detail.r);
+  vec3 earthCol = vec3(0.17, 0.13, 0.09) * (0.76 + 0.48 * detail.b);
+  vec3 rockCol  = vec3(0.16, 0.17, 0.20) * (0.74 + 0.52 * detail.b);
+  vec3 sandCol  = vec3(0.26, 0.22, 0.15) * (0.80 + 0.40 * detail.r);
   vec3 deckCol  = vec3(0.22, 0.25, 0.29) * (0.80 + 0.40 * detail.b);
 
   float elev = vWorldPos.y;
-  vec3 albedo = mix(grassCol, earthCol, smoothstep(0.32, 0.74, detail.g));
+  float soilMix = smoothstep(0.26, 0.74, detail.r * 0.55 + detail.b * 0.45);
+  vec3 albedo = mix(grassCol, earthCol, soilMix);
   albedo = mix(sandCol, albedo, smoothstep(-0.35, 0.85, elev));
   albedo = mix(albedo, rockCol, smoothstep(0.18, 0.48, slope));
 
@@ -238,13 +239,13 @@ void main() {
     emissive += oreCol * veinMask * (0.35 + 0.15 * sin(uTime * 2.4 + vWorldPos.x * 0.3));
   }
 
-  // Subtle tactical world grid overlay for RTS spatial clarity
+  // Subtle tactical grid only faintly visible from high elevation / bridges
   vec2 cellGrid = abs(fract(vWorldPos.xz / 2.0 - 0.5) - 0.5) / max(fwidth(vWorldPos.xz / 2.0), vec2(0.001));
   float gridLine = 1.0 - min(min(cellGrid.x, cellGrid.y), 1.0);
-  albedo = mix(albedo, albedo * 1.12 + vec3(0.015), gridLine * (0.07 + 0.08 * splat.a));
+  albedo = mix(albedo, albedo * 1.08 + vec3(0.008), gridLine * (0.018 + 0.08 * splat.a));
 
-  // Micro-bump surface normal perturbation from baked PBR detail
-  float hDet = detail.r * 0.55 + detail.g * 0.45;
+  // Organic micro-bump surface normal perturbation (avoids armor plate grid seams)
+  float hDet = detail.r * 0.65 + detail.b * 0.35;
   vec3 N = normalize(vNormal + vec3(dFdx(hDet), 0.0, dFdy(hDet)) * -1.4);
   vec3 L = normalize(uLightDir);
   vec3 V = normalize(uCamPos - vWorldPos);
@@ -1171,7 +1172,8 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     gl.depthMask(true);
     gl.colorMask(true, true, true, true);
     gl.clearColor(0.06, 0.10, 0.16, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.clearStencil(0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
     const frameCtx = {
       viewProj: viewProjMat,
