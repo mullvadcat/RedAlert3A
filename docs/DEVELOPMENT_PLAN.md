@@ -2,7 +2,7 @@
 
 - **适用对象**：自动化编程代理（AI Coding Agents，如 Hygrogn / Antigravity / Codex / Claude Code 等）与人类主程协同执行
 - **基线版本**：对齐仓库 v2.2 定稿文档集（[`PRD.md`](PRD.md)、[`SDD.md`](SDD.md)、[`docs/README.md`](README.md)）
-- **仓库状态**：纯设计定稿态（零源码起点）；按 **M1 → M6** 共 **27 个原子任务（`T1.1` ~ `T6.3`）** 渐进交付
+- **仓库状态**：**M1–M6 核心编码与无头/构建门禁已全量交付**（`28/28` 原子任务编码完成，最新基线 [`c3bd208`](../../)）；详情见文末 **§5 研发进度与验收台账**（尚待浏览器端 WebGL2 实机 E2E 与可选模型美术精修）。
 
 > **核心定位**：本文档是将 PRD 与 SDD 转化为“AI 可直接按顺序拆解编码、契约对齐、自检闭环”的**零歧义工程施工说明书**。任何开发会话启动时，必须先遵守第 1 节执行总则与第 2 节跨模块契约，再按第 3 节任务序号推进。
 
@@ -538,3 +538,55 @@ L6 浏览器适配与表现层: main.js, ui/input.js, ui/*, render/*, world/mode
 | **战役关直跳与解锁验证** | M5 | `?mission=A01` .. `EX13`（无连字符） | 过场运镜、触发器、检查点读档与胜负结算完整闭环 |
 | **全迷雾透视与快速造兵** | M1–M4 | `?nofog=1&fastbuild=1` | 用于快测 `T` 页签、4 超武预警反制窗口与防溢出逻辑 |
 | **分级性能压测门禁** | M1 / M6 | `?bench=1` | M1 验证 100 辆坦克交战 `< 140 Draw Calls`；M6 验证 `250+` 单位同屏 60 秒在 `1080p High` 稳定 `60 FPS` 且 `< 140 Draw Calls` |
+
+---
+
+## 5. 研发进度与验收台账（Live Progress Ledger · 2026-11-15）
+
+### 5.1 里程碑交付总览
+
+| 阶段 | 提交 Commit | 核心交付模块 | 代码状态 | 自动化/无头门禁 | 浏览器实机 E2E |
+| :---: | :---: | :--- | :---: | :---: | :---: |
+| **M1** | `7af7bd9` | Vite/静态构建、`config.js`、`engine.js`、`map.js`、`fogCpu.js`、`nav.js`、`pipeline.js`/`pbr.js`/`shadow.js`/`water.js`/`models.js` | **已完成 (`T1.1–T1.8`)** | `test:m1` 通过 (`0.350ms` 寻路均值) | M1 曾验基础闭环 |
+| **M2** | `48fef3f` | 5 页签 `sidebar.js`、`minimap.js`、防御塔与造船厂连通性、`destruction.js`、WebAudio 对讲机滤波 `mixer.js` | **已完成 (`T2.1–T2.4`)** | `test:m2` 通过 (`112→224` 折射、RNG 隔离) | **待实机复验** |
+| **M3** | `a08d9fe` | 全 28 兵种特种机制、`airforce.js`、`naval.js`、X-Ray 透视剪影与 `?show=gallery` | **已完成 (`T3.1–T3.5`)** | `test:m3` 通过 | **待实机展厅检阅** |
+| **M4** | `54b316c` | `superweapon.js`（4 超武 + F1–F4 秘策）、`skirmishMaps.js`（8 图）、`ai.js`、200 场压测调优 | **已完成 (`T4.1–T4.4`)** | `test:m4` + `sim:balance` 通过 (`1058.7x`，胜率 `51.50%/48.50%`) | **待实机复验** |
+| **M5** | `ed9d412` | `save.js` 存档状态机、`director.js`、3 层自适应音频、13 关战役（`A01–A06`/`C01–C06`/`EX13`） | **已完成 (`T5.1–T5.4`)** | `test:m5` 通过（600t 读档零偏差、13 关全实例化） | **待实机直跳验关** |
+| **M6** | `c3bd208` | `Ultra/High/Balanced` 热切换、`webglcontextlost/restored`、`bench.js`（282 单位）、全量 i18n/dist | **已完成 (`T6.1–T6.3`)** | `test:m6` + `check:i18n` + `build` 通过（`0.386ms/tick`，342 词条，54 文件 `609.3 KB`） | **待实机 60s 压测** |
+
+### 5.2 28 项原子任务状态明细
+
+| 任务 ID | 所属阶段 | 交付物 | 实现状态 | 备注 / 验收方式 |
+| :--- | :---: | :--- | :---: | :--- |
+| `T1.1` | M1 | `package.json`, `index.html`, `src/main.js`, `scripts/build.mjs` | 已完成 | `npm run build` 校验 52 模块零违规 |
+| `T1.2` | M1 | `config.js`, `events.js`, `i18n.js`, `locales/`, `check-i18n.mjs` | 已完成 | 49 实体 + 342 词条中英 100% 对齐 |
+| `T1.3` | M1 | `engine.js`, `map.js` | 已完成 | `30 Hz` 纯模拟；地图编译 `~5.50ms < 15ms` |
+| `T1.4` | M1 | `fogCpu.js`, `fog.js` | 已完成 | 位掩码 `3 -> 1` 与 WeakMap 静态缓存 |
+| `T1.5` | M1 | `pipeline.js`, `pbr.js`, `shadow.js`, `water.js` | 已完成 | 4K/2K PCSS、Gerstner 海浪、AgX Bloom |
+| `T1.6` | M1 | `models.js`, `billboards.js`, `decals.js` | 已完成 | 单 Draw Call 部件实例化与 1024 弹坑池 |
+| `T1.7` | M1 | `nav.js` | 已完成 | Dial 桶 Dijkstra、LRU=32 缓存、12m 聚类 |
+| `T1.8` | M1 | `entities.js`, `production.js`, `combat.js`, `input.js` | 已完成 | `test-m1` 全闭环通过 |
+| `T2.1` | M2 | `ui/sidebar.js`, `ui/minimap.js`, `styles/ui.css` | 已完成 | 200px 5 页签与互动小地图 |
+| `T2.2` | M2 | `production.js`, `combat.js`, `entities.js` | 已完成 | 造船厂连通性、光棱充能、磁暴外接、核熔毁 |
+| `T2.3` | M2 | `world/destruction.js` | 已完成 | 独立视觉种子，1000 Tick 不污染 `prngState` |
+| `T2.4` | M2 | `core/mixer.js`, `story/dialogue.js` | 已完成 | WebAudio 无线电带通滤波 + 纯安全 DOM 框 |
+| `T3.1` | M3 | `entities.js`, `combat.js` | 已完成 | 9 步兵机制含沙袋/抹除/反坦克/磁暴充能 |
+| `T3.2` | M3 | `entities.js`, `combat.js` | 已完成 | 8 陆军含 5 重折射、IFV 变形、V3 防拦截 |
+| `T3.3` | M3 | `gameplay/airforce.js` | 已完成 | 4 空军含 `producerType` 双出厂与停机坪调度 |
+| `T3.4` | M3 | `gameplay/naval.js` | 已完成 | 7 海军含潜艇显影、神盾 `208` 对空、航母舰载机 |
+| `T3.5` | M3 | `pipeline.js`, `models.js`, `main.js` | 已完成 | X-Ray 剪影与 `?show=gallery` 49 模型陈列 |
+| `T4.1` | M4 | `gameplay/superweapon.js` | 已完成 | 4 超武（180t 预警/铁幕反制）+ F1–F4 秘策 |
+| `T4.2` | M4 | `world/skirmishMaps.js`, `ui/menus.js` | 已完成 | 8 张遭遇战地图 `< 15ms` 编译与大厅菜单 |
+| `T4.3` | M4 | `gameplay/ai.js` | 已完成 | 严格迷雾裁决、防电厂死循环、三档 AI |
+| `T4.4` | M4 | `scripts/balance-sim.mjs` | 已完成 | 200 场 `1058.7x` 实时倍速，胜率 `51.5% / 48.5%` |
+| `T5.1` | M5 | `core/save.js` | 已完成 | `schemaVersion: 1`、检查点零漂移、解锁独立 |
+| `T5.2` | M5 | `story/director.js`, `core/mixer.js` | 已完成 | 3s 运镜归位、分支弹窗、3 层自适应混音 |
+| `T5.3` | M5 | `story/campaigns/A01.js–A06.js` | 已完成 | 暗潮 6 关全实例化 + A01 工程师占领/抉择 |
+| `T5.4` | M5 | `story/campaigns/C01.js–C06.js`, `EX13.js` | 已完成 | 赤铁 6 关 + EX13 双阵营并发造兵与 4 超武 |
+| `T6.1` | M6 | `render/pipeline.js`, `main.js`, `ui/menus.js` | 已完成 | 三档画质热切与 `webglcontextlost` 无损恢复 |
+| `T6.2` | M6 | `ui/bench.js`, `engine.js` (`bench` 场景) | 已完成 | 282 单位海陆空同屏模拟 `0.386ms/tick <= 2.0ms` |
+| `T6.3` | M6 | `scripts/check-i18n.mjs`, `scripts/test-m6.mjs`, `dist/` | 已完成 | 全量门禁全绿，静态包 `54` 文件 `609.3 KB` |
+
+### 5.3 待办与后续验收项（Open Items）
+1. **浏览器 WebGL2 实机终验（待执行）**：启动 `npm run preview` 后在真机浏览器中逐项确认 `?show=gallery` 全模型光影、`?bench=1` 连续 60 秒 `Avg FPS >= 60` / `Draw Calls < 140`、Chrome DevTools `WEBGL_lose_context` 恢复以及 `?mission=A01..EX13` 过场操作体验。
+2. **美术精度与外部资产精修（可选增强，不阻塞玩法闭环）**：当前 `models.js` 使用程序化几何体原型满足 `< 140 Draw Calls` 门禁，若追求概念图鉴（`docs/assets/*.jpg`）级别外观精细度，可按 SDD 资产管线为高模单位叠加外部 `.glb` / `.ktx2` 覆盖资产。
