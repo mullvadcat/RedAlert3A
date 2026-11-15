@@ -153,11 +153,12 @@ void main() {
     metallic = 0.30;
     roughness = 0.48;
   } else if (vTone < 5.5) {
-    // Tone 5: Crisp faction livery accent (turret stripes, pauldrons, wing tips, hull trim)
-    vec3 trimSteel = mix(teamCol * 0.92, teamCol * 0.65 + vec3(0.08), detail.g * 0.35);
-    baseCol = trimSteel * (0.90 + detail.r * 0.18);
-    metallic = 0.55;
-    roughness = 0.34;
+    // Tone 5: Crisp faction metallic armor coat (CMC pauldrons, cuirass, turret chevrons, trim)
+    vec3 trimSteel = mix(teamCol * 0.96, teamCol * 0.56 + vec3(0.04, 0.05, 0.08), detail.g * 0.42);
+    float armorSeam = 1.0 - 0.14 * step(0.92, fract(vWorldPos.y * 2.4 + (vWorldPos.x + vWorldPos.z) * 1.1));
+    baseCol = trimSteel * (0.90 + detail.r * 0.20) * armorSeam;
+    metallic = 0.72;
+    roughness = 0.26;
   } else if (vTone < 6.5) {
     // Tone 6: Reflective tinted glass cockpit canopy & illuminated architectural window panes
     float mullionX = step(0.88, fract((vWorldPos.x + vWorldPos.z) * 2.2));
@@ -169,10 +170,13 @@ void main() {
     roughness = mix(0.06, 0.45, frame);
     glassFactor = 1.0 - frame * 0.85;
   } else {
-    // Tone 7: Woven tactical khaki / sandbags / cloth uniform
-    baseCol = vec3(0.36, 0.32, 0.22) * (0.86 + detail.r * 0.22);
+    // Tone 7: Woven tactical burlap sandbags & ballistic cloth (subtle crosshatch weave)
+    float weaveA = step(0.5, fract((vWorldPos.x + vWorldPos.z) * 14.0));
+    float weaveB = step(0.5, fract((vWorldPos.y * 14.0 + vWorldPos.x * 6.0)));
+    float weave = 0.92 + 0.08 * (weaveA * 0.6 + weaveB * 0.4);
+    baseCol = vec3(0.36, 0.31, 0.21) * (0.86 + detail.r * 0.22) * weave;
     metallic = 0.02;
-    roughness = 0.90;
+    roughness = 0.92;
   }
 
   // < 50% HP charred battle-damage mask
@@ -208,7 +212,8 @@ void main() {
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
   vec3 ambient = baseCol * (0.20 + 0.16 * max(N.y, 0.0)) * detail.a;
-  vec3 direct = (baseCol * 1.28 + vec3(spec)) * NdotL * mix(0.24, 1.0, shadow);
+  vec3 specTint = mix(vec3(1.0), clamp(baseCol * 1.35 + vec3(0.28), 0.0, 1.0), metallic * 0.65);
+  vec3 direct = (baseCol * 1.24 + specTint * spec) * NdotL * mix(0.24, 1.0, shadow);
 
   // Height-adaptive faction Fresnel rim + glossy canopy sky reflection
   float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.4);
@@ -333,8 +338,47 @@ function createMeshBuilder() {
   const verts = [];
   const indices = [];
   let vertCount = 0;
+  let activeXform = null;
+
+  function makeXform(tx, ty, tz, rx = 0, ry = 0, rz = 0) {
+    const cx = Math.cos(rx), sx = Math.sin(rx);
+    const cy = Math.cos(ry), sy = Math.sin(ry);
+    const cz = Math.cos(rz), sz = Math.sin(rz);
+    const rot = (v) => {
+      const x1 = v[0] * cz - v[1] * sz;
+      const y1 = v[0] * sz + v[1] * cz;
+      const z1 = v[2];
+      const y2 = y1 * cx - z1 * sx;
+      const z2 = y1 * sx + z1 * cx;
+      return [x1 * cy + z2 * sy, y2, -x1 * sy + z2 * cy];
+    };
+    return {
+      pt: (v) => {
+        const r = rot(v);
+        return [r[0] + tx, r[1] + ty, r[2] + tz];
+      },
+      nrm: rot
+    };
+  }
+
+  function withTransform(tx, ty, tz, rx, ry, rz, fn) {
+    const prev = activeXform;
+    activeXform = makeXform(tx, ty, tz, rx, ry, rz);
+    try {
+      fn();
+    } finally {
+      activeXform = prev;
+    }
+  }
 
   function addTri(p0, p1, p2, nx, ny, nz, u0, v0, u1, v1, u2, v2, partId, tone) {
+    if (activeXform) {
+      p0 = activeXform.pt(p0);
+      p1 = activeXform.pt(p1);
+      p2 = activeXform.pt(p2);
+      const rn = activeXform.nrm([nx, ny, nz]);
+      nx = rn[0]; ny = rn[1]; nz = rn[2];
+    }
     const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
     const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
     const cx = uy * vz - uz * vy;
@@ -469,6 +513,14 @@ function createMeshBuilder() {
   }
 
   function addSmoothTri(p0, n0, u0, v0, p1, n1, u1, v1, p2, n2, u2, v2, partId, tone) {
+    if (activeXform) {
+      p0 = activeXform.pt(p0);
+      p1 = activeXform.pt(p1);
+      p2 = activeXform.pt(p2);
+      n0 = activeXform.nrm(n0);
+      n1 = activeXform.nrm(n1);
+      n2 = activeXform.nrm(n2);
+    }
     const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
     const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
     const cx = uy * vz - uz * vy;
@@ -718,6 +770,7 @@ function createMeshBuilder() {
     addSweptWing,
     addCapsule,
     addLimb,
+    withTransform,
     build() {
       return {
         vertices: new Float32Array(verts),
@@ -766,6 +819,171 @@ function addCoolingTower(b, cx, baseY, cz, baseR, waistR, topR, h, coreGlow = fa
   b.addCylinder(cx, baseY + h + 0.06, cz, topR * 0.96, topR * 0.96, 0.16, 14, 'Y', 0, 1);
   if (coreGlow) {
     b.addCylinder(cx, baseY + h + 0.08, cz, waistR * 0.72, waistR * 0.72, 0.18, 12, 'Y', 0, 2);
+  }
+}
+
+// SC2-inspired CMC Powered Combat Armor Trooper ('gi' standing & 'gi_deployed' braced sandbag bunker)
+function addMarineArmor(b, { deployed = false } = {}) {
+  const torsoBaseY = deployed ? 0.64 : 0.88;
+
+  // === 1. Lower Power-Armor Legs & Grounded Heavy Sabaton Boots (partId = 0) ===
+  if (deployed) {
+    // Staggered 3-course stitched military sandbag parapet + vertical steel rebar stakes + ammo box
+    const courses = [
+      { y: 0.085, r: 0.84, angles: [-0.94, -0.63, -0.32, 0.0, 0.32, 0.63, 0.94], tilt: 0.04 },
+      { y: 0.23, r: 0.82, angles: [-0.79, -0.47, -0.16, 0.16, 0.47, 0.79], tilt: -0.03 },
+      { y: 0.36, r: 0.80, angles: [-0.66, -0.30, 0.30, 0.66], tilt: 0.02 }
+    ];
+    for (const c of courses) {
+      for (let i = 0; i < c.angles.length; i++) {
+        const ang = c.angles[i];
+        const bx = Math.sin(ang) * c.r;
+        const bz = Math.cos(ang) * c.r - 0.04;
+        const alt = (i % 2 === 0 ? 1 : -1) * 0.025;
+        b.withTransform(bx, c.y, bz, c.tilt + alt, ang, alt, () => {
+          b.addBeveledBox(0, 0, 0, 0.34, 0.165, 0.21, 0.052, 0, 7);
+        });
+      }
+    }
+    for (const sAng of [-0.98, -0.45, 0.45, 0.98]) {
+      b.addCylinder(Math.sin(sAng) * 0.94, 0.23, Math.cos(sAng) * 0.94 - 0.04, 0.025, 0.022, 0.46, 6, 'Y', 0, 1);
+    }
+    b.addBeveledBox(-0.48, 0.125, 0.28, 0.22, 0.25, 0.32, 0.025, 0, 0); // Field ammo crate
+    b.addBox(-0.48, 0.23, 0.28, 0.16, 0.04, 0.26, 0, 4);
+
+    // Left leg braced forward with heavy boot flush at y = 0
+    b.addBox(-0.22, 0.03, 0.26, 0.21, 0.06, 0.35, 0, 1);
+    b.addTrapezoid(-0.22, 0.115, 0.27, 0.20, 0.31, 0.17, 0.20, 0.11, -0.02, 0, 5);
+    b.addBeveledBox(-0.22, 0.09, 0.39, 0.18, 0.09, 0.10, 0.02, 0, 0);
+    b.addTrapezoid(-0.22, 0.30, 0.22, 0.22, 0.23, 0.19, 0.20, 0.28, 0.02, 0, 5);
+    b.addBeveledBox(-0.22, 0.44, 0.33, 0.17, 0.16, 0.11, 0.035, 0, 0);
+    b.addLimb([-0.22, 0.43, 0.23], [-0.17, torsoBaseY - 0.02, -0.04], 0.115, 0.125, 10, 0, 5);
+
+    // Right leg kneeling solidly onto ground at y = 0
+    b.addLimb([0.19, torsoBaseY - 0.02, -0.04], [0.24, 0.14, 0.05], 0.125, 0.115, 10, 0, 5);
+    b.addBeveledBox(0.24, 0.09, 0.08, 0.17, 0.16, 0.16, 0.035, 0, 0);
+    b.addLimb([0.24, 0.12, 0.02], [0.23, 0.08, -0.36], 0.105, 0.095, 10, 0, 5);
+    b.addBeveledBox(0.23, 0.10, -0.44, 0.19, 0.20, 0.12, 0.025, 0, 1);
+  } else {
+    // Wide heroic standing combat stance (both armored sabaton boots flush on y = 0.00)
+    const legs = [
+      { x: -0.22, z: 0.05, side: -1 },
+      { x: 0.22, z: -0.05, side: 1 }
+    ];
+    for (const leg of legs) {
+      const { x, z, side } = leg;
+      b.addBox(x, 0.03, z + 0.04, 0.215, 0.06, 0.36, 0, 1); // Sole tread grounded y=0
+      b.addTrapezoid(x, 0.115, z + 0.05, 0.205, 0.32, 0.17, 0.20, 0.11, -0.03, 0, 5);
+      b.addBeveledBox(x, 0.085, z + 0.175, 0.185, 0.095, 0.105, 0.02, 0, 0);
+      b.addBeveledBox(x, 0.11, z - 0.135, 0.12, 0.14, 0.09, 0.02, 0, 3); // Heel piston
+      // Flared greaves + front shin crest + rear calf hydraulics
+      b.addTrapezoid(x, 0.33, z, 0.23, 0.25, 0.19, 0.21, 0.34, 0, 0, 5);
+      b.addBeveledBox(x, 0.33, z + 0.11, 0.095, 0.27, 0.055, 0.015, 0, 0);
+      b.addCylinder(x - 0.045, 0.31, z - 0.115, 0.024, 0.024, 0.28, 8, 'Y', 0, 3);
+      b.addCylinder(x + 0.045, 0.31, z - 0.115, 0.024, 0.024, 0.28, 8, 'Y', 0, 3);
+      // Pronounced beveled knee shield
+      b.addBeveledBox(x, 0.50, z + 0.11, 0.175, 0.16, 0.105, 0.035, 0, 0);
+      b.addBeveledBox(x, 0.50, z + 0.145, 0.105, 0.095, 0.04, 0.015, 0, 5);
+      // Armored thigh + undersuit + outer utility pod
+      b.addLimb([x, 0.49, z], [x * 0.86, 0.83, 0], 0.11, 0.12, 10, 0, 1);
+      b.addTrapezoid(x * 0.92, 0.67, z * 0.45 + 0.01, 0.20, 0.22, 0.22, 0.24, 0.28, 0, 0, 5);
+      b.addBeveledBox(x + side * 0.12, 0.67, z * 0.45, 0.075, 0.15, 0.12, 0.018, 0, 0);
+    }
+  }
+
+  // Pelvis flex waist, armored codpiece & tactical hip tassets
+  b.addBeveledBox(0, torsoBaseY - 0.07, 0, 0.42, 0.13, 0.28, 0.03, 0, 1);
+  b.addTrapezoid(0, torsoBaseY - 0.08, 0.08, 0.16, 0.15, 0.24, 0.19, 0.19, 0, 0, 5);
+  b.addBeveledBox(0, torsoBaseY - 0.02, 0.165, 0.14, 0.07, 0.05, 0.015, 0, 3);
+  b.addBeveledBox(-0.25, torsoBaseY - 0.06, 0.02, 0.10, 0.16, 0.20, 0.025, 0, 0);
+  b.addBeveledBox(0.25, torsoBaseY - 0.06, 0.02, 0.10, 0.16, 0.20, 0.025, 0, 0);
+
+  // === 2. Articulated Upper CMC Armor: Cuirass, Gorget, Pauldrons, Jetpack & Helmet (partId = 1) ===
+  // Broad heavy V-tapered chest armor
+  b.addTrapezoid(0, torsoBaseY + 0.20, 0.01, 0.42, 0.30, 0.60, 0.40, 0.42, 0.02, 1, 5);
+  b.addTrapezoid(0, torsoBaseY + 0.22, 0.18, 0.30, 0.12, 0.38, 0.16, 0.32, 0.02, 1, 0);
+  b.addBeveledBox(-0.15, torsoBaseY + 0.29, 0.21, 0.16, 0.13, 0.07, 0.025, 1, 5);
+  b.addBeveledBox(0.15, torsoBaseY + 0.29, 0.21, 0.16, 0.13, 0.07, 0.025, 1, 5);
+  b.addBox(0, torsoBaseY + 0.27, 0.25, 0.10, 0.05, 0.03, 1, 2); // Central chest core light
+
+  // High U-shaped armored gorget neck collar wrapping the helmet base
+  b.addBeveledBox(0, torsoBaseY + 0.47, -0.17, 0.36, 0.18, 0.10, 0.03, 1, 5);
+  for (const side of [-1, 1]) {
+    b.withTransform(side * 0.20, torsoBaseY + 0.46, -0.02, 0.10, side * -0.45, side * -0.14, () => {
+      b.addBeveledBox(0, 0, 0, 0.09, 0.16, 0.26, 0.025, 1, 5);
+      b.addBeveledBox(side * -0.03, 0.04, 0, 0.04, 0.08, 0.22, 0.01, 1, 0);
+    });
+  }
+
+  // Signature Giant Layered SC2 Shoulder Pauldrons
+  for (const side of [-1, 1]) {
+    b.addCapsule(side * 0.29, torsoBaseY + 0.30, -0.01, 0.115, 0.05, 'X', 10, 1, 1); // Inner joint
+    b.withTransform(side * 0.42, torsoBaseY + 0.31, -0.01, 0.04, 0, side * -0.56, () => {
+      b.addLathe(0, -0.04, 0, [
+        [0.0, 0.245], [0.065, 0.242], [0.13, 0.212], [0.19, 0.145], [0.23, 0.02]
+      ], 14, 'Y', 1, 5);
+      b.addCylinder(0, -0.042, 0, 0.26, 0.252, 0.06, 14, 'Y', 1, 0); // Rim collar
+      b.addBeveledBox(0, 0.11, 0, 0.085, 0.13, 0.33, 0.02, 1, 3); // Crest spine
+      if (side < 0) {
+        b.addBeveledBox(-0.18, 0.02, 0, 0.055, 0.055, 0.24, 0.01, 1, 4); // Squad hazard stripe
+      }
+    });
+  }
+
+  // Iconic Dorsal CMC Fusion Power-Pack + Twin Angled Jet-Turbine Pods
+  b.addBeveledBox(0, torsoBaseY + 0.24, -0.28, 0.34, 0.38, 0.24, 0.04, 1, 0);
+  b.addBeveledBox(0, torsoBaseY + 0.40, -0.28, 0.28, 0.11, 0.20, 0.03, 1, 5);
+  b.addBox(0, torsoBaseY + 0.24, -0.405, 0.12, 0.16, 0.03, 1, 2); // Spine fusion glow
+  for (const side of [-1, 1]) {
+    b.withTransform(side * 0.20, torsoBaseY + 0.25, -0.34, -0.20, 0, side * -0.24, () => {
+      b.addCylinder(0, 0, 0, 0.095, 0.115, 0.34, 12, 'Y', 1, 3);
+      b.addCylinder(0, 0.185, 0, 0.105, 0.072, 0.07, 12, 'Y', 1, 1); // Top intake shroud
+      b.addCylinder(0, -0.19, 0, 0.115, 0.085, 0.09, 12, 'Y', 1, 0); // Exhaust bell
+      b.addCylinder(0, -0.23, 0, 0.078, 0.06, 0.04, 10, 'Y', 1, 2); // Jet core glow
+    });
+  }
+  b.addCylinder(-0.13, torsoBaseY + 0.56, -0.34, 0.014, 0.010, 0.26, 6, 'Y', 1, 3); // Pack comms whip
+  b.addBox(-0.13, torsoBaseY + 0.69, -0.34, 0.032, 0.032, 0.032, 1, 2);
+
+  // Enclosed Powered Combat Helmet + Wrap-around Glowing Tactical Visor + Respirator Mask
+  const headY = torsoBaseY + 0.55;
+  b.addLathe(0, headY, 0.02, [
+    [-0.08, 0.162], [-0.02, 0.180], [0.06, 0.168], [0.13, 0.120], [0.165, 0.02]
+  ], 14, 'Y', 1, 5);
+  b.addBeveledBox(0, headY + 0.085, 0.115, 0.22, 0.045, 0.095, 0.018, 1, 0); // Heavy brow hood
+  b.addCylinder(0, headY + 0.018, 0.092, 0.152, 0.152, 0.086, 14, 'Y', 1, 2); // Prominent curved glowing SC2 visor
+  b.addTrapezoid(0, headY - 0.082, 0.095, 0.18, 0.15, 0.21, 0.17, 0.095, 0.01, 1, 0); // Respirator jaw
+  b.addCylinder(-0.10, headY - 0.08, 0.13, 0.04, 0.04, 0.07, 8, 'Z', 1, 3); // Cheek breather pods
+  b.addCylinder(0.10, headY - 0.08, 0.13, 0.04, 0.04, 0.07, 8, 'Z', 1, 3);
+  b.addBeveledBox(-0.17, headY + 0.01, 0.01, 0.06, 0.11, 0.11, 0.015, 1, 0); // Ear comms
+  b.addBeveledBox(0.17, headY + 0.01, 0.01, 0.06, 0.11, 0.11, 0.015, 1, 0);
+  b.addCylinder(0.18, headY + 0.11, 0.01, 0.014, 0.010, 0.15, 6, 'Y', 1, 3); // Helmet rangefinder
+
+  // Chunky Armored Arms & Flared Gauntlets cradling the rifle
+  const gunY = torsoBaseY + 0.05;
+  b.addLimb([0.38, torsoBaseY + 0.22, 0.01], [0.35, gunY - 0.01, 0.07], 0.105, 0.095, 10, 1, 1);
+  b.addLimb([0.35, gunY - 0.01, 0.07], [0.22, gunY, 0.28], 0.102, 0.082, 10, 1, 5);
+  b.addBeveledBox(0.20, gunY + 0.01, 0.29, 0.11, 0.10, 0.11, 0.02, 1, 1); // Right armored gauntlet fist
+
+  b.addLimb([-0.38, torsoBaseY + 0.22, 0.01], [-0.25, gunY - 0.04, 0.26], 0.105, 0.095, 10, 1, 1);
+  b.addLimb([-0.25, gunY - 0.04, 0.26], [0.06, gunY - 0.01, 0.54], 0.102, 0.082, 10, 1, 5);
+  b.addBeveledBox(0.08, gunY, 0.55, 0.11, 0.10, 0.11, 0.02, 1, 1); // Left armored gauntlet fist
+
+  // === 3. Heavy C-14 Impaler-style Gauss Rifle (partId = 2 -> recoils cleanly along -Z) ===
+  const gx = 0.17;
+  b.addBeveledBox(gx, gunY + 0.02, 0.45, 0.125, 0.16, 0.52, 0.025, 2, 0); // Heavy angular receiver
+  b.addBox(gx + 0.065, gunY + 0.02, 0.44, 0.02, 0.10, 0.36, 2, 5); // Faction casing trim
+  b.addBeveledBox(gx + 0.02, gunY, 0.17, 0.085, 0.14, 0.21, 0.02, 2, 1); // Stock
+  b.addCylinder(gx, gunY + 0.03, 0.85, 0.056, 0.046, 0.46, 10, 'Z', 2, 1); // Barrel shroud
+  b.addBeveledBox(gx, gunY + 0.03, 1.07, 0.088, 0.098, 0.11, 0.015, 2, 3); // Muzzle compensator
+  b.addTrapezoid(gx, gunY - 0.045, 0.90, 0.028, 0.20, 0.018, 0.13, 0.055, 0.03, 2, 3); // Bayonet lug
+  b.addCylinder(gx, gunY - 0.095, 0.47, 0.105, 0.105, 0.15, 12, 'X', 2, 3); // Underslung rotary ammo drum
+  b.addBox(gx - 0.05, gunY - 0.03, 0.47, 0.04, 0.06, 0.09, 2, 4); // Ammo feed belt
+  b.addBeveledBox(gx, gunY + 0.125, 0.46, 0.062, 0.058, 0.16, 0.012, 2, 0); // Reflex optic mount
+  b.addBox(gx, gunY + 0.125, 0.535, 0.042, 0.038, 0.02, 2, 2); // Optic sight glow
+  if (deployed) {
+    b.addLimb([gx, gunY - 0.02, 0.78], [gx - 0.14, 0.41, 0.78], 0.024, 0.020, 6, 2, 1);
+    b.addLimb([gx, gunY - 0.02, 0.78], [gx + 0.14, 0.41, 0.78], 0.024, 0.020, 6, 2, 1);
   }
 }
 
@@ -1103,28 +1321,12 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'gi': {
-      // Tactical GI: kneeling behind continuous 2-tier overlapping curved sandbags with bipod heavy LMG
-      for (let i = -3; i <= 3; i++) {
-        const ang = i * 0.31;
-        const bx = Math.sin(ang) * 0.72;
-        const bz = Math.cos(ang) * 0.68 - 0.02;
-        b.addLimb([bx - Math.cos(ang) * 0.14, 0.11, bz + Math.sin(ang) * 0.14], [bx + Math.cos(ang) * 0.14, 0.11, bz - Math.sin(ang) * 0.14], 0.115, 0.115, 10, 0, 7);
-      }
-      for (let i = -2; i <= 2; i++) {
-        const ang = i * 0.34;
-        const bx = Math.sin(ang) * 0.70;
-        const bz = Math.cos(ang) * 0.66 - 0.02;
-        b.addLimb([bx - Math.cos(ang) * 0.13, 0.28, bz + Math.sin(ang) * 0.13], [bx + Math.cos(ang) * 0.13, 0.28, bz - Math.sin(ang) * 0.13], 0.105, 0.105, 10, 0, 7);
-      }
-      addTrooperRig(b, { armorTone: 5, clothTone: 7, helmetTone: 5, visorTone: 6, kneeling: true, weaponHands: 'heavy' });
-      // Heavy LMG + buttstock + ammo drum + brass belt + planted A-frame bipod on sandbags
-      b.addBeveledBox(0.16, 0.74, 0.20, 0.06, 0.10, 0.22, 0.015, 2, 1); // Buttstock
-      b.addBeveledBox(0.16, 0.75, 0.44, 0.085, 0.11, 0.34, 0.018, 2, 0); // Receiver
-      b.addCylinder(0.16, 0.76, 0.80, 0.036, 0.028, 0.56, 10, 'Z', 2, 1); // Barrel & shroud
-      b.addBeveledBox(0.06, 0.69, 0.44, 0.11, 0.14, 0.16, 0.02, 2, 7); // Ammo drum
-      b.addBox(0.11, 0.74, 0.44, 0.06, 0.04, 0.08, 2, 4); // Brass belt
-      b.addLimb([0.16, 0.73, 0.72], [0.02, 0.36, 0.68], 0.02, 0.018, 6, 2, 1); // Bipod L
-      b.addLimb([0.16, 0.73, 0.72], [0.30, 0.36, 0.68], 0.02, 0.018, 6, 2, 1); // Bipod R
+      addMarineArmor(b, { deployed: false });
+      break;
+    }
+
+    case 'gi_deployed': {
+      addMarineArmor(b, { deployed: true });
       break;
     }
 
@@ -1884,11 +2086,14 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       batch.dynamicCount = 0;
     }
 
+    const getBatchKey = (ent) => (ent.typeId === 'gi' && ent.deployState === 'DEPLOYED') ? 'gi_deployed' : ent.typeId;
+
     const counts = new Map();
     for (let i = 0; i < state.entities.length; i++) {
       const ent = state.entities[i];
       if (!isRenderableEntity(state, ent, noFog)) continue;
-      counts.set(ent.typeId, (counts.get(ent.typeId) ?? 0) + 1);
+      const key = getBatchKey(ent);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
 
     for (const [typeId, n] of counts.entries()) {
@@ -1899,7 +2104,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     for (let i = 0; i < state.entities.length; i++) {
       const ent = state.entities[i];
       if (!isRenderableEntity(state, ent, noFog) || !ent.isBuilding) continue;
-      const batch = meshes.get(ent.typeId);
+      const batch = meshes.get(getBatchKey(ent));
       const slot = batch.staticCount++;
       const off = slot * FLOATS_PER_INST;
       writeModelMatrix(batch.instBuffer, off, ent.x, ent.y, ent.z, ent.yaw);
@@ -1911,7 +2116,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     for (let i = 0; i < state.entities.length; i++) {
       const ent = state.entities[i];
       if (!isRenderableEntity(state, ent, noFog) || ent.isBuilding) continue;
-      const batch = meshes.get(ent.typeId);
+      const batch = meshes.get(getBatchKey(ent));
       const slot = batch.staticCount + batch.dynamicCount++;
       const off = slot * FLOATS_PER_INST;
       const ix = ent.prevX + (ent.x - ent.prevX) * alpha;
