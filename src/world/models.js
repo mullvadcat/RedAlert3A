@@ -169,14 +169,26 @@ void main() {
     metallic = mix(0.45, 0.60, frame);
     roughness = mix(0.06, 0.45, frame);
     glassFactor = 1.0 - frame * 0.85;
-  } else {
-    // Tone 7: Woven tactical burlap sandbags & ballistic cloth (subtle crosshatch weave)
+  } else if (vTone < 7.5) {
+    // Tone 7: Woven tactical burlap sandbags & ballistic khaki cloth (subtle crosshatch weave)
     float weaveA = step(0.5, fract((vWorldPos.x + vWorldPos.z) * 14.0));
     float weaveB = step(0.5, fract((vWorldPos.y * 14.0 + vWorldPos.x * 6.0)));
     float weave = 0.92 + 0.08 * (weaveA * 0.6 + weaveB * 0.4);
     baseCol = vec3(0.36, 0.31, 0.21) * (0.86 + detail.r * 0.22) * weave;
     metallic = 0.02;
     roughness = 0.92;
+  } else if (vTone < 8.5) {
+    // Tone 8: Industrial Safety Hazard Yellow-Amber Armor (Engineer suit & hardware trim)
+    float seam = 1.0 - 0.14 * step(0.92, fract(vWorldPos.y * 2.4 + (vWorldPos.x + vWorldPos.z) * 1.1));
+    baseCol = vec3(0.84, 0.62, 0.09) * (0.90 + detail.r * 0.18) * seam;
+    metallic = 0.52;
+    roughness = 0.34;
+  } else {
+    // Tone 9: Warm Brushed Copper & Ordnance Brass (Tesla coils & cartridge belts)
+    float wind = 0.86 + 0.14 * step(0.42, fract(vWorldPos.y * 18.0 + vUv.y * 6.0));
+    baseCol = vec3(0.82, 0.45, 0.16) * (0.90 + detail.r * 0.16) * wind;
+    metallic = 0.86;
+    roughness = 0.22;
   }
 
   // < 50% HP charred battle-damage mask
@@ -205,13 +217,14 @@ void main() {
   vec3 H = normalize(V + L);
 
   float NdotL = max(dot(N, L), 0.0);
-  float specPow = mix(18.0, 140.0, 1.0 - roughness);
-  float spec = pow(max(dot(N, H), 0.0), specPow) * mix(0.28, 1.45, max(metallic, glassFactor));
+  float specPow = mix(18.0, 148.0, 1.0 - roughness);
+  float spec = pow(max(dot(N, H), 0.0), specPow) * mix(0.14, 1.52, max(metallic, glassFactor));
 
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0022, uShadowTexelSize);
 
-  vec3 ambient = baseCol * (0.20 + 0.16 * max(N.y, 0.0)) * detail.a;
+  float upAO = mix(0.66, 1.12, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
+  vec3 ambient = baseCol * (0.18 + 0.18 * max(N.y, 0.0)) * detail.a * upAO;
   vec3 specTint = mix(vec3(1.0), clamp(baseCol * 1.35 + vec3(0.28), 0.0, 1.0), metallic * 0.65);
   vec3 direct = (baseCol * 1.24 + specTint * spec) * NdotL * mix(0.24, 1.0, shadow);
 
@@ -849,7 +862,7 @@ function addMarineArmor(b, { deployed = false } = {}) {
       b.addCylinder(Math.sin(sAng) * 0.94, 0.23, Math.cos(sAng) * 0.94 - 0.04, 0.025, 0.022, 0.46, 6, 'Y', 0, 1);
     }
     b.addBeveledBox(-0.48, 0.125, 0.28, 0.22, 0.25, 0.32, 0.025, 0, 0); // Field ammo crate
-    b.addBox(-0.48, 0.23, 0.28, 0.16, 0.04, 0.26, 0, 4);
+    b.addBox(-0.48, 0.23, 0.28, 0.16, 0.04, 0.26, 0, 8);
 
     // Left leg braced forward with heavy boot flush at y = 0
     b.addBox(-0.22, 0.03, 0.26, 0.21, 0.06, 0.35, 0, 1);
@@ -978,7 +991,7 @@ function addMarineArmor(b, { deployed = false } = {}) {
   b.addBeveledBox(gx, gunY + 0.03, 1.07, 0.088, 0.098, 0.11, 0.015, 2, 3); // Muzzle compensator
   b.addTrapezoid(gx, gunY - 0.045, 0.90, 0.028, 0.20, 0.018, 0.13, 0.055, 0.03, 2, 3); // Bayonet lug
   b.addCylinder(gx, gunY - 0.095, 0.47, 0.105, 0.105, 0.15, 12, 'X', 2, 3); // Underslung rotary ammo drum
-  b.addBox(gx - 0.05, gunY - 0.03, 0.47, 0.04, 0.06, 0.09, 2, 4); // Ammo feed belt
+  b.addBox(gx - 0.05, gunY - 0.03, 0.47, 0.04, 0.06, 0.09, 2, 9); // Brass cartridge feed belt
   b.addBeveledBox(gx, gunY + 0.125, 0.46, 0.062, 0.058, 0.16, 0.012, 2, 0); // Reflex optic mount
   b.addBox(gx, gunY + 0.125, 0.535, 0.042, 0.038, 0.02, 2, 2); // Optic sight glow
   if (deployed) {
@@ -987,93 +1000,161 @@ function addMarineArmor(b, { deployed = false } = {}) {
   }
 }
 
-// Shared articulated military trooper anatomy (1:7 heroic scale, contoured NATO helmet, tapered vest, knees & arms gripping weapon)
+// Shared heroic powered-exo & tactical infantry rig (boots strictly grounded y=0, articulated torso partId=1)
 function addTrooperRig(b, cfg) {
   const {
     armorTone = 5,
-    clothTone = 7,
+    trimTone = 0,
+    clothTone = 1,
     helmetTone = 5,
-    visorTone = 6,
+    visorTone = 2,
     bootTone = 1,
     scale = 1.0,
     heavy = false,
-    kneeling = false,
-    weaponHands = 'rifle' // 'rifle' | 'heavy' | 'dual' | 'cannon'
+    shoulderStyle = heavy ? 'cmc' : 'medium', // 'cmc' | 'sleek' | 'medium' | 'coat'
+    helmetStyle = heavy ? 'cmc' : 'goggles',  // 'cmc' | 'dome' | 'goggles' | 'stealth'
+    chestCoreTone = null,
+    weaponHands = 'rifle' // 'rifle' | 'heavy' | 'dual' | 'shoulder' | 'tools'
   } = cfg;
   const S = scale;
-  const P = (x, y, z) => [x * S, y * S, z * S];
+  const wScale = heavy ? 1.24 : 1.0;
 
-  // Legs + boots
-  if (kneeling) {
-    // Left knee down behind sandbags, right foot planted forward
-    b.addLimb(P(-0.14, 0.56, -0.10), P(-0.17, 0.14, 0.10), 0.088 * S, 0.072 * S, 10, 0, clothTone);
-    b.addLimb(P(-0.17, 0.14, 0.10), P(-0.19, 0.08, -0.32), 0.068 * S, 0.056 * S, 10, 0, clothTone);
-    b.addBeveledBox(-0.19 * S, 0.07 * S, -0.37 * S, 0.11 * S, 0.10 * S, 0.18 * S, 0.02 * S, 0, bootTone);
-    b.addLimb(P(0.14, 0.56, -0.06), P(0.18, 0.44, 0.24), 0.090 * S, 0.074 * S, 10, 0, clothTone);
-    b.addLimb(P(0.18, 0.44, 0.24), P(0.18, 0.09, 0.20), 0.070 * S, 0.058 * S, 10, 0, clothTone);
-    b.addBeveledBox(0.18 * S, 0.065 * S, 0.25 * S, 0.12 * S, 0.11 * S, 0.22 * S, 0.02 * S, 0, bootTone);
-  } else {
-    const legW = heavy ? 0.15 : 0.12;
-    const legR = heavy ? 0.105 : 0.082;
-    const ankleR = heavy ? 0.085 : 0.062;
-    const hipY = heavy ? 0.72 : 0.68;
-    const kneeY = heavy ? 0.40 : 0.37;
-    // Slight combat stance stagger
-    b.addLimb(P(-legW, hipY, -0.02), P(-legW - 0.02, kneeY, 0.04), legR * S, ankleR * S, 10, 0, clothTone);
-    b.addLimb(P(-legW - 0.02, kneeY, 0.04), P(-legW - 0.02, 0.09, 0.02), ankleR * S, (ankleR * 0.85) * S, 10, 0, clothTone);
-    b.addBeveledBox((-legW - 0.02) * S, 0.065 * S, 0.07 * S, (heavy ? 0.17 : 0.12) * S, 0.11 * S, 0.24 * S, 0.025 * S, 0, bootTone);
+  b.withTransform(0, 0, 0, 0, 0, 0, () => {
+    // 1. Grounded combat boots & segmented armored greaves (partId = 0)
+    const legs = [
+      { x: -0.20 * wScale * S, z: 0.05 * S, side: -1 },
+      { x: 0.20 * wScale * S, z: -0.05 * S, side: 1 }
+    ];
+    for (const { x, z, side } of legs) {
+      b.addBox(x, 0.028 * S, z + 0.04 * S, 0.19 * wScale * S, 0.056 * S, 0.33 * S, 0, bootTone);
+      b.addTrapezoid(x, 0.105 * S, z + 0.04 * S, 0.18 * wScale * S, 0.29 * S, 0.15 * wScale * S, 0.18 * S, 0.10 * S, -0.02 * S, 0, heavy ? armorTone : bootTone);
+      b.addBeveledBox(x, 0.08 * S, z + 0.15 * S, 0.16 * wScale * S, 0.085 * S, 0.095 * S, 0.018 * S, 0, trimTone);
+      // Shins & knee guards
+      b.addTrapezoid(x, 0.30 * S, z, 0.20 * wScale * S, 0.21 * S, 0.165 * wScale * S, 0.18 * S, 0.30 * S, 0, 0, heavy ? armorTone : clothTone);
+      b.addBeveledBox(x, 0.30 * S, z + 0.095 * S, 0.10 * wScale * S, 0.24 * S, 0.05 * S, 0.015 * S, 0, heavy ? trimTone : armorTone);
+      b.addBeveledBox(x, 0.46 * S, z + 0.095 * S, 0.15 * wScale * S, 0.14 * S, 0.09 * S, 0.03 * S, 0, trimTone);
+      // Thighs + armored cuisses
+      b.addLimb([x, 0.45 * S, z], [x * 0.86, 0.77 * S, 0], 0.095 * wScale * S, 0.105 * wScale * S, 10, 0, clothTone);
+      b.addTrapezoid(x * 0.92, 0.62 * S, z * 0.4, 0.175 * wScale * S, 0.19 * S, 0.195 * wScale * S, 0.21 * S, 0.25 * S, 0, 0, armorTone);
+      b.addBeveledBox(x + side * 0.10 * wScale * S, 0.62 * S, z * 0.4, 0.065 * S, 0.13 * S, 0.10 * S, 0.015 * S, 0, trimTone);
+    }
 
-    b.addLimb(P(legW, hipY, -0.04), P(legW + 0.02, kneeY, -0.06), legR * S, ankleR * S, 10, 0, clothTone);
-    b.addLimb(P(legW + 0.02, kneeY, -0.06), P(legW + 0.02, 0.09, -0.10), ankleR * S, (ankleR * 0.85) * S, 10, 0, clothTone);
-    b.addBeveledBox((legW + 0.02) * S, 0.065 * S, -0.04 * S, (heavy ? 0.17 : 0.12) * S, 0.11 * S, 0.24 * S, 0.025 * S, 0, bootTone);
-  }
+    // 2. Pelvis, belt & hip armor
+    const pelvisY = 0.79 * S;
+    b.addBeveledBox(0, pelvisY, 0, 0.38 * wScale * S, 0.12 * S, 0.26 * S, 0.025 * S, 0, bootTone);
+    b.addTrapezoid(0, pelvisY - 0.01 * S, 0.07 * S, 0.14 * wScale * S, 0.14 * S, 0.21 * wScale * S, 0.17 * S, 0.17 * S, 0, 0, armorTone);
+    b.addBeveledBox(0, pelvisY + 0.03 * S, 0.145 * S, 0.12 * S, 0.06 * S, 0.04 * S, 0.012 * S, 0, 3);
 
-  const pelvisY = kneeling ? 0.56 : (heavy ? 0.72 : 0.68);
-  const torsoY = pelvisY + 0.24;
-  const shY = torsoY + 0.14;
-  const neckY = torsoY + 0.24;
-  const wScale = heavy ? 1.38 : 1.0;
+    // 3. Articulated Upper Torso & Armor (partId = 1)
+    const torsoBaseY = 0.84 * S;
+    b.addTrapezoid(0, torsoBaseY + 0.19 * S, 0.01 * S, 0.38 * wScale * S, 0.27 * wScale * S, 0.54 * wScale * S, 0.36 * wScale * S, 0.38 * S, 0.02 * S, 1, armorTone);
+    b.addTrapezoid(0, torsoBaseY + 0.21 * S, 0.16 * wScale * S, 0.27 * wScale * S, 0.11 * S, 0.35 * wScale * S, 0.14 * S, 0.29 * S, 0.02 * S, 1, trimTone);
+    b.addBeveledBox(-0.13 * wScale * S, torsoBaseY + 0.27 * S, 0.19 * wScale * S, 0.14 * wScale * S, 0.11 * S, 0.06 * S, 0.02 * S, 1, armorTone);
+    b.addBeveledBox(0.13 * wScale * S, torsoBaseY + 0.27 * S, 0.19 * wScale * S, 0.14 * wScale * S, 0.11 * S, 0.06 * S, 0.02 * S, 1, armorTone);
+    if (chestCoreTone !== null) {
+      b.addCylinder(0, torsoBaseY + 0.26 * S, 0.22 * wScale * S, 0.055 * S, 0.055 * S, 0.04 * S, 12, 'Z', 1, chestCoreTone);
+    }
 
-  // Pelvis, tactical belt, V-tapered chest armor rig
-  b.addTrapezoid(0, pelvisY * S, (kneeling ? -0.08 : -0.02) * S, 0.30 * wScale * S, 0.20 * wScale * S, 0.26 * wScale * S, 0.18 * wScale * S, 0.14 * S, 0, 0, clothTone);
-  b.addBeveledBox(0, (pelvisY + 0.06) * S, (kneeling ? -0.08 : -0.02) * S, 0.29 * wScale * S, 0.075 * S, 0.21 * wScale * S, 0.02 * S, 0, bootTone);
-  b.addTrapezoid(0, torsoY * S, (kneeling ? -0.06 : -0.02) * S, 0.27 * wScale * S, 0.19 * wScale * S, 0.39 * wScale * S, 0.24 * wScale * S, 0.36 * S, 0.02 * S, 0, armorTone);
-  b.addBeveledBox(0, (torsoY + 0.02) * S, (kneeling ? 0.06 : 0.09) * S, 0.26 * wScale * S, 0.24 * S, 0.06 * S, 0.02 * S, 0, 0);
+    // 4. Shoulder Style & Gorget Collar
+    const shY = torsoBaseY + 0.30 * S;
+    const shX = (heavy ? 0.36 : (shoulderStyle === 'sleek' ? 0.29 : 0.31)) * S;
+    if (shoulderStyle === 'cmc') {
+      b.addBeveledBox(0, torsoBaseY + 0.44 * S, -0.16 * S, 0.34 * wScale * S, 0.16 * S, 0.09 * S, 0.028 * S, 1, armorTone);
+      for (const side of [-1, 1]) {
+        b.addCapsule(side * 0.27 * wScale * S, shY, -0.01 * S, 0.11 * S, 0.04 * S, 'X', 10, 1, 1);
+        b.withTransform(side * 0.39 * wScale * S, shY, -0.01 * S, 0.04, 0, side * -0.54, () => {
+          b.addLathe(0, -0.03 * S, 0, [
+            [0.0, 0.22 * S], [0.06 * S, 0.215 * S], [0.12 * S, 0.185 * S], [0.18 * S, 0.125 * S], [0.21 * S, 0.02 * S]
+          ], 14, 'Y', 1, armorTone);
+          b.addCylinder(0, -0.035 * S, 0, 0.232 * S, 0.225 * S, 0.055 * S, 14, 'Y', 1, trimTone);
+          b.addBeveledBox(0, 0.10 * S, 0, 0.075 * S, 0.11 * S, 0.29 * S, 0.018 * S, 1, 3);
+        });
+      }
+    } else if (shoulderStyle === 'sleek') {
+      for (const side of [-1, 1]) {
+        b.withTransform(side * shX, shY, 0, 0.03, 0, side * -0.42, () => {
+          b.addLathe(0, -0.02 * S, 0, [
+            [0.0, 0.145 * S], [0.05 * S, 0.14 * S], [0.10 * S, 0.11 * S], [0.14 * S, 0.02 * S]
+          ], 12, 'Y', 1, armorTone);
+          b.addCylinder(0, -0.025 * S, 0, 0.155 * S, 0.15 * S, 0.035 * S, 12, 'Y', 1, trimTone);
+        });
+      }
+    } else if (shoulderStyle === 'medium') {
+      for (const side of [-1, 1]) {
+        b.withTransform(side * shX, shY, 0, 0.04, 0, side * -0.35, () => {
+          b.addBeveledBox(0, 0, 0, 0.18 * S, 0.16 * S, 0.22 * S, 0.04 * S, 1, trimTone);
+          b.addBeveledBox(0, 0.03 * S, 0, 0.13 * S, 0.11 * S, 0.18 * S, 0.025 * S, 1, armorTone);
+        });
+      }
+    } else {
+      // 'coat': tailored armored coat shoulders
+      b.addBeveledBox(-0.27 * S, shY - 0.02 * S, 0, 0.14 * S, 0.14 * S, 0.20 * S, 0.035 * S, 1, armorTone);
+      b.addBeveledBox(0.27 * S, shY - 0.02 * S, 0, 0.14 * S, 0.14 * S, 0.20 * S, 0.035 * S, 1, armorTone);
+    }
 
-  // Articulated arms & shoulder pads
-  const shX = (heavy ? 0.29 : 0.22);
-  const shZ = kneeling ? -0.05 : -0.02;
-  b.addCapsule(-shX * S, shY * S, shZ * S, (heavy ? 0.11 : 0.075) * S, 0.08 * S, 'Z', 10, 0, armorTone);
-  b.addCapsule(shX * S, shY * S, shZ * S, (heavy ? 0.11 : 0.075) * S, 0.08 * S, 'Z', 10, 0, armorTone);
+    // 5. Helmet / Faceplate Styles (zero toy-skin gaps!)
+    const headY = torsoBaseY + 0.51 * S;
+    if (helmetStyle === 'cmc') {
+      b.addLathe(0, headY, 0.02 * S, [
+        [-0.075 * S, 0.15 * S], [-0.02 * S, 0.165 * S], [0.055 * S, 0.155 * S], [0.12 * S, 0.11 * S], [0.155 * S, 0.02 * S]
+      ], 14, 'Y', 1, helmetTone);
+      b.addBeveledBox(0, headY + 0.075 * S, 0.11 * S, 0.21 * S, 0.045 * S, 0.09 * S, 0.016 * S, 1, trimTone);
+      b.addCylinder(0, headY + 0.015 * S, 0.088 * S, 0.142 * S, 0.142 * S, 0.08 * S, 14, 'Y', 1, visorTone);
+      b.addTrapezoid(0, headY - 0.078 * S, 0.088 * S, 0.17 * S, 0.14 * S, 0.20 * S, 0.16 * S, 0.09 * S, 0.01 * S, 1, trimTone);
+    } else if (helmetStyle === 'dome') {
+      // Sleek full-face Chrono/Rocketeer spherical-oval combat helmet
+      b.addLathe(0, headY + 0.01 * S, 0.01 * S, [
+        [-0.08 * S, 0.135 * S], [-0.01 * S, 0.162 * S], [0.07 * S, 0.152 * S], [0.13 * S, 0.105 * S], [0.165 * S, 0.02 * S]
+      ], 14, 'Y', 1, helmetTone);
+      b.addCapsule(0, headY + 0.01 * S, 0.08 * S, 0.095 * S, 0.05 * S, 'Y', 12, 1, visorTone);
+      b.addBeveledBox(-0.155 * S, headY, 0, 0.05 * S, 0.09 * S, 0.10 * S, 0.015 * S, 1, trimTone);
+      b.addBeveledBox(0.155 * S, headY, 0, 0.05 * S, 0.09 * S, 0.10 * S, 0.015 * S, 1, trimTone);
+    } else if (helmetStyle === 'stealth') {
+      // Balaclava + glowing dual NVG tactical goggles
+      b.addCapsule(0, headY + 0.01 * S, 0.01 * S, 0.135 * S, 0.07 * S, 'Y', 12, 1, bootTone);
+      b.addBeveledBox(0, headY + 0.03 * S, 0.11 * S, 0.18 * S, 0.065 * S, 0.07 * S, 0.015 * S, 1, trimTone);
+      b.addCylinder(-0.048 * S, headY + 0.03 * S, 0.14 * S, 0.035 * S, 0.035 * S, 0.04 * S, 10, 'Z', 1, visorTone);
+      b.addCylinder(0.048 * S, headY + 0.03 * S, 0.14 * S, 0.035 * S, 0.035 * S, 0.04 * S, 10, 'Z', 1, visorTone);
+    } else {
+      // 'goggles': Steel/Hazard M1 dome + tinted combat goggles + respirator mask
+      b.addCapsule(0, headY, 0.01 * S, 0.125 * S, 0.06 * S, 'Y', 12, 1, bootTone); // Sealed balaclava head
+      b.addLathe(0, headY + 0.04 * S, 0, [
+        [-0.03 * S, 0.17 * S], [0.02 * S, 0.165 * S], [0.075 * S, 0.145 * S], [0.125 * S, 0.095 * S], [0.145 * S, 0.02 * S]
+      ], 14, 'Y', 1, helmetTone);
+      b.addBeveledBox(0, headY + 0.02 * S, 0.115 * S, 0.18 * S, 0.058 * S, 0.065 * S, 0.015 * S, 1, visorTone);
+      b.addCylinder(0, headY - 0.055 * S, 0.11 * S, 0.065 * S, 0.055 * S, 0.07 * S, 10, 'Z', 1, trimTone);
+    }
 
-  if (weaponHands === 'dual') {
-    b.addLimb(P(-shX, shY, shZ), P(-0.27, shY - 0.14, 0.10), 0.058 * S, 0.048 * S, 8, 0, clothTone);
-    b.addLimb(P(-0.27, shY - 0.14, 0.10), P(-0.22, shY - 0.10, 0.30), 0.048 * S, 0.040 * S, 8, 0, bootTone);
-    b.addLimb(P(shX, shY, shZ), P(0.27, shY - 0.14, 0.10), 0.058 * S, 0.048 * S, 8, 0, clothTone);
-    b.addLimb(P(0.27, shY - 0.14, 0.10), P(0.22, shY - 0.10, 0.30), 0.048 * S, 0.040 * S, 8, 0, bootTone);
-  } else {
-    const gunY = kneeling ? 0.72 : (heavy ? shY - 0.10 : shY - 0.12);
-    const gripX = heavy ? 0.28 : 0.17;
-    const foreX = heavy ? 0.18 : 0.11;
-    // Right trigger arm
-    b.addLimb(P(shX, shY, shZ), P(shX + 0.06, gunY - 0.02, 0.08), (heavy ? 0.078 : 0.058) * S, 0.050 * S, 8, 0, armorTone);
-    b.addLimb(P(shX + 0.06, gunY - 0.02, 0.08), P(gripX, gunY, 0.25), 0.052 * S, 0.044 * S, 8, 0, bootTone);
-    // Left support arm reaching across to weapon handguard
-    b.addLimb(P(-shX, shY, shZ), P(-0.15, gunY - 0.05, 0.20), (heavy ? 0.078 : 0.058) * S, 0.050 * S, 8, 0, armorTone);
-    b.addLimb(P(-0.15, gunY - 0.05, 0.20), P(foreX, gunY - 0.01, 0.48), 0.052 * S, 0.042 * S, 8, 0, bootTone);
-  }
-
-  // Head + contoured tactical helmet brim + visor (1:7 heroic proportion)
-  const headZ = kneeling ? 0.0 : 0.0;
-  b.addCapsule(0, (neckY + 0.05) * S, headZ * S, 0.095 * S, 0.06 * S, 'Y', 12, 1, 7); // Face / balaclava chin
-  b.addLathe(0, (neckY + 0.12) * S, (headZ - 0.01) * S, [
-    [-0.045 * S, 0.148 * S],
-    [-0.015 * S, 0.142 * S],
-    [0.035 * S, 0.132 * S],
-    [0.082 * S, 0.098 * S],
-    [0.105 * S, 0.015 * S]
-  ], 14, 'Y', 1, helmetTone);
-  b.addBeveledBox(0, (neckY + 0.07) * S, (headZ + 0.092) * S, 0.145 * S, 0.045 * S, 0.055 * S, 0.015 * S, 1, visorTone);
+    // 6. Articulated Arms & Gauntlets (partId = 1)
+    const gunY = torsoBaseY + 0.05 * S;
+    const armR = (heavy ? 0.098 : 0.072) * S;
+    const armForeR = (heavy ? 0.092 : 0.068) * S;
+    if (weaponHands === 'dual') {
+      b.addLimb([-shX + 0.02 * S, shY - 0.08 * S, 0], [-0.28 * S, gunY - 0.02 * S, 0.12 * S], armR, armForeR, 8, 1, clothTone);
+      b.addLimb([-0.28 * S, gunY - 0.02 * S, 0.12 * S], [-0.22 * S, gunY, 0.34 * S], armForeR, armForeR * 0.85, 8, 1, armorTone);
+      b.addLimb([shX - 0.02 * S, shY - 0.08 * S, 0], [0.28 * S, gunY - 0.02 * S, 0.12 * S], armR, armForeR, 8, 1, clothTone);
+      b.addLimb([0.28 * S, gunY - 0.02 * S, 0.12 * S], [0.22 * S, gunY, 0.34 * S], armForeR, armForeR * 0.85, 8, 1, armorTone);
+    } else if (weaponHands === 'tools') {
+      // Left arm carries heavy toolbox low at side; right arm holds wrench forward
+      b.addLimb([-shX, shY - 0.07 * S, 0], [-0.34 * S, torsoBaseY - 0.06 * S, 0.04 * S], armR, armForeR, 8, 1, armorTone);
+      b.addLimb([-0.34 * S, torsoBaseY - 0.06 * S, 0.04 * S], [-0.33 * S, torsoBaseY - 0.28 * S, 0.08 * S], armForeR, armForeR * 0.85, 8, 1, trimTone);
+      b.addLimb([shX, shY - 0.07 * S, 0], [0.30 * S, gunY - 0.03 * S, 0.14 * S], armR, armForeR, 8, 1, armorTone);
+      b.addLimb([0.30 * S, gunY - 0.03 * S, 0.14 * S], [0.24 * S, gunY + 0.06 * S, 0.34 * S], armForeR, armForeR * 0.85, 8, 1, trimTone);
+    } else if (weaponHands === 'shoulder') {
+      // High right shoulder launcher grip + left forward support grip
+      b.addLimb([shX, shY - 0.06 * S, 0], [0.34 * S, shY - 0.04 * S, 0.18 * S], armR, armForeR, 8, 1, clothTone);
+      b.addLimb([0.34 * S, shY - 0.04 * S, 0.18 * S], [0.24 * S, shY + 0.06 * S, 0.32 * S], armForeR, armForeR * 0.85, 8, 1, bootTone);
+      b.addLimb([-shX, shY - 0.07 * S, 0], [-0.14 * S, shY - 0.06 * S, 0.28 * S], armR, armForeR, 8, 1, clothTone);
+      b.addLimb([-0.14 * S, shY - 0.06 * S, 0.28 * S], [0.16 * S, shY + 0.06 * S, 0.46 * S], armForeR, armForeR * 0.85, 8, 1, bootTone);
+    } else {
+      // 'heavy' or 'rifle' two-handed combat hold
+      const gx = (heavy ? 0.20 : 0.15) * S;
+      b.addLimb([shX - 0.02 * S, shY - 0.08 * S, 0.01 * S], [shX - 0.03 * S, gunY - 0.01 * S, 0.08 * S], armR, armForeR, 8, 1, clothTone);
+      b.addLimb([shX - 0.03 * S, gunY - 0.01 * S, 0.08 * S], [gx + 0.03 * S, gunY, 0.25 * S], armForeR, armForeR * 0.85, 8, 1, armorTone);
+      b.addLimb([-shX + 0.02 * S, shY - 0.08 * S, 0.01 * S], [-0.21 * S, gunY - 0.04 * S, 0.23 * S], armR, armForeR, 8, 1, clothTone);
+      b.addLimb([-0.21 * S, gunY - 0.04 * S, 0.23 * S], [gx - 0.08 * S, gunY - 0.01 * S, 0.49 * S], armForeR, armForeR * 0.85, 8, 1, armorTone);
+    }
+  });
 }
 
 // High-detail procedural CAD blueprints for units & buildings + clean coverage for all 49 canonical IDs.
@@ -1331,89 +1412,183 @@ export function buildProceduralGeometryData(typeId) {
     }
 
     case 'conscript': {
-      // Crimson Foundry Trenchcoat Rifleman: greatcoat skirt + crimson collar + fur ushanka + assault rifle
-      addTrooperRig(b, { armorTone: 5, clothTone: 7, helmetTone: 1, visorTone: 7, weaponHands: 'rifle' });
-      b.addCylinder(0, 0.44, -0.02, 0.25, 0.18, 0.42, 14, 'Y', 0, 7); // Khaki trenchcoat flare
-      b.addCylinder(0, 1.32, 0, 0.155, 0.145, 0.18, 12, 'Y', 1, 1); // Ushanka cap
-      b.addBox(0, 1.33, 0.13, 0.08, 0.06, 0.04, 1, 5);
-      // AK Assault rifle + banana mag
-      b.addBeveledBox(0.16, 0.90, 0.22, 0.05, 0.08, 0.20, 0.012, 2, 7);
-      b.addBeveledBox(0.16, 0.91, 0.44, 0.06, 0.09, 0.32, 0.015, 2, 1);
-      b.addCylinder(0.16, 0.92, 0.76, 0.024, 0.020, 0.46, 8, 'Z', 2, 1);
-      b.addLimb([0.16, 0.87, 0.46], [0.16, 0.74, 0.52], 0.024, 0.020, 6, 2, 1);
+      // Crimson Foundry Trenchcoat Rifleman: greatcoat panels, webbed belt, helmet + goggles/mask, assault rifle
+      const S = 1.0;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 5, trimTone: 0, clothTone: 7, helmetTone: 0, visorTone: 6, bootTone: 1,
+        scale: S, shoulderStyle: 'coat', helmetStyle: 'goggles', weaponHands: 'rifle'
+      });
+      // Flared split greatcoat skirt (partId = 0, boots/knees cleanly articulated)
+      b.addTrapezoid(0, 0.56, -0.05, 0.50, 0.34, 0.42, 0.26, 0.46, -0.04, 0, 5);
+      b.addBeveledBox(-0.14, 0.56, 0.08, 0.21, 0.42, 0.14, 0.025, 0, 5);
+      b.addBeveledBox(0.14, 0.56, 0.08, 0.21, 0.42, 0.14, 0.025, 0, 5);
+      // Trenchcoat crimson collar & ammo webbing pouches (partId = 1)
+      b.addBeveledBox(0, 1.19, -0.03, 0.30, 0.11, 0.24, 0.025, 1, 5);
+      b.addBeveledBox(0, 0.90, -0.20, 0.28, 0.30, 0.14, 0.03, 1, 7);
+      b.addBeveledBox(-0.14, 0.84, 0.17, 0.10, 0.10, 0.07, 0.015, 0, 0);
+      b.addBeveledBox(0.14, 0.84, 0.17, 0.10, 0.10, 0.07, 0.015, 0, 0);
+      // Tactical bullpup/AK assault rifle (partId = 2)
+      b.addBeveledBox(0.15, gunY + 0.01, 0.20, 0.055, 0.095, 0.22, 0.012, 2, 1);
+      b.addBeveledBox(0.15, gunY + 0.02, 0.44, 0.062, 0.105, 0.36, 0.015, 2, 0);
+      b.addBeveledBox(0.15, gunY + 0.09, 0.40, 0.042, 0.045, 0.26, 0.01, 2, 1);
+      b.addCylinder(0.15, gunY + 0.03, 0.75, 0.024, 0.019, 0.36, 8, 'Z', 2, 1);
+      b.addLimb([0.15, gunY - 0.03, 0.46], [0.15, gunY - 0.16, 0.52], 0.025, 0.021, 6, 2, 1);
       break;
     }
 
     case 'flak_trooper': {
-      // Heavy Flak Trooper: olive/dark flak vest, crimson twin propellant cylinders, shoulder flak cannon
-      addTrooperRig(b, { armorTone: 0, clothTone: 7, helmetTone: 5, visorTone: 6, heavy: true, scale: 1.04, weaponHands: 'heavy' });
-      b.addCapsule(-0.15, 0.92, -0.26, 0.095, 0.32, 'Y', 10, 0, 5);
-      b.addCapsule(0.15, 0.92, -0.26, 0.095, 0.32, 'Y', 10, 0, 5);
-      b.addCylinder(0.24, 0.98, 0.46, 0.095, 0.082, 0.96, 12, 'Z', 2, 1);
-      b.addCylinder(0.24, 0.98, 0.94, 0.11, 0.09, 0.16, 12, 'Z', 2, 3);
+      // Heavy Flak Trooper: khaki sleeves/trousers, gunmetal flak vest, twin crimson tanks, shoulder flak cannon
+      const S = 1.06;
+      const shY = (0.84 + 0.30) * S;
+      addTrooperRig(b, {
+        armorTone: 0, trimTone: 5, clothTone: 7, helmetTone: 0, visorTone: 6, bootTone: 1,
+        scale: S, shoulderStyle: 'medium', helmetStyle: 'goggles', weaponHands: 'shoulder'
+      });
+      // Twin dorsal propellant cylinders (partId = 1 so they rotate with torso)
+      b.addCapsule(-0.14 * S, 1.02 * S, -0.22 * S, 0.085 * S, 0.28 * S, 'Y', 10, 1, 5);
+      b.addCapsule(0.14 * S, 1.02 * S, -0.22 * S, 0.085 * S, 0.28 * S, 'Y', 10, 1, 5);
+      b.addCylinder(-0.14 * S, 1.21 * S, -0.22 * S, 0.055 * S, 0.055 * S, 0.06 * S, 10, 'Y', 1, 3);
+      b.addCylinder(0.14 * S, 1.21 * S, -0.22 * S, 0.055 * S, 0.055 * S, 0.06 * S, 10, 'Y', 1, 3);
+      // Heavy over-shoulder flak rocket tube (partId = 2)
+      b.withTransform(0.24 * S, shY + 0.09 * S, 0.16 * S, -0.06, 0, 0, () => {
+        b.addCylinder(0, 0, 0.06 * S, 0.095 * S, 0.088 * S, 0.96 * S, 12, 'Z', 2, 0);
+        b.addCylinder(0, 0, 0.54 * S, 0.118 * S, 0.098 * S, 0.16 * S, 12, 'Z', 2, 1);
+        b.addCylinder(0, 0, -0.42 * S, 0.085 * S, 0.112 * S, 0.14 * S, 12, 'Z', 2, 1);
+        b.addBeveledBox(0, 0.02 * S, 0.20 * S, 0.19 * S, 0.12 * S, 0.24 * S, 0.02 * S, 2, 5);
+      });
       break;
     }
 
     case 'engineer': {
-      // Hazard Yellow Engineer: articulated safety suit, armored toolkit backpack, hard-hat, heavy wrench
-      addTrooperRig(b, { armorTone: 4, clothTone: 4, helmetTone: 4, visorTone: 6, bootTone: 1, weaponHands: 'dual' });
-      b.addBeveledBox(0, 0.92, -0.21, 0.32, 0.36, 0.18, 0.04, 0, 0); // Tool pack
-      b.addLimb([0.22, 0.84, 0.30], [0.22, 1.02, 0.54], 0.032, 0.032, 8, 2, 3); // Steel pipe wrench
-      b.addBeveledBox(0.22, 1.04, 0.56, 0.09, 0.09, 0.12, 0.015, 2, 3);
+      // Hazard Yellow Engineer: Tone 8 industrial suit, gunmetal chest trim, left toolbox, right steel pipe wrench
+      const S = 1.0;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 8, trimTone: 0, clothTone: 1, helmetTone: 8, visorTone: 6, bootTone: 1,
+        scale: S, shoulderStyle: 'medium', helmetStyle: 'goggles', weaponHands: 'tools'
+      });
+      // Armored tool backpack (partId = 1)
+      b.addBeveledBox(0, 1.02, -0.21, 0.34, 0.36, 0.17, 0.04, 1, 0);
+      b.addBeveledBox(0, 1.12, -0.27, 0.24, 0.12, 0.08, 0.02, 1, 8);
+      // Left-hand heavy rugged gunmetal toolbox with chrome handle (partId = 1)
+      b.addBeveledBox(-0.34, 0.42, 0.08, 0.14, 0.24, 0.34, 0.025, 1, 0);
+      b.addBeveledBox(-0.34, 0.42, 0.08, 0.15, 0.05, 0.32, 0.01, 1, 8);
+      b.addBeveledBox(-0.34, 0.56, 0.08, 0.04, 0.05, 0.14, 0.01, 1, 3);
+      // Right-hand heavy steel pipe wrench (partId = 2)
+      b.addLimb([0.24, gunY - 0.02, 0.28], [0.24, gunY + 0.24, 0.54], 0.030, 0.028, 8, 2, 3);
+      b.addBeveledBox(0.24, gunY + 0.26, 0.56, 0.075, 0.095, 0.12, 0.015, 2, 0);
+      b.addBeveledBox(0.24, gunY + 0.29, 0.58, 0.082, 0.045, 0.08, 0.01, 2, 3);
       break;
     }
 
     case 'rocketeer': {
-      // Abyssal Jump-Jet Rocketeer: sleek cobalt armor, twin thrusters, swept jump wings, shoulder rocket pod
-      addTrooperRig(b, { armorTone: 5, clothTone: 0, helmetTone: 5, visorTone: 2, weaponHands: 'heavy' });
-      b.addCapsule(-0.14, 0.92, -0.22, 0.095, 0.32, 'Y', 10, 0, 1);
-      b.addCapsule(0.14, 0.92, -0.22, 0.095, 0.32, 'Y', 10, 0, 1);
-      b.addCylinder(-0.14, 0.68, -0.22, 0.07, 0.045, 0.14, 10, 'Y', 0, 2);
-      b.addCylinder(0.14, 0.68, -0.22, 0.07, 0.045, 0.14, 10, 'Y', 0, 2);
-      b.addSweptWing(-1, -0.16, 0.98, -0.22, 0.62, 0.32, 0.14, 0.16, 0.08, 0.05, 0, 5);
-      b.addSweptWing(1, 0.16, 0.98, -0.22, 0.62, 0.32, 0.14, 0.16, 0.08, 0.05, 0, 5);
-      b.addCylinder(-0.22, 1.06, 0.28, 0.072, 0.064, 0.80, 10, 'Z', 2, 1);
+      // Abyssal Jump-Jet Rocketeer: sleek cobalt exo, curved dome visor, twin jet thrusters + fins, pulse rifle
+      const S = 1.04;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 5, trimTone: 0, clothTone: 1, helmetTone: 5, visorTone: 3, bootTone: 1,
+        scale: S, shoulderStyle: 'sleek', helmetStyle: 'dome', chestCoreTone: 2, weaponHands: 'heavy'
+      });
+      // Twin angled turbine thruster pods + compact jump fins (partId = 1)
+      b.addBeveledBox(0, 1.04 * S, -0.19 * S, 0.26 * S, 0.28 * S, 0.14 * S, 0.03 * S, 1, 0);
+      for (const side of [-1, 1]) {
+        b.withTransform(side * 0.16 * S, 1.04 * S, -0.25 * S, 0.08, 0, side * -0.16, () => {
+          b.addCapsule(0, 0.04 * S, 0, 0.082 * S, 0.30 * S, 'Y', 10, 1, 3);
+          b.addCylinder(0, 0.20 * S, 0, 0.088 * S, 0.065 * S, 0.10 * S, 10, 'Y', 1, 5);
+          b.addCylinder(0, -0.18 * S, 0, 0.072 * S, 0.048 * S, 0.12 * S, 10, 'Y', 1, 0);
+          b.addCylinder(0, -0.26 * S, 0, 0.042 * S, 0.016 * S, 0.12 * S, 10, 'Y', 1, 2); // Cyan plasma thrust glow
+        });
+        b.addSweptWing(side, side * 0.18 * S, 1.06 * S, -0.23 * S, 0.56 * S, 0.26 * S, 0.11 * S, 0.14 * S, 0.07 * S, 0.04 * S, 1, 5);
+      }
+      // Dual-pod pulse rocket carbine (partId = 2)
+      b.addBeveledBox(0.18 * S, gunY + 0.02 * S, 0.34 * S, 0.11 * S, 0.13 * S, 0.48 * S, 0.022 * S, 2, 0);
+      b.addCylinder(0.18 * S, gunY + 0.05 * S, 0.68 * S, 0.042 * S, 0.038 * S, 0.36 * S, 10, 'Z', 2, 3);
+      b.addCylinder(0.18 * S, gunY - 0.02 * S, 0.64 * S, 0.035 * S, 0.032 * S, 0.30 * S, 10, 'Z', 2, 5);
       break;
     }
 
     case 'tesla_trooper': {
-      // Heavy Crimson Exo-Suit Tesla Trooper: bulky exo plates, twin dorsal copper coils, lightning emitter
-      addTrooperRig(b, { armorTone: 5, clothTone: 0, helmetTone: 5, visorTone: 2, heavy: true, scale: 1.14, weaponHands: 'heavy' });
-      b.addCylinder(-0.20, 1.18, -0.30, 0.095, 0.08, 0.56, 12, 'Y', 0, 4);
-      b.addCylinder(0.20, 1.18, -0.30, 0.095, 0.08, 0.56, 12, 'Y', 0, 4);
-      b.addTorus(-0.20, 1.38, -0.30, 0.12, 0.028, 12, 6, 0, 0, 0, 3);
-      b.addTorus(0.20, 1.38, -0.30, 0.12, 0.028, 12, 6, 0, 0, 0, 3);
-      b.addCapsule(-0.20, 1.48, -0.30, 0.075, 0.01, 'Y', 10, 0, 2);
-      b.addCapsule(0.20, 1.48, -0.30, 0.075, 0.01, 'Y', 10, 0, 2);
-      b.addCylinder(0.28, 1.02, 0.52, 0.095, 0.058, 0.78, 12, 'Z', 2, 3);
-      b.addCapsule(0.28, 1.02, 0.94, 0.075, 0.01, 'Z', 10, 2, 2);
+      // Heavy Crimson CMC Exo Tesla Trooper: bulky exo plates, twin angled copper Tesla coils (Tone 9), arc cannon
+      const S = 1.15;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 5, trimTone: 0, clothTone: 1, helmetTone: 5, visorTone: 2, bootTone: 1,
+        heavy: true, scale: S, shoulderStyle: 'cmc', helmetStyle: 'cmc', chestCoreTone: 2, weaponHands: 'heavy'
+      });
+      // Dorsal heavy reactor pack & twin V-angled copper Tesla coils (partId = 1)
+      b.addBeveledBox(0, 1.04 * S, -0.24 * S, 0.42 * S, 0.38 * S, 0.20 * S, 0.04 * S, 1, 0);
+      for (const side of [-1, 1]) {
+        b.withTransform(side * 0.21 * S, 1.24 * S, -0.27 * S, -0.14, 0, side * -0.26, () => {
+          b.addCylinder(0, 0.18 * S, 0, 0.075 * S, 0.062 * S, 0.44 * S, 12, 'Y', 1, 9); // Copper core
+          b.addTorus(0, 0.06 * S, 0, 0.105 * S, 0.024 * S, 12, 6, 0, 0, 0, 3);
+          b.addTorus(0, 0.18 * S, 0, 0.115 * S, 0.026 * S, 12, 6, 0, 0, 0, 9);
+          b.addTorus(0, 0.30 * S, 0, 0.125 * S, 0.028 * S, 12, 6, 0, 0, 0, 3);
+          b.addCapsule(0, 0.42 * S, 0, 0.072 * S, 0.02 * S, 'Y', 10, 1, 2); // Cyan HV discharge sphere
+        });
+      }
+      // Heavy forearm-mounted Tesla arc projector (partId = 2)
+      b.addBeveledBox(0.22 * S, gunY + 0.01 * S, 0.36 * S, 0.14 * S, 0.15 * S, 0.44 * S, 0.03 * S, 2, 0);
+      b.addCylinder(0.22 * S, gunY + 0.01 * S, 0.64 * S, 0.085 * S, 0.065 * S, 0.34 * S, 12, 'Z', 2, 9);
+      b.addTorus(0.22 * S, gunY + 0.01 * S, 0.72 * S, 0.095 * S, 0.022 * S, 12, 6, Math.PI * 0.5, 0, 0, 3);
+      b.addCapsule(0.22 * S, gunY + 0.01 * S, 0.86 * S, 0.068 * S, 0.02 * S, 'Z', 10, 2, 2);
       break;
     }
 
     case 'chrono': {
-      // Silver-White Chrono Legionnaire: sleek titanium suit, tilted glowing Chrono gyro pack, phase carbine
-      addTrooperRig(b, { armorTone: 3, clothTone: 0, helmetTone: 3, visorTone: 2, weaponHands: 'rifle' });
-      b.addBeveledBox(0, 0.94, 0.12, 0.20, 0.20, 0.04, 0.02, 0, 5);
-      b.addTorus(0, 1.02, -0.24, 0.22, 0.048, 16, 8, Math.PI * 0.5, 0, 0, 2);
-      b.addCylinder(0.16, 0.91, 0.46, 0.068, 0.048, 0.86, 12, 'Z', 2, 0);
-      b.addBeveledBox(0.16, 0.92, 0.86, 0.075, 0.075, 0.14, 0.015, 2, 2);
+      // Titanium Silver-White Chrono Legionnaire: sleek white-silver armor, blue trim, glowing Chrono gyro pack, phase carbine
+      const S = 1.02;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 3, trimTone: 5, clothTone: 1, helmetTone: 3, visorTone: 2, bootTone: 3,
+        scale: S, shoulderStyle: 'sleek', helmetStyle: 'dome', chestCoreTone: 2, weaponHands: 'rifle'
+      });
+      // Dorsal Chrono gyro backpack with glowing cyan energy ring (partId = 1)
+      b.addBeveledBox(0, 1.02 * S, -0.18 * S, 0.28 * S, 0.30 * S, 0.13 * S, 0.035 * S, 1, 0);
+      b.addTorus(0, 1.08 * S, -0.30 * S, 0.21 * S, 0.046 * S, 16, 8, Math.PI * 0.46, 0, 0, 2);
+      b.addCylinder(0, 1.08 * S, -0.30 * S, 0.105 * S, 0.105 * S, 0.085 * S, 12, 'Z', 1, 3);
+      // Futuristic Chrono Phase Carbine with glowing cyan emitter rail (partId = 2)
+      b.addBeveledBox(0.15 * S, gunY + 0.01 * S, 0.34 * S, 0.08 * S, 0.12 * S, 0.52 * S, 0.02 * S, 2, 0);
+      b.addBeveledBox(0.15 * S, gunY + 0.04 * S, 0.42 * S, 0.088 * S, 0.045 * S, 0.42 * S, 0.012 * S, 2, 3);
+      b.addCylinder(0.15 * S, gunY + 0.01 * S, 0.68 * S, 0.045 * S, 0.035 * S, 0.36 * S, 12, 'Z', 2, 2);
+      b.addBeveledBox(0.15 * S, gunY + 0.01 * S, 0.84 * S, 0.068 * S, 0.072 * S, 0.14 * S, 0.015 * S, 2, 3);
       break;
     }
 
     case 'shadow': {
-      // Tactical Stealth Commando "Shadow": carbon stealth armor, NVG optics, twin suppressed pistols
-      addTrooperRig(b, { armorTone: 1, clothTone: 1, helmetTone: 1, visorTone: 2, weaponHands: 'dual' });
-      b.addBeveledBox(0, 0.94, 0.11, 0.22, 0.18, 0.04, 0.02, 0, 5);
-      b.addCylinder(-0.22, 0.94, 0.44, 0.036, 0.03, 0.44, 8, 'Z', 2, 1);
-      b.addCylinder(0.22, 0.94, 0.44, 0.036, 0.03, 0.44, 8, 'Z', 2, 1);
+      // Tactical Stealth Commando "Shadow": matte carbon suit, blue armor trim, NVG goggles, twin suppressed pistols
+      const S = 1.0;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 5, trimTone: 0, clothTone: 1, helmetTone: 1, visorTone: 2, bootTone: 1,
+        scale: S, shoulderStyle: 'sleek', helmetStyle: 'stealth', weaponHands: 'dual'
+      });
+      // Slim matte stealth pack & chest utility rig (partId = 1)
+      b.addBeveledBox(0, 1.02, -0.18, 0.24, 0.28, 0.11, 0.025, 1, 1);
+      // Twin suppressed tactical pistols (partId = 2)
+      for (const side of [-1, 1]) {
+        b.addBeveledBox(side * 0.22, gunY + 0.02, 0.40, 0.045, 0.075, 0.20, 0.01, 2, 0);
+        b.addCylinder(side * 0.22, gunY + 0.03, 0.62, 0.028, 0.026, 0.26, 10, 'Z', 2, 1);
+      }
       break;
     }
 
     case 'sledge': {
-      // Juggernaut Demo Hero "Sledge": massive powered crimson exo + hazard shoulder + siege mortar
-      addTrooperRig(b, { armorTone: 5, clothTone: 0, helmetTone: 5, visorTone: 2, heavy: true, scale: 1.28, weaponHands: 'heavy' });
-      b.addBeveledBox(-0.42, 1.24, 0.02, 0.24, 0.28, 0.32, 0.04, 1, 4);
-      b.addCylinder(0.36, 1.14, 0.56, 0.135, 0.125, 0.96, 12, 'Z', 2, 1);
+      // Juggernaut Demo Hero "Sledge": massive powered crimson CMC exo, caution-amber shield, siege mortar
+      const S = 1.24;
+      const gunY = 0.89 * S;
+      addTrooperRig(b, {
+        armorTone: 5, trimTone: 0, clothTone: 1, helmetTone: 5, visorTone: 2, bootTone: 1,
+        heavy: true, scale: S, shoulderStyle: 'cmc', helmetStyle: 'cmc', chestCoreTone: 2, weaponHands: 'heavy'
+      });
+      // Dorsal heavy siege pack & left industrial amber blast shield (partId = 1)
+      b.addBeveledBox(0, 1.04 * S, -0.25 * S, 0.46 * S, 0.40 * S, 0.22 * S, 0.04 * S, 1, 0);
+      b.addBeveledBox(-0.46 * S, 1.18 * S, 0.04 * S, 0.14 * S, 0.34 * S, 0.38 * S, 0.035 * S, 1, 8);
+      b.addBeveledBox(-0.49 * S, 1.18 * S, 0.04 * S, 0.06 * S, 0.20 * S, 0.28 * S, 0.02 * S, 1, 0);
+      // Heavy siege demolition cannon (partId = 2)
+      b.addBeveledBox(0.24 * S, gunY + 0.02 * S, 0.38 * S, 0.16 * S, 0.18 * S, 0.48 * S, 0.035 * S, 2, 0);
+      b.addCylinder(0.24 * S, gunY + 0.02 * S, 0.72 * S, 0.115 * S, 0.105 * S, 0.56 * S, 12, 'Z', 2, 1);
+      b.addCylinder(0.24 * S, gunY + 0.02 * S, 0.98 * S, 0.132 * S, 0.122 * S, 0.14 * S, 12, 'Z', 2, 8);
       break;
     }
 
