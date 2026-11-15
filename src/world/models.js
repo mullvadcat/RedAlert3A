@@ -835,13 +835,13 @@ function addCoolingTower(b, cx, baseY, cz, baseR, waistR, topR, h, coreGlow = fa
   }
 }
 
-// SC2-inspired CMC Powered Combat Armor Trooper ('gi' standing & 'gi_deployed' braced sandbag bunker)
+// Tactical Field Rifleman & Sandbag Machine Gunner ('gi' M1 helmet tactical trooper & 'gi_deployed' tripod LMG + sandbag bunker)
 function addMarineArmor(b, { deployed = false } = {}) {
-  const torsoBaseY = deployed ? 0.64 : 0.88;
+  const torsoBaseY = deployed ? 0.58 : 0.84;
 
-  // === 1. Lower Power-Armor Legs & Grounded Heavy Sabaton Boots (partId = 0) ===
+  // === 1. Sandbag Parapet (if deployed) & Tactical BDU Trousers + Combat Boots (partId = 0) ===
   if (deployed) {
-    // Staggered 3-course stitched military sandbag parapet + vertical steel rebar stakes + ammo box
+    // Staggered 3-course stitched military sandbag parapet + vertical steel rebar stakes
     const courses = [
       { y: 0.085, r: 0.84, angles: [-0.94, -0.63, -0.32, 0.0, 0.32, 0.63, 0.94], tilt: 0.04 },
       { y: 0.23, r: 0.82, angles: [-0.79, -0.47, -0.16, 0.16, 0.47, 0.79], tilt: -0.03 },
@@ -859,144 +859,104 @@ function addMarineArmor(b, { deployed = false } = {}) {
       }
     }
     for (const sAng of [-0.98, -0.45, 0.45, 0.98]) {
-      b.addCylinder(Math.sin(sAng) * 0.94, 0.23, Math.cos(sAng) * 0.94 - 0.04, 0.025, 0.022, 0.46, 6, 'Y', 0, 1);
+      b.addCylinder(Math.sin(sAng) * 0.94, 0.23, Math.cos(sAng) * 0.94 - 0.04, 0.024, 0.020, 0.46, 6, 'Y', 0, 1);
     }
-    b.addBeveledBox(-0.48, 0.125, 0.28, 0.22, 0.25, 0.32, 0.025, 0, 0); // Field ammo crate
-    b.addBox(-0.48, 0.23, 0.28, 0.16, 0.04, 0.26, 0, 8);
 
-    // Left leg braced forward with heavy boot flush at y = 0
-    b.addBox(-0.22, 0.03, 0.26, 0.21, 0.06, 0.35, 0, 1);
-    b.addTrapezoid(-0.22, 0.115, 0.27, 0.20, 0.31, 0.17, 0.20, 0.11, -0.02, 0, 5);
-    b.addBeveledBox(-0.22, 0.09, 0.39, 0.18, 0.09, 0.10, 0.02, 0, 0);
-    b.addTrapezoid(-0.22, 0.30, 0.22, 0.22, 0.23, 0.19, 0.20, 0.28, 0.02, 0, 5);
-    b.addBeveledBox(-0.22, 0.44, 0.33, 0.17, 0.16, 0.11, 0.035, 0, 0);
-    b.addLimb([-0.22, 0.43, 0.23], [-0.17, torsoBaseY - 0.02, -0.04], 0.115, 0.125, 10, 0, 5);
+    // Left leg braced forward cleanly (dark tactical BDU pants Tone 1 + brown/khaki combat boot + knee pad)
+    b.addBox(-0.20, 0.028, 0.26, 0.165, 0.056, 0.31, 0, 1); // Grounded boot sole y=0
+    b.addTrapezoid(-0.20, 0.10, 0.26, 0.155, 0.27, 0.13, 0.18, 0.10, -0.02, 0, 7);
+    b.addLimb([-0.20, 0.14, 0.23], [-0.20, 0.42, 0.21], 0.088, 0.095, 10, 0, 1);
+    b.addBeveledBox(-0.20, 0.42, 0.30, 0.12, 0.12, 0.08, 0.025, 0, 0);
+    b.addLimb([-0.20, 0.42, 0.21], [-0.15, torsoBaseY - 0.02, -0.04], 0.10, 0.108, 10, 0, 1);
 
-    // Right leg kneeling solidly onto ground at y = 0
-    b.addLimb([0.19, torsoBaseY - 0.02, -0.04], [0.24, 0.14, 0.05], 0.125, 0.115, 10, 0, 5);
-    b.addBeveledBox(0.24, 0.09, 0.08, 0.17, 0.16, 0.16, 0.035, 0, 0);
-    b.addLimb([0.24, 0.12, 0.02], [0.23, 0.08, -0.36], 0.105, 0.095, 10, 0, 5);
-    b.addBeveledBox(0.23, 0.10, -0.44, 0.19, 0.20, 0.12, 0.025, 0, 1);
+    // Right leg kneeling squarely on ground (y = 0)
+    b.addLimb([0.16, torsoBaseY - 0.02, -0.04], [0.22, 0.12, 0.05], 0.108, 0.098, 10, 0, 1);
+    b.addBeveledBox(0.22, 0.085, 0.08, 0.12, 0.13, 0.12, 0.025, 0, 0);
+    b.addLimb([0.22, 0.10, 0.02], [0.21, 0.075, -0.34], 0.088, 0.082, 10, 0, 1);
+    b.addBeveledBox(0.21, 0.095, -0.42, 0.155, 0.18, 0.10, 0.02, 0, 7);
   } else {
-    // Wide heroic standing combat stance (both armored sabaton boots flush on y = 0.00)
+    // Agile Tactical Stance: grounded combat boots + dark BDU cargo trousers + cargo pockets
     const legs = [
-      { x: -0.22, z: 0.05, side: -1 },
-      { x: 0.22, z: -0.05, side: 1 }
+      { x: -0.17, z: 0.04, side: -1 },
+      { x: 0.17, z: -0.04, side: 1 }
     ];
-    for (const leg of legs) {
-      const { x, z, side } = leg;
-      b.addBox(x, 0.03, z + 0.04, 0.215, 0.06, 0.36, 0, 1); // Sole tread grounded y=0
-      b.addTrapezoid(x, 0.115, z + 0.05, 0.205, 0.32, 0.17, 0.20, 0.11, -0.03, 0, 5);
-      b.addBeveledBox(x, 0.085, z + 0.175, 0.185, 0.095, 0.105, 0.02, 0, 0);
-      b.addBeveledBox(x, 0.11, z - 0.135, 0.12, 0.14, 0.09, 0.02, 0, 3); // Heel piston
-      // Flared greaves + front shin crest + rear calf hydraulics
-      b.addTrapezoid(x, 0.33, z, 0.23, 0.25, 0.19, 0.21, 0.34, 0, 0, 5);
-      b.addBeveledBox(x, 0.33, z + 0.11, 0.095, 0.27, 0.055, 0.015, 0, 0);
-      b.addCylinder(x - 0.045, 0.31, z - 0.115, 0.024, 0.024, 0.28, 8, 'Y', 0, 3);
-      b.addCylinder(x + 0.045, 0.31, z - 0.115, 0.024, 0.024, 0.28, 8, 'Y', 0, 3);
-      // Pronounced beveled knee shield
-      b.addBeveledBox(x, 0.50, z + 0.11, 0.175, 0.16, 0.105, 0.035, 0, 0);
-      b.addBeveledBox(x, 0.50, z + 0.145, 0.105, 0.095, 0.04, 0.015, 0, 5);
-      // Armored thigh + undersuit + outer utility pod
-      b.addLimb([x, 0.49, z], [x * 0.86, 0.83, 0], 0.11, 0.12, 10, 0, 1);
-      b.addTrapezoid(x * 0.92, 0.67, z * 0.45 + 0.01, 0.20, 0.22, 0.22, 0.24, 0.28, 0, 0, 5);
-      b.addBeveledBox(x + side * 0.12, 0.67, z * 0.45, 0.075, 0.15, 0.12, 0.018, 0, 0);
+    for (const { x, z, side } of legs) {
+      b.addBox(x, 0.028, z + 0.04, 0.16, 0.056, 0.31, 0, 1); // Boot sole grounded y=0
+      b.addTrapezoid(x, 0.105, z + 0.04, 0.15, 0.27, 0.125, 0.17, 0.10, -0.02, 0, 7);
+      b.addLimb([x, 0.14, z], [x * 0.96, 0.45, z * 0.5], 0.085, 0.092, 10, 0, 1);
+      b.addBeveledBox(x, 0.44, z * 0.6 + 0.085, 0.115, 0.11, 0.075, 0.022, 0, 0); // Knee pad
+      b.addLimb([x * 0.96, 0.45, z * 0.5], [x * 0.85, 0.79, 0], 0.095, 0.105, 10, 0, 1);
+      b.addBeveledBox(x + side * 0.085, 0.60, z * 0.35, 0.055, 0.14, 0.11, 0.015, 0, 0); // Thigh cargo pocket
     }
   }
 
-  // Pelvis flex waist, armored codpiece & tactical hip tassets
-  b.addBeveledBox(0, torsoBaseY - 0.07, 0, 0.42, 0.13, 0.28, 0.03, 0, 1);
-  b.addTrapezoid(0, torsoBaseY - 0.08, 0.08, 0.16, 0.15, 0.24, 0.19, 0.19, 0, 0, 5);
-  b.addBeveledBox(0, torsoBaseY - 0.02, 0.165, 0.14, 0.07, 0.05, 0.015, 0, 3);
-  b.addBeveledBox(-0.25, torsoBaseY - 0.06, 0.02, 0.10, 0.16, 0.20, 0.025, 0, 0);
-  b.addBeveledBox(0.25, torsoBaseY - 0.06, 0.02, 0.10, 0.16, 0.20, 0.025, 0, 0);
-
-  // === 2. Articulated Upper CMC Armor: Cuirass, Gorget, Pauldrons, Jetpack & Helmet (partId = 1) ===
-  // Broad heavy V-tapered chest armor
-  b.addTrapezoid(0, torsoBaseY + 0.20, 0.01, 0.42, 0.30, 0.60, 0.40, 0.42, 0.02, 1, 5);
-  b.addTrapezoid(0, torsoBaseY + 0.22, 0.18, 0.30, 0.12, 0.38, 0.16, 0.32, 0.02, 1, 0);
-  b.addBeveledBox(-0.15, torsoBaseY + 0.29, 0.21, 0.16, 0.13, 0.07, 0.025, 1, 5);
-  b.addBeveledBox(0.15, torsoBaseY + 0.29, 0.21, 0.16, 0.13, 0.07, 0.025, 1, 5);
-  b.addBox(0, torsoBaseY + 0.27, 0.25, 0.10, 0.05, 0.03, 1, 2); // Central chest core light
-
-  // High U-shaped armored gorget neck collar wrapping the helmet base
-  b.addBeveledBox(0, torsoBaseY + 0.47, -0.17, 0.36, 0.18, 0.10, 0.03, 1, 5);
-  for (const side of [-1, 1]) {
-    b.withTransform(side * 0.20, torsoBaseY + 0.46, -0.02, 0.10, side * -0.45, side * -0.14, () => {
-      b.addBeveledBox(0, 0, 0, 0.09, 0.16, 0.26, 0.025, 1, 5);
-      b.addBeveledBox(side * -0.03, 0.04, 0, 0.04, 0.08, 0.22, 0.01, 1, 0);
-    });
+  // Waist Tactical Webbing Belt + Ring of Khaki Ammo Pouches (Tone 7)
+  b.addBeveledBox(0, torsoBaseY - 0.05, 0, 0.36, 0.11, 0.24, 0.02, 0, 1);
+  for (const [px, pz, pw, pd] of [[-0.13, 0.135, 0.095, 0.055], [0, 0.14, 0.11, 0.055], [0.13, 0.135, 0.095, 0.055], [-0.195, 0, 0.06, 0.11], [0.195, 0, 0.06, 0.11]]) {
+    b.addBeveledBox(px, torsoBaseY - 0.02, pz, pw, 0.11, pd, 0.015, 0, 7);
   }
 
-  // Signature Giant Layered SC2 Shoulder Pauldrons
+  // === 2. Agile Tactical Flak Vest, Star Shoulder Patches, M1 Helmet & Arms (partId = 1) ===
+  // Tailored tactical vest (Tone 5 blue) over slate BDU tunic (Tone 0)
+  b.addTrapezoid(0, torsoBaseY + 0.18, 0, 0.34, 0.22, 0.44, 0.26, 0.36, 0.02, 1, 0);
+  b.addTrapezoid(0, torsoBaseY + 0.19, 0.01, 0.36, 0.24, 0.42, 0.27, 0.32, 0.02, 1, 5);
+  b.addBeveledBox(-0.10, torsoBaseY + 0.23, 0.14, 0.12, 0.12, 0.05, 0.015, 1, 0); // Vest mag pouches
+  b.addBeveledBox(0.10, torsoBaseY + 0.23, 0.14, 0.12, 0.12, 0.05, 0.015, 1, 0);
+  // Compact khaki tactical field rucksack (NO heavy CMC thrusters)
+  b.addBeveledBox(0, torsoBaseY + 0.19, -0.17, 0.26, 0.28, 0.12, 0.03, 1, 7);
+  b.addBeveledBox(0, torsoBaseY + 0.30, -0.18, 0.22, 0.08, 0.10, 0.02, 1, 1);
+
+  // Fitted Tactical Short-Sleeve Shoulders with Gold Star Emblem (Tone 8) & Silver Trim (Tone 3)
+  const shY = torsoBaseY + 0.29;
   for (const side of [-1, 1]) {
-    b.addCapsule(side * 0.29, torsoBaseY + 0.30, -0.01, 0.115, 0.05, 'X', 10, 1, 1); // Inner joint
-    b.withTransform(side * 0.42, torsoBaseY + 0.31, -0.01, 0.04, 0, side * -0.56, () => {
-      b.addLathe(0, -0.04, 0, [
-        [0.0, 0.245], [0.065, 0.242], [0.13, 0.212], [0.19, 0.145], [0.23, 0.02]
-      ], 14, 'Y', 1, 5);
-      b.addCylinder(0, -0.042, 0, 0.26, 0.252, 0.06, 14, 'Y', 1, 0); // Rim collar
-      b.addBeveledBox(0, 0.11, 0, 0.085, 0.13, 0.33, 0.02, 1, 3); // Crest spine
-      if (side < 0) {
-        b.addBeveledBox(-0.18, 0.02, 0, 0.055, 0.055, 0.24, 0.01, 1, 4); // Squad hazard stripe
-      }
-    });
+    b.addBeveledBox(side * 0.245, shY - 0.02, 0, 0.12, 0.15, 0.18, 0.03, 1, 5);
+    b.addBeveledBox(side * 0.255, shY - 0.085, 0, 0.125, 0.032, 0.17, 0.008, 1, 3); // Sleeve band trim
+    b.addBox(side * 0.312, shY - 0.01, 0, 0.018, 0.065, 0.065, 1, 8); // Gold star chevron badge
   }
 
-  // Iconic Dorsal CMC Fusion Power-Pack + Twin Angled Jet-Turbine Pods
-  b.addBeveledBox(0, torsoBaseY + 0.24, -0.28, 0.34, 0.38, 0.24, 0.04, 1, 0);
-  b.addBeveledBox(0, torsoBaseY + 0.40, -0.28, 0.28, 0.11, 0.20, 0.03, 1, 5);
-  b.addBox(0, torsoBaseY + 0.24, -0.405, 0.12, 0.16, 0.03, 1, 2); // Spine fusion glow
-  for (const side of [-1, 1]) {
-    b.withTransform(side * 0.20, torsoBaseY + 0.25, -0.34, -0.20, 0, side * -0.24, () => {
-      b.addCylinder(0, 0, 0, 0.095, 0.115, 0.34, 12, 'Y', 1, 3);
-      b.addCylinder(0, 0.185, 0, 0.105, 0.072, 0.07, 12, 'Y', 1, 1); // Top intake shroud
-      b.addCylinder(0, -0.19, 0, 0.115, 0.085, 0.09, 12, 'Y', 1, 0); // Exhaust bell
-      b.addCylinder(0, -0.23, 0, 0.078, 0.06, 0.04, 10, 'Y', 1, 2); // Jet core glow
-    });
-  }
-  b.addCylinder(-0.13, torsoBaseY + 0.56, -0.34, 0.014, 0.010, 0.26, 6, 'Y', 1, 3); // Pack comms whip
-  b.addBox(-0.13, torsoBaseY + 0.69, -0.34, 0.032, 0.032, 0.032, 1, 2);
-
-  // Enclosed Powered Combat Helmet + Wrap-around Glowing Tactical Visor + Respirator Mask
-  const headY = torsoBaseY + 0.55;
-  b.addLathe(0, headY, 0.02, [
-    [-0.08, 0.162], [-0.02, 0.180], [0.06, 0.168], [0.13, 0.120], [0.165, 0.02]
+  // Open-Face M1 Steel Combat Helmet + Exposed Face & Chinstrap (NO enclosed SC2 glass dome!)
+  const headY = torsoBaseY + 0.49;
+  b.addCapsule(0, headY - 0.01, 0.02, 0.115, 0.05, 'Y', 12, 1, 7); // Sun-tanned tactical face
+  b.addBeveledBox(0, headY - 0.06, 0.02, 0.20, 0.04, 0.18, 0.01, 1, 1); // Chinstrap & collar
+  b.addBox(0, headY + 0.02, 0.122, 0.14, 0.032, 0.03, 1, 1); // Brow shadow / eye line
+  // Iconic flanged blue M1 steel combat helmet bowl + rim lip
+  b.addLathe(0, headY + 0.035, 0, [
+    [-0.03, 0.168], [0.025, 0.160], [0.075, 0.142], [0.12, 0.095], [0.145, 0.02]
   ], 14, 'Y', 1, 5);
-  b.addBeveledBox(0, headY + 0.085, 0.115, 0.22, 0.045, 0.095, 0.018, 1, 0); // Heavy brow hood
-  b.addCylinder(0, headY + 0.018, 0.092, 0.152, 0.152, 0.086, 14, 'Y', 1, 2); // Prominent curved glowing SC2 visor
-  b.addTrapezoid(0, headY - 0.082, 0.095, 0.18, 0.15, 0.21, 0.17, 0.095, 0.01, 1, 0); // Respirator jaw
-  b.addCylinder(-0.10, headY - 0.08, 0.13, 0.04, 0.04, 0.07, 8, 'Z', 1, 3); // Cheek breather pods
-  b.addCylinder(0.10, headY - 0.08, 0.13, 0.04, 0.04, 0.07, 8, 'Z', 1, 3);
-  b.addBeveledBox(-0.17, headY + 0.01, 0.01, 0.06, 0.11, 0.11, 0.015, 1, 0); // Ear comms
-  b.addBeveledBox(0.17, headY + 0.01, 0.01, 0.06, 0.11, 0.11, 0.015, 1, 0);
-  b.addCylinder(0.18, headY + 0.11, 0.01, 0.014, 0.010, 0.15, 6, 'Y', 1, 3); // Helmet rangefinder
+  b.addCylinder(0, headY + 0.01, 0.015, 0.172, 0.168, 0.028, 14, 'Y', 1, 5); // M1 helmet brim
 
-  // Chunky Armored Arms & Flared Gauntlets cradling the rifle
-  const gunY = torsoBaseY + 0.05;
-  b.addLimb([0.38, torsoBaseY + 0.22, 0.01], [0.35, gunY - 0.01, 0.07], 0.105, 0.095, 10, 1, 1);
-  b.addLimb([0.35, gunY - 0.01, 0.07], [0.22, gunY, 0.28], 0.102, 0.082, 10, 1, 5);
-  b.addBeveledBox(0.20, gunY + 0.01, 0.29, 0.11, 0.10, 0.11, 0.02, 1, 1); // Right armored gauntlet fist
+  // Lean Muscular Tactical Forearms (rolled sleeves) + Dark Combat Gloves cradling gun
+  const gunY = torsoBaseY + 0.04;
+  const gx = deployed ? 0.16 : 0.14;
+  b.addLimb([0.26, shY - 0.06, 0], [0.27, gunY - 0.01, 0.08], 0.068, 0.060, 8, 1, 7);
+  b.addLimb([0.27, gunY - 0.01, 0.08], [gx + 0.02, gunY, 0.24], 0.060, 0.052, 8, 1, 1); // Right gloved grip
+  b.addLimb([-0.26, shY - 0.06, 0], [-0.18, gunY - 0.03, 0.24], 0.068, 0.060, 8, 1, 7);
+  b.addLimb([-0.18, gunY - 0.03, 0.24], [gx - 0.06, gunY, 0.48], 0.060, 0.052, 8, 1, 1); // Left gloved grip
 
-  b.addLimb([-0.38, torsoBaseY + 0.22, 0.01], [-0.25, gunY - 0.04, 0.26], 0.105, 0.095, 10, 1, 1);
-  b.addLimb([-0.25, gunY - 0.04, 0.26], [0.06, gunY - 0.01, 0.54], 0.102, 0.082, 10, 1, 5);
-  b.addBeveledBox(0.08, gunY, 0.55, 0.11, 0.10, 0.11, 0.02, 1, 1); // Left armored gauntlet fist
-
-  // === 3. Heavy C-14 Impaler-style Gauss Rifle (partId = 2 -> recoils cleanly along -Z) ===
-  const gx = 0.17;
-  b.addBeveledBox(gx, gunY + 0.02, 0.45, 0.125, 0.16, 0.52, 0.025, 2, 0); // Heavy angular receiver
-  b.addBox(gx + 0.065, gunY + 0.02, 0.44, 0.02, 0.10, 0.36, 2, 5); // Faction casing trim
-  b.addBeveledBox(gx + 0.02, gunY, 0.17, 0.085, 0.14, 0.21, 0.02, 2, 1); // Stock
-  b.addCylinder(gx, gunY + 0.03, 0.85, 0.056, 0.046, 0.46, 10, 'Z', 2, 1); // Barrel shroud
-  b.addBeveledBox(gx, gunY + 0.03, 1.07, 0.088, 0.098, 0.11, 0.015, 2, 3); // Muzzle compensator
-  b.addTrapezoid(gx, gunY - 0.045, 0.90, 0.028, 0.20, 0.018, 0.13, 0.055, 0.03, 2, 3); // Bayonet lug
-  b.addCylinder(gx, gunY - 0.095, 0.47, 0.105, 0.105, 0.15, 12, 'X', 2, 3); // Underslung rotary ammo drum
-  b.addBox(gx - 0.05, gunY - 0.03, 0.47, 0.04, 0.06, 0.09, 2, 9); // Brass cartridge feed belt
-  b.addBeveledBox(gx, gunY + 0.125, 0.46, 0.062, 0.058, 0.16, 0.012, 2, 0); // Reflex optic mount
-  b.addBox(gx, gunY + 0.125, 0.535, 0.042, 0.038, 0.02, 2, 2); // Optic sight glow
+  // === 3. Weapon (partId = 2 -> recoils cleanly along -Z) ===
   if (deployed) {
-    b.addLimb([gx, gunY - 0.02, 0.78], [gx - 0.14, 0.41, 0.78], 0.024, 0.020, 6, 2, 1);
-    b.addLimb([gx, gunY - 0.02, 0.78], [gx + 0.14, 0.41, 0.78], 0.024, 0.020, 6, 2, 1);
+    // Heavy Belt-Fed M60/Browning Tripod Machine Gun + Side Khaki Ammo Box + Draped Brass Belt (Tone 9)
+    b.addBeveledBox(gx, gunY + 0.03, 0.48, 0.105, 0.125, 0.56, 0.02, 2, 1); // Heavy LMG receiver
+    b.addBeveledBox(gx + 0.01, gunY, 0.18, 0.065, 0.11, 0.22, 0.015, 2, 7); // Buttstock
+    b.addCylinder(gx, gunY + 0.05, 0.94, 0.042, 0.032, 0.54, 10, 'Z', 2, 1); // Heavy machine gun barrel
+    b.addCylinder(gx, gunY + 0.01, 0.88, 0.028, 0.024, 0.42, 8, 'Z', 2, 0); // Underslung gas tube
+    b.addCylinder(gx, gunY + 0.05, 1.22, 0.048, 0.042, 0.10, 10, 'Z', 2, 3); // Flash suppressor
+    // Side-mounted Olive-Khaki Ammo Box + Brass Cartridge Feed Belt
+    b.addBeveledBox(gx - 0.14, gunY + 0.01, 0.46, 0.12, 0.14, 0.18, 0.015, 2, 7);
+    b.addBox(gx - 0.075, gunY + 0.03, 0.46, 0.055, 0.06, 0.11, 2, 9);
+    b.addLimb([gx - 0.09, gunY + 0.01, 0.46], [gx - 0.11, gunY - 0.14, 0.46], 0.028, 0.022, 6, 2, 9); // Hanging brass belt
+    // Sturdy Heavy Tripod Legs anchored to ground behind sandbags
+    b.addCylinder(gx, gunY - 0.04, 0.56, 0.04, 0.04, 0.10, 8, 'Y', 2, 0);
+    b.addLimb([gx, gunY - 0.06, 0.56], [gx - 0.18, 0.0, 0.72], 0.026, 0.022, 6, 2, 1);
+    b.addLimb([gx, gunY - 0.06, 0.56], [gx + 0.18, 0.0, 0.72], 0.026, 0.022, 6, 2, 1);
+    b.addLimb([gx, gunY - 0.06, 0.56], [gx, 0.0, 0.24], 0.026, 0.022, 6, 2, 1);
+  } else {
+    // Tactical M4 / SAW Carbine Rifle
+    b.addBeveledBox(gx, gunY + 0.02, 0.42, 0.075, 0.10, 0.42, 0.015, 2, 1);
+    b.addBeveledBox(gx + 0.01, gunY, 0.16, 0.055, 0.10, 0.18, 0.012, 2, 0);
+    b.addCylinder(gx, gunY + 0.03, 0.76, 0.030, 0.024, 0.36, 8, 'Z', 2, 1);
+    b.addBeveledBox(gx, gunY + 0.09, 0.42, 0.042, 0.042, 0.16, 0.01, 2, 0); // Top carry optic rail
+    b.addLimb([gx, gunY - 0.02, 0.46], [gx, gunY - 0.14, 0.50], 0.025, 0.021, 6, 2, 1); // Box magazine
   }
 }
 
