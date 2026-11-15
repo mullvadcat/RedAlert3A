@@ -681,8 +681,18 @@ function createMeshBuilder() {
     for (let rIdx = 0; rIdx < rings.length - 1; rIdx++) {
       const a = rings[rIdx], c = rings[rIdx + 1];
       for (let i = 0; i < segs; i++) {
-        addSmoothTri(a.pts[i], c.pts[i], c.pts[i + 1], a.nrms[i], c.nrms[i], c.nrms[i + 1], 0, 0, 0, 1, 1, 1, partId, tone);
-        addSmoothTri(a.pts[i], c.pts[i + 1], a.pts[i + 1], a.nrms[i], c.nrms[i + 1], a.nrms[i + 1], 0, 0, 1, 1, 1, 0, partId, tone);
+        addSmoothTri(
+          a.pts[i], a.nrms[i], 0, 0,
+          c.pts[i], c.nrms[i], 0, 1,
+          c.pts[i + 1], c.nrms[i + 1], 1, 1,
+          partId, tone
+        );
+        addSmoothTri(
+          a.pts[i], a.nrms[i], 0, 0,
+          c.pts[i + 1], c.nrms[i + 1], 1, 1,
+          a.pts[i + 1], a.nrms[i + 1], 1, 0,
+          partId, tone
+        );
       }
     }
   }
@@ -798,7 +808,7 @@ function addTrooperRig(b, cfg) {
 }
 
 // High-detail procedural CAD blueprints for units & buildings + clean coverage for all 49 canonical IDs.
-function buildProceduralGeometryData(typeId) {
+export function buildProceduralGeometryData(typeId) {
   const b = createMeshBuilder();
   const def = ENTITY_DEFS[typeId];
 

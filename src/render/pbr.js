@@ -56,35 +56,37 @@ float hash21(vec2 p) {
   return fract(p.x * p.y);
 }
 
-float vnoise(vec2 p) {
+float vnoiseTiled(vec2 p, float period) {
   vec2 i = floor(p);
   vec2 f = fract(p);
   f = f * f * (3.0 - 2.0 * f);
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
+  vec2 i0 = mod(i, period);
+  vec2 i1 = mod(i + 1.0, period);
+  float a = hash21(i0);
+  float b = hash21(vec2(i1.x, i0.y));
+  float c = hash21(vec2(i0.x, i1.y));
+  float d = hash21(i1);
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-float fbm(vec2 p) {
+float fbmTiled(vec2 uv, float basePeriod) {
   float v = 0.0;
   float a = 0.5;
+  float freq = basePeriod;
   for (int i = 0; i < 4; i++) {
-    v += a * vnoise(p);
-    p *= 2.02;
+    v += a * vnoiseTiled(uv * freq, freq);
+    freq *= 2.0;
     a *= 0.5;
   }
   return v;
 }
 
 void main() {
-  // Seamless tiled UV space
-  vec2 p = vUv * 32.0;
-  float macro = fbm(p);
-  float fine = fbm(p * 4.0 + 17.3);
+  // Seamless periodic tiled UV space (zero wrap seams across terrain!)
+  float macro = fbmTiled(vUv, 16.0);
+  float fine = fbmTiled(vUv + 0.37, 64.0);
 
-  // Armor plate seams & corner rivets (4x4 plate tile)
+  // Armor plate seams & corner rivets (8x8 plate tile)
   vec2 plate = fract(vUv * 8.0);
   float seamX = smoothstep(0.025, 0.0, min(plate.x, 1.0 - plate.x));
   float seamY = smoothstep(0.025, 0.0, min(plate.y, 1.0 - plate.y));
@@ -93,13 +95,14 @@ void main() {
   vec2 riv = abs(plate - clamp(plate, 0.08, 0.92));
   float rivet = smoothstep(0.018, 0.008, length(fract(plate * 6.0) - 0.5)) * step(0.15, max(riv.x, riv.y));
 
-  // Digital camo blotches
-  float camo = smoothstep(0.46, 0.56, fbm(vUv * 12.0 + vec2(3.1, 7.4)));
+  // Digital camo blotches (seamless period 12)
+  float camo = smoothstep(0.46, 0.56, fbmTiled(vUv + vec2(0.19, 0.61), 12.0));
   float edgeWear = smoothstep(0.4, 0.9, seam + (fine - 0.5) * 0.35);
 
   float heightL = macro - seam * 0.25 + rivet * 0.15;
-  float hx = fbm(p + vec2(0.15, 0.0)) - fbm(p - vec2(0.15, 0.0));
-  float hy = fbm(p + vec2(0.0, 0.15)) - fbm(p - vec2(0.0, 0.15));
+  float eps = 0.004;
+  float hx = fbmTiled(vUv + vec2(eps, 0.0), 16.0) - fbmTiled(vUv - vec2(eps, 0.0), 16.0);
+  float hy = fbmTiled(vUv + vec2(0.0, eps), 16.0) - fbmTiled(vUv - vec2(0.0, eps), 16.0);
   vec2 normXY = clamp(vec2(hx, hy) * 1.6 + 0.5, 0.0, 1.0);
 
   float roughness = clamp(0.42 + (1.0 - macro) * 0.28 + seam * 0.2 - edgeWear * 0.18, 0.15, 0.95);
