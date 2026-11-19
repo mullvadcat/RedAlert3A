@@ -30,9 +30,9 @@
       "file": "boulder.glb",
       "source": "Poly Haven boulder_01 (CC0)",
       "rawKb": 5636.7,
-      "optKb": 2305.3,
+      "optKb": 2216.0,
       "rawTris": 66122,
-      "optTris": 54122
+      "optTris": 51478
     },
     {
       "file": "barrier.glb",
@@ -107,7 +107,7 @@
   ],
   "totals": {
     "compressedPolyHavenRawKb": 518766.5,
-    "compressedPolyHavenOptKb": 7781.6,
-    "showcaseTotalDiskKb": 13043.5
+    "compressedPolyHavenOptKb": 7692.3,
+    "showcaseTotalDiskKb": 12954.2
   }
 }
