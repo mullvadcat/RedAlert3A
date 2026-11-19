@@ -113,6 +113,14 @@ void main() {
   outMaterial = vec4(normXY.x, normXY.y, roughness, metallic);
 }`;
 
+function applyAnisotropic(gl, target, maxAniso = 8) {
+  const ext = gl.getExtension('EXT_texture_filter_anisotropic')
+    || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
+  if (!ext) return;
+  const limit = gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1;
+  gl.texParameterf(target, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maxAniso, limit));
+}
+
 function createTexture2D(gl, width, height, internalFormat = gl.RGBA8, format = gl.RGBA, type = gl.UNSIGNED_BYTE, mipmap = true) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -121,6 +129,7 @@ function createTexture2D(gl, width, height, internalFormat = gl.RGBA8, format = 
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  applyAnisotropic(gl, gl.TEXTURE_2D, 8);
   gl.bindTexture(gl.TEXTURE_2D, null);
   return tex;
 }
@@ -189,6 +198,134 @@ export function bakeProceduralPBRTextures(gl, atlasSize = PBR_ATLAS_SIZE) {
     dispose() {
       gl.deleteTexture(detailTex);
       gl.deleteTexture(materialTex);
+    }
+  };
+}
+
+const TERRAIN_LAYERS = ['grass', 'dirt', 'rock', 'concrete', 'sand'];
+const TERRAIN_FALLBACK_ALBEDO = [
+  [44, 88, 28, 255],
+  [76, 58, 38, 255],
+  [82, 78, 74, 255],
+  [98, 102, 106, 255],
+  [148, 128, 86, 255]
+];
+
+function createEmptyTextureArray(gl, size, layers, fillFn) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+  gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, size, size, layers, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const scratch = new Uint8Array(size * size * 4);
+  for (let l = 0; l < layers; l++) {
+    const [r, g, b, a] = fillFn(l);
+    for (let i = 0; i < scratch.length; i += 4) {
+      scratch[i] = r;
+      scratch[i + 1] = g;
+      scratch[i + 2] = b;
+      scratch[i + 3] = a;
+    }
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, l, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, scratch);
+  }
+  gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  applyAnisotropic(gl, gl.TEXTURE_2D_ARRAY, 8);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+  return tex;
+}
+
+async function decodeImagePixels(url, size, ctx) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} loading ${url}`);
+  const blob = await resp.blob();
+  if (typeof createImageBitmap === 'function') {
+    const bmp = await createImageBitmap(blob);
+    ctx.drawImage(bmp, 0, 0, size, size);
+    if (typeof bmp.close === 'function') bmp.close();
+  } else {
+    const objUrl = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error(`Decode failed: ${url}`));
+        el.src = objUrl;
+      });
+      ctx.drawImage(img, 0, 0, size, size);
+    } finally {
+      URL.revokeObjectURL(objUrl);
+    }
+  }
+  return new Uint8Array(ctx.getImageData(0, 0, size, size).data);
+}
+
+export function loadTerrainPbrArrays(gl) {
+  const size = 512;
+  const layers = TERRAIN_LAYERS.length;
+  const albedoArr = createEmptyTextureArray(gl, size, layers, (l) => TERRAIN_FALLBACK_ALBEDO[l]);
+  const normRoughArr = createEmptyTextureArray(gl, size, layers, () => [128, 128, 255, 210]);
+
+  let ready = false;
+  let disposed = false;
+
+  if (typeof fetch === 'function' && typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    if (ctx) {
+      Promise.all(
+        TERRAIN_LAYERS.map(async (name, layerIdx) => {
+          const base = `./assets/textures/terrain/${name}`;
+          const diff = await decodeImagePixels(`${base}_diff.jpg`, size, ctx);
+          const nor = await decodeImagePixels(`${base}_nor.jpg`, size, ctx);
+          const rough = await decodeImagePixels(`${base}_rough.jpg`, size, ctx);
+          return { layerIdx, diff, nor, rough };
+        })
+      )
+        .then((decoded) => {
+          if (disposed) return;
+          const merged = new Uint8Array(size * size * 4);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+
+          for (const { layerIdx, diff, nor, rough } of decoded) {
+            for (let i = 0; i < merged.length; i += 4) {
+              merged[i] = nor[i];
+              merged[i + 1] = nor[i + 1];
+              merged[i + 2] = nor[i + 2];
+              merged[i + 3] = rough[i];
+            }
+            gl.bindTexture(gl.TEXTURE_2D_ARRAY, albedoArr);
+            gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layerIdx, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, diff);
+
+            gl.bindTexture(gl.TEXTURE_2D_ARRAY, normRoughArr);
+            gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layerIdx, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, merged);
+          }
+
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, albedoArr);
+          gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, normRoughArr);
+          gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+          ready = true;
+        })
+        .catch(() => {
+          // Keeps procedural terrain fallback silently if texture sheets are unavailable.
+        });
+    }
+  }
+
+  return {
+    albedoArr,
+    normRoughArr,
+    get ready() { return ready; },
+    dispose() {
+      disposed = true;
+      gl.deleteTexture(albedoArr);
+      gl.deleteTexture(normRoughArr);
     }
   };
 }

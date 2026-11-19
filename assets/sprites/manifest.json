@@ -1,10 +1,4 @@
 {
-  "note": "2.5D transparent PNG/WebP unit sprites rendered as camera-facing shadow-casting quads.",
-  "sprites": {
-    "gi_deployed": {
-      "url": "./assets/sprites/gi_deployed.png",
-      "width": 1.60,
-      "height": 1.38
-    }
-  }
+  "note": "Optional 2.5D transparent PNG/WebP sprite overrides. Default keeps full 3D models active; drag .png/.webp into ?show=gallery or register entries here to override specific IDs.",
+  "sprites": {}
 }

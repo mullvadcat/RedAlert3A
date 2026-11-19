@@ -116,7 +116,14 @@ uniform sampler2D uMaterialTex;
 uniform sampler2D uShadowMap;
 uniform sampler2D uFogTex;
 uniform sampler2D uAlbedoTex;
+uniform sampler2D uNormalTex;
+uniform sampler2D uMrTex;
 uniform float uHasAlbedoTex;
+uniform float uHasNormalTex;
+uniform float uHasMrTex;
+uniform float uNormalScale;
+uniform float uMetallicFactor;
+uniform float uRoughnessFactor;
 uniform float uBillboardMode;
 uniform vec4 uAlbedoTint;
 uniform vec3 uTeamColors[4];
@@ -246,8 +253,13 @@ void main() {
     // glTF baseColorTexture / PNG sprites are sRGB; decode to linear space before AgX filmic tone mapping
     vec3 texLinear = pow(clamp(albedoSample.rgb, 0.0, 1.0), vec3(2.2));
     baseCol = texLinear * uAlbedoTint.rgb * 1.12;
-    metallic = mix(0.08, 0.02, uBillboardMode);
-    roughness = mix(0.72, 0.88, uBillboardMode);
+    metallic = mix(clamp(0.10 * uMetallicFactor, 0.0, 0.98), 0.02, uBillboardMode);
+    roughness = mix(clamp(0.72 * uRoughnessFactor, 0.12, 0.98), 0.88, uBillboardMode);
+  }
+  if (uHasMrTex > 0.5 && uBillboardMode < 0.5) {
+    vec4 mr = texture(uMrTex, vUv);
+    metallic = clamp(mr.b * uMetallicFactor, 0.0, 0.98);
+    roughness = clamp(mr.g * uRoughnessFactor, 0.08, 0.98);
   }
 
   // < 50% HP charred battle-damage mask
@@ -255,7 +267,7 @@ void main() {
   baseCol = mix(baseCol, vec3(0.035, 0.032, 0.03), dmgMask * 0.86);
   roughness = mix(roughness, 0.92, dmgMask);
 
-  // Derivative micro-normal relief from baked PBR normal XY + edge-highlight crispness
+  // Tangent-space normal relief: full glTF normalTexture when present, else baked PBR micro-normal
   vec3 N = normalize(vNormal);
   vec2 nPerturb = (mat.rg - 0.5) * mix(0.28, 0.05, max(glassFactor, uHasAlbedoTex));
   vec3 dp1 = dFdx(vWorldPos);
@@ -268,7 +280,15 @@ void main() {
   vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
   float invMax = inversesqrt(max(dot(T, T), dot(B, B)) + 1e-6);
   if (invMax < 1e4) {
-    N = normalize(N + (T * nPerturb.x + B * nPerturb.y) * invMax);
+    if (uHasNormalTex > 0.5 && uBillboardMode < 0.5) {
+      vec3 tsN = texture(uNormalTex, vUv).xyz * 2.0 - 1.0;
+      tsN.xy *= uNormalScale;
+      vec3 Tn = T * invMax;
+      vec3 Bn = B * invMax;
+      N = normalize(Tn * tsN.x + Bn * tsN.y + N * max(0.05, tsN.z));
+    } else {
+      N = normalize(N + (T * nPerturb.x + B * nPerturb.y) * invMax);
+    }
   }
 
   vec3 V = normalize(uCamPos - vWorldPos);
@@ -2283,7 +2303,14 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     uShadowMap: gl.getUniformLocation(mainProg, 'uShadowMap'),
     uFogTex: gl.getUniformLocation(mainProg, 'uFogTex'),
     uAlbedoTex: gl.getUniformLocation(mainProg, 'uAlbedoTex'),
+    uNormalTex: gl.getUniformLocation(mainProg, 'uNormalTex'),
+    uMrTex: gl.getUniformLocation(mainProg, 'uMrTex'),
     uHasAlbedoTex: gl.getUniformLocation(mainProg, 'uHasAlbedoTex'),
+    uHasNormalTex: gl.getUniformLocation(mainProg, 'uHasNormalTex'),
+    uHasMrTex: gl.getUniformLocation(mainProg, 'uHasMrTex'),
+    uNormalScale: gl.getUniformLocation(mainProg, 'uNormalScale'),
+    uMetallicFactor: gl.getUniformLocation(mainProg, 'uMetallicFactor'),
+    uRoughnessFactor: gl.getUniformLocation(mainProg, 'uRoughnessFactor'),
     uBillboardMode: gl.getUniformLocation(mainProg, 'uBillboardMode'),
     uAlbedoTint: gl.getUniformLocation(mainProg, 'uAlbedoTint'),
     uTeamColors: gl.getUniformLocation(mainProg, 'uTeamColors')
@@ -2316,16 +2343,24 @@ export function createModelFactory(gl, compileProgram, worldSize) {
   const lastCamPos = new Float32Array([256, 40, 300]);
   const lastLightDir = new Float32Array([0.45, 0.78, 0.43]);
 
-  const fallbackWhiteTex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, fallbackWhiteTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.bindTexture(gl.TEXTURE_2D, null);
+  const makeSolidTex = (rgba) => {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(rgba));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    return tex;
+  };
+  const fallbackWhiteTex = makeSolidTex([255, 255, 255, 255]);
+  const fallbackFlatNormalTex = makeSolidTex([128, 128, 255, 255]);
+  const anisoExt = gl.getExtension('EXT_texture_filter_anisotropic')
+    || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
+  const maxAniso = anisoExt ? Math.min(8, gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1) : 1;
 
-  function commitBatchAlbedoSource(batch, source) {
-    if (!batch.albedoTex) batch.albedoTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, batch.albedoTex);
+  function commitBatchTexSlot(batch, texKey, flagKey, source) {
+    if (!batch[texKey]) batch[texKey] = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, batch[texKey]);
     // glTF TEXCOORD_0 uses top-left origin; keep UNPACK_FLIP_Y_WEBGL disabled during upload
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
@@ -2335,33 +2370,16 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     const wrapMode = batch.isBillboard ? gl.CLAMP_TO_EDGE : gl.REPEAT;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
+    if (anisoExt && maxAniso > 1) {
+      gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
+    }
     gl.bindTexture(gl.TEXTURE_2D, null);
-    batch.hasAlbedoTex = true;
+    batch[flagKey] = true;
   }
 
-  function clearBatchAlbedoTexture(batch) {
-    batch.texUploadToken = (batch.texUploadToken || 0) + 1;
-    batch.hasAlbedoTex = false;
-    batch.albedoTint.set([1, 1, 1, 1]);
-    if (batch.albedoTex) {
-      gl.deleteTexture(batch.albedoTex);
-      batch.albedoTex = null;
-    }
-  }
-
-  function uploadBatchAlbedoTexture(batch, albedoImage) {
-    clearBatchAlbedoTexture(batch);
-    if (!albedoImage || !albedoImage.bytes) return;
-    if (Array.isArray(albedoImage.baseColorFactor)) {
-      batch.albedoTint.set([
-        albedoImage.baseColorFactor[0] ?? 1,
-        albedoImage.baseColorFactor[1] ?? 1,
-        albedoImage.baseColorFactor[2] ?? 1,
-        albedoImage.baseColorFactor[3] ?? 1
-      ]);
-    }
-    const token = batch.texUploadToken;
-    const blob = new Blob([albedoImage.bytes], { type: albedoImage.mimeType || 'image/png' });
+  function decodeAndUploadSlot(batch, token, imageObj, texKey, flagKey) {
+    if (!imageObj || !imageObj.bytes) return;
+    const blob = new Blob([imageObj.bytes], { type: imageObj.mimeType || 'image/png' });
     if (typeof createImageBitmap === 'function') {
       createImageBitmap(blob, { imageOrientation: 'from-image' })
         .catch(() => createImageBitmap(blob))
@@ -2370,7 +2388,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
             if (typeof bitmap.close === 'function') bitmap.close();
             return;
           }
-          commitBatchAlbedoSource(batch, bitmap);
+          commitBatchTexSlot(batch, texKey, flagKey, bitmap);
           if (typeof bitmap.close === 'function') bitmap.close();
         })
         .catch(() => {});
@@ -2380,12 +2398,58 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       const objUrl = URL.createObjectURL(blob);
       const img = new Image();
       img.onload = () => {
-        if (batch.texUploadToken === token) commitBatchAlbedoSource(batch, img);
+        if (batch.texUploadToken === token) commitBatchTexSlot(batch, texKey, flagKey, img);
         URL.revokeObjectURL(objUrl);
       };
       img.onerror = () => URL.revokeObjectURL(objUrl);
       img.src = objUrl;
     }
+  }
+
+  function clearBatchPbrTextures(batch) {
+    batch.texUploadToken = (batch.texUploadToken || 0) + 1;
+    batch.hasAlbedoTex = false;
+    batch.hasNormalTex = false;
+    batch.hasMrTex = false;
+    batch.normalScale = 1.0;
+    batch.metallicFactor = 1.0;
+    batch.roughnessFactor = 1.0;
+    batch.albedoTint.set([1, 1, 1, 1]);
+    for (const texKey of ['albedoTex', 'normalTex', 'mrTex']) {
+      if (batch[texKey]) {
+        gl.deleteTexture(batch[texKey]);
+        batch[texKey] = null;
+      }
+    }
+  }
+
+  function uploadBatchPbrTextures(batch, geom) {
+    clearBatchPbrTextures(batch);
+    if (!geom) return;
+    const albedoImage = geom.albedoImage || null;
+    if (Array.isArray(albedoImage?.baseColorFactor)) {
+      batch.albedoTint.set([
+        albedoImage.baseColorFactor[0] ?? 1,
+        albedoImage.baseColorFactor[1] ?? 1,
+        albedoImage.baseColorFactor[2] ?? 1,
+        albedoImage.baseColorFactor[3] ?? 1
+      ]);
+    }
+    if (typeof geom.normalImage?.normalScale === 'number') {
+      batch.normalScale = geom.normalImage.normalScale;
+    } else if (typeof geom.materialFactors?.normalScale === 'number') {
+      batch.normalScale = geom.materialFactors.normalScale;
+    }
+    if (typeof geom.materialFactors?.metallicFactor === 'number') {
+      batch.metallicFactor = geom.materialFactors.metallicFactor;
+    }
+    if (typeof geom.materialFactors?.roughnessFactor === 'number') {
+      batch.roughnessFactor = geom.materialFactors.roughnessFactor;
+    }
+    const token = batch.texUploadToken;
+    decodeAndUploadSlot(batch, token, albedoImage, 'albedoTex', 'hasAlbedoTex');
+    decodeAndUploadSlot(batch, token, geom.normalImage, 'normalTex', 'hasNormalTex');
+    decodeAndUploadSlot(batch, token, geom.mrImage, 'mrTex', 'hasMrTex');
   }
 
   function uploadGeometryToBatch(batch, geom) {
@@ -2398,7 +2462,7 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     batch.indexCount = geom.indexCount;
     batch.indexType = geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
     batch.isBillboard = Boolean(geom.isBillboard);
-    uploadBatchAlbedoTexture(batch, geom.albedoImage || null);
+    uploadBatchPbrTextures(batch, geom);
   }
 
   function buildSpriteQuadGeometry(width = 2.4, height = 2.1, albedoImage = null) {
@@ -2565,7 +2629,14 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       indexType: geom.useUint32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
       isBillboard: Boolean(geom.isBillboard),
       albedoTex: null,
+      normalTex: null,
+      mrTex: null,
       hasAlbedoTex: false,
+      hasNormalTex: false,
+      hasMrTex: false,
+      normalScale: 1.0,
+      metallicFactor: 1.0,
+      roughnessFactor: 1.0,
       albedoTint: new Float32Array([1, 1, 1, 1]),
       texUploadToken: 0,
       capacity,
@@ -2573,8 +2644,8 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       staticCount: 0,
       dynamicCount: 0
     };
-    if (geom.albedoImage) {
-      uploadBatchAlbedoTexture(batch, geom.albedoImage);
+    if (geom.albedoImage || geom.normalImage || geom.mrImage) {
+      uploadBatchPbrTextures(batch, geom);
     }
     meshes.set(typeId, batch);
     return batch;
@@ -2746,42 +2817,51 @@ export function createModelFactory(gl, compileProgram, worldSize) {
     gl.uniform1i(loc.uFogTex, 3);
 
     gl.uniform1i(loc.uAlbedoTex, 4);
+    gl.uniform1i(loc.uNormalTex, 5);
+    gl.uniform1i(loc.uMrTex, 6);
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.enable(gl.STENCIL_TEST);
 
+    const drawMainBatchList = (batches, isStatic) => {
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, batch.hasNormalTex && batch.normalTex ? batch.normalTex : fallbackFlatNormalTex);
+        gl.activeTexture(gl.TEXTURE6);
+        gl.bindTexture(gl.TEXTURE_2D, batch.hasMrTex && batch.mrTex ? batch.mrTex : fallbackWhiteTex);
+
+        gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
+        gl.uniform1f(loc.uHasNormalTex, batch.hasNormalTex ? 1.0 : 0.0);
+        gl.uniform1f(loc.uHasMrTex, batch.hasMrTex ? 1.0 : 0.0);
+        gl.uniform1f(loc.uNormalScale, batch.normalScale ?? 1.0);
+        gl.uniform1f(loc.uMetallicFactor, batch.metallicFactor ?? 1.0);
+        gl.uniform1f(loc.uRoughnessFactor, batch.roughnessFactor ?? 1.0);
+        gl.uniform1f(loc.uBillboardMode, batch.isBillboard ? 1.0 : 0.0);
+        gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
+
+        const count = isStatic ? batch.staticCount : batch.dynamicCount;
+        const offset = isStatic ? 0 : batch.staticCount;
+        if (batch.isBillboard) gl.disable(gl.CULL_FACE);
+        drawBatchSlice(batch, count, offset, ctx);
+        if (batch.isBillboard) gl.enable(gl.CULL_FACE);
+      }
+    };
+
     // Draw dynamic units first leaving stencil = 0 so unobstructed units never trigger self-X-ray
     gl.stencilMask(0x00);
     gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-    for (let i = 0; i < dynamicBatches.length; i++) {
-      const batch = dynamicBatches[i];
-      gl.activeTexture(gl.TEXTURE4);
-      gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
-      gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
-      gl.uniform1f(loc.uBillboardMode, batch.isBillboard ? 1.0 : 0.0);
-      gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
-      if (batch.isBillboard) gl.disable(gl.CULL_FACE);
-      drawBatchSlice(batch, batch.dynamicCount, batch.staticCount, ctx);
-      if (batch.isBillboard) gl.enable(gl.CULL_FACE);
-    }
+    drawMainBatchList(dynamicBatches, false);
 
     // Draw static buildings marking stencil = 1 on foreground building pixels that win depth test
     gl.stencilMask(0xFF);
     gl.stencilFunc(gl.ALWAYS, 1, 0xFF);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
-    for (let i = 0; i < staticBatches.length; i++) {
-      const batch = staticBatches[i];
-      gl.activeTexture(gl.TEXTURE4);
-      gl.bindTexture(gl.TEXTURE_2D, batch.hasAlbedoTex && batch.albedoTex ? batch.albedoTex : fallbackWhiteTex);
-      gl.uniform1f(loc.uHasAlbedoTex, batch.hasAlbedoTex ? 1.0 : 0.0);
-      gl.uniform1f(loc.uBillboardMode, batch.isBillboard ? 1.0 : 0.0);
-      gl.uniform4fv(loc.uAlbedoTint, batch.albedoTint);
-      if (batch.isBillboard) gl.disable(gl.CULL_FACE);
-      drawBatchSlice(batch, batch.staticCount, 0, ctx);
-      if (batch.isBillboard) gl.enable(gl.CULL_FACE);
-    }
+    drawMainBatchList(staticBatches, true);
 
     gl.stencilMask(0xFF);
     gl.disable(gl.STENCIL_TEST);
@@ -2856,12 +2936,15 @@ export function createModelFactory(gl, compileProgram, worldSize) {
       gl.deleteProgram(shadowProg);
       gl.deleteProgram(xrayProg);
       gl.deleteTexture(fallbackWhiteTex);
+      gl.deleteTexture(fallbackFlatNormalTex);
       for (const b of meshes.values()) {
         gl.deleteVertexArray(b.vao);
         gl.deleteBuffer(b.vbo);
         gl.deleteBuffer(b.ibo);
         gl.deleteBuffer(b.instVbo);
         if (b.albedoTex) gl.deleteTexture(b.albedoTex);
+        if (b.normalTex) gl.deleteTexture(b.normalTex);
+        if (b.mrTex) gl.deleteTexture(b.mrTex);
       }
       meshes.clear();
       glbCache.clear();

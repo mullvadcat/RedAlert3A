@@ -5,7 +5,7 @@
 import { CELL_SIZE, MAP_SIZE, ORE_TYPE, TERRAIN, WORLD_SIZE } from '../world/map.js';
 import { ECONOMY_CONFIG, QUALITY_PRESETS } from '../core/config.js';
 import { createGpuFog } from './fog.js';
-import { bakeProceduralPBRTextures } from './pbr.js';
+import { bakeProceduralPBRTextures, loadTerrainPbrArrays } from './pbr.js';
 import {
   PCSS_GLSL,
   createShadowSystem,
@@ -105,7 +105,7 @@ function mat4Invert(out, m) {
 }
 
 function createColorRenderTarget(gl, width, height, preferFloat, withDepth) {
-  const build = (useFloat) => {
+  const build = (useFloat, tryDepthTex) => {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     if (useFloat) {
@@ -124,12 +124,25 @@ function createColorRenderTarget(gl, width, height, preferFloat, withDepth) {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
 
     let rbo = null;
+    let depthTex = null;
     if (withDepth) {
-      rbo = gl.createRenderbuffer();
-      gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
-      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height);
-      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rbo);
-      gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+      if (tryDepthTex) {
+        depthTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, depthTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH24_STENCIL8, width, height, 0, gl.DEPTH_STENCIL, gl.UNSIGNED_INT_24_8, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, depthTex, 0);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+      } else {
+        rbo = gl.createRenderbuffer();
+        gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rbo);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+      }
     }
 
     const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
@@ -138,16 +151,22 @@ function createColorRenderTarget(gl, width, height, preferFloat, withDepth) {
       gl.deleteTexture(tex);
       gl.deleteFramebuffer(fbo);
       if (rbo) gl.deleteRenderbuffer(rbo);
+      if (depthTex) gl.deleteTexture(depthTex);
       return null;
     }
-    return { tex, fbo, rbo, width, height, isFloat: useFloat };
+    return { tex, fbo, rbo, depthTex, width, height, isFloat: useFloat };
   };
 
   if (preferFloat) {
-    const rt = build(true);
-    if (rt) return rt;
+    if (withDepth) {
+      const rt = build(true, true) || build(true, false);
+      if (rt) return rt;
+    } else {
+      const rt = build(true, false);
+      if (rt) return rt;
+    }
   }
-  return build(false);
+  return (withDepth && build(false, true)) || build(false, false);
 }
 
 function disposeRenderTarget(gl, rt) {
@@ -155,6 +174,7 @@ function disposeRenderTarget(gl, rt) {
   gl.deleteTexture(rt.tex);
   gl.deleteFramebuffer(rt.fbo);
   if (rt.rbo) gl.deleteRenderbuffer(rt.rbo);
+  if (rt.depthTex) gl.deleteTexture(rt.depthTex);
 }
 
 // === Terrain Shader ===
@@ -183,16 +203,20 @@ void main() {
 
 const TERRAIN_FS = `#version 300 es
 precision highp float;
+precision highp sampler2DArray;
 
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUv;
 in vec4 vShadowPos;
 
-uniform sampler2D uSplatTex;   // R: terrainClass, G: oreType, B: oreAmount, A: bridgeFlag(255) / buildingPad(110)
+uniform sampler2D uSplatTex;   // R: buildingPad, G: oreType, B: oreAmount, A: bridge(255) / road(120)
 uniform sampler2D uDetailTex;
 uniform sampler2D uShadowMap;
 uniform sampler2D uFogTex;
+uniform sampler2DArray uTerrainAlbedoArr;
+uniform sampler2DArray uTerrainNormRoughArr;
+uniform float uHasScannedTerrain;
 uniform vec3 uCamPos;
 uniform vec3 uLightDir;
 uniform float uWorldSize;
@@ -210,10 +234,28 @@ float terrainHash(vec2 p) {
   return fract(p.x * p.y);
 }
 
+void samplePbrLayer(int layer, vec2 worldXZ, float scale, float macroBlend, out vec3 col, out vec3 tsN, out float rough) {
+  vec2 uv1 = worldXZ * scale;
+  vec2 uv2 = vec2(worldXZ.x * 0.8 - worldXZ.y * 0.6, worldXZ.x * 0.6 + worldXZ.y * 0.8) * (scale * 0.77) + vec2(0.37, 0.71);
+  float w = smoothstep(0.26, 0.74, macroBlend);
+  float fLayer = float(layer);
+
+  vec3 a1 = pow(clamp(texture(uTerrainAlbedoArr, vec3(uv1, fLayer)).rgb, 0.0, 1.0), vec3(2.2));
+  vec3 a2 = pow(clamp(texture(uTerrainAlbedoArr, vec3(uv2, fLayer)).rgb, 0.0, 1.0), vec3(2.2));
+  col = mix(a1, a2, w);
+
+  vec4 nr1 = texture(uTerrainNormRoughArr, vec3(uv1, fLayer));
+  vec4 nr2 = texture(uTerrainNormRoughArr, vec3(uv2, fLayer));
+  vec3 n1 = nr1.rgb * 2.0 - 1.0;
+  vec3 n2raw = nr2.rgb * 2.0 - 1.0;
+  vec2 n2xy = vec2(n2raw.x * 0.8 + n2raw.y * 0.6, -n2raw.x * 0.6 + n2raw.y * 0.8);
+  tsN = normalize(mix(n1, vec3(n2xy, n2raw.z), w));
+  rough = mix(nr1.a, nr2.a, w);
+}
+
 void main() {
   vec4 splat = texture(uSplatTex, vUv);
-  // Multi-scale world-space procedural sampling + analytical close-range turf blade / soil grit hash
-  vec4 detMacro = texture(uDetailTex, vWorldPos.xz * 0.028);
+  vec4 detMacro = texture(uDetailTex, vWorldPos.xz * 0.024);
   vec4 detMed   = texture(uDetailTex, vWorldPos.xz * 0.19 + vec2(0.17, 0.43));
   vec4 detMicro = texture(uDetailTex, vWorldPos.xz * 1.08);
 
@@ -224,46 +266,113 @@ void main() {
   float crispGrit = mix(1.0, 0.87 + 0.26 * bladeCell * 0.72 + 0.08 * step(0.86, pebbleCell), nearDetail);
 
   float slope = 1.0 - max(vNormal.y, 0.0);
-  float bladeMicro = (0.85 + 0.30 * detMicro.b) * crispGrit;
-  float macroNoise = detMacro.r * 0.58 + detMed.r * 0.42;
-
-  // Sunlit RA2 coastal meadow palette: deep moss greens, sunlit clover fields, damp loam soil, craggy slate, wet golden sand
-  vec3 lushMoss  = vec3(0.095, 0.215, 0.062) * (0.80 + 0.42 * detMed.b) * bladeMicro;
-  vec3 cloverCol = vec3(0.185, 0.305, 0.082) * (0.82 + 0.38 * detMicro.r) * bladeMicro;
-  vec3 earthCol  = vec3(0.165, 0.132, 0.082) * (0.76 + 0.48 * detMicro.b) * crispGrit;
-  vec3 rockCol   = vec3(0.19, 0.18, 0.165) * (0.68 + 0.62 * detMicro.b) * mix(1.0, 0.90 + 0.20 * pebbleCell, nearDetail);
-  vec3 sandCol   = vec3(0.36, 0.30, 0.19) * (0.82 + 0.36 * detMicro.b) * crispGrit;
-  vec3 deckCol   = vec3(0.22, 0.25, 0.29) * (0.82 + 0.36 * detMicro.b);
-
   float elev = vWorldPos.y;
-  float meadowMix = smoothstep(0.24, 0.78, macroNoise);
-  vec3 turf = mix(lushMoss, cloverCol, meadowMix);
-  float soilMix = smoothstep(0.54, 0.85, (1.0 - detMacro.r) * 0.52 + detMed.b * 0.48);
-  vec3 albedo = mix(turf, earthCol, soilMix * 0.46);
-
-  // Damp shoreline darkening right near water edge + smooth transition from beach sand to turf
+  float macroNoise = detMacro.r * 0.58 + detMed.r * 0.42;
   float wetShore = 1.0 - smoothstep(-0.15, 0.42, elev);
-  vec3 beach = sandCol * mix(1.0, 0.66, wetShore);
-  albedo = mix(beach, albedo, smoothstep(-0.18, 0.95, elev));
 
-  // Stratified cliff rock banding + rocky grit cracks on steep slopes
-  float strata = 0.78 + 0.22 * sin(elev * 5.6 + detMed.b * 3.4);
-  float rockCrack = 0.85 + 0.15 * detMicro.a;
-  albedo = mix(albedo, rockCol * strata * rockCrack, smoothstep(0.14, 0.40, slope));
+  bool isBridge = splat.a > 0.72;
+  float bldgPad = splat.r;
+  float roadMask = isBridge ? 0.0 : smoothstep(0.10, 0.44, splat.a);
 
-  // Crushed gravel & dark contact-AO foundation pad under deployed buildings
-  bool isBridge = splat.a > 0.78;
-  float bldgPad = isBridge ? 0.0 : smoothstep(0.06, 0.42, splat.a);
-  if (bldgPad > 0.01) {
-    vec3 gravelPad = mix(earthCol * 0.72, vec3(0.17, 0.18, 0.19) * crispGrit, 0.65);
-    albedo = mix(albedo, gravelPad, bldgPad * 0.78);
-    albedo *= mix(1.0, 0.64, smoothstep(0.22, 0.43, splat.a));
-  }
+  vec3 albedo;
+  vec3 N;
+  float roughness = 0.86;
 
-  // Bridges painted clearly as reinforced steel/concrete decks
-  if (isBridge) {
-    float stripe = step(0.88, fract(vWorldPos.z * 0.5)) * 0.18;
-    albedo = deckCol + vec3(stripe * 0.55, stripe * 0.38, 0.0);
+  if (uHasScannedTerrain > 0.5) {
+    vec3 gCol, gN; float gRough;
+    vec3 dCol, dN; float dRough;
+    vec3 rCol, rN; float rRough;
+    vec3 cCol, cN; float cRough;
+    vec3 sCol, sN; float sRough;
+
+    samplePbrLayer(0, vWorldPos.xz, 0.135, macroNoise, gCol, gN, gRough);
+    samplePbrLayer(1, vWorldPos.xz, 0.145, detMed.b, dCol, dN, dRough);
+    samplePbrLayer(2, vWorldPos.xz, 0.140, detMacro.r, rCol, rN, rRough);
+    samplePbrLayer(3, vWorldPos.xz, 0.185, detMed.r, cCol, cN, cRough);
+    samplePbrLayer(4, vWorldPos.xz, 0.165, detMacro.b, sCol, sN, sRough);
+
+    // Rich sunlit coastal meadow blend: scanned grass + warm soil pockets + lush variation
+    vec3 grassTinted = gCol * mix(vec3(0.82, 0.98, 0.68), vec3(1.04, 1.02, 0.90), detMacro.r);
+    float soilBlend = smoothstep(0.56, 0.88, (1.0 - detMacro.r) * 0.55 + detMed.b * 0.45);
+    albedo = mix(grassTinted, dCol * 0.92, soilBlend * 0.58);
+    vec3 tsN = mix(gN, dN, soilBlend * 0.58);
+    roughness = mix(gRough, dRough, soilBlend * 0.58);
+
+    // Coastal beach sand & wet shoreline glint
+    float landMask = smoothstep(-0.18, 0.95, elev);
+    vec3 wetSandCol = sCol * mix(1.0, 0.56, wetShore);
+    albedo = mix(wetSandCol, albedo, landMask);
+    tsN = mix(sN, tsN, landMask);
+    roughness = mix(mix(sRough, 0.18, wetShore), roughness, landMask);
+
+    // Stratified cliff rock on slopes
+    float cliffMask = smoothstep(0.14, 0.40, slope);
+    float strata = 0.80 + 0.20 * sin(elev * 5.2 + detMed.b * 2.8);
+    albedo = mix(albedo, rCol * strata, cliffMask);
+    tsN = mix(tsN, rN, cliffMask);
+    roughness = mix(roughness, rRough, cliffMask);
+
+    // Supply roads (compacted dark asphalt-concrete deck)
+    if (roadMask > 0.01) {
+      vec3 roadCol = cCol * vec3(0.48, 0.50, 0.54);
+      albedo = mix(albedo, roadCol, roadMask * 0.88);
+      tsN = mix(tsN, cN, roadMask * 0.85);
+      roughness = mix(roughness, clamp(cRough * 0.85, 0.32, 0.82), roadMask);
+    }
+
+    // Military concrete staging aprons & expanded building foundation pads + dark contact AO lip
+    float apronMask = smoothstep(0.15, 0.65, bldgPad);
+    if (apronMask > 0.01 && !isBridge) {
+      vec3 padCol = cCol * vec3(0.84, 0.86, 0.88);
+      albedo = mix(albedo, padCol, apronMask * 0.90);
+      albedo *= mix(1.0, 0.62, smoothstep(0.75, 0.98, bldgPad));
+      tsN = mix(tsN, cN, apronMask * 0.85);
+      roughness = mix(roughness, cRough, apronMask);
+    }
+
+    // Reinforced steel-concrete bridge decks + yellow edge striping
+    if (isBridge) {
+      float stripe = step(0.88, fract(vWorldPos.z * 0.5)) * 0.22;
+      albedo = cCol * vec3(0.62, 0.66, 0.72) + vec3(stripe * 0.75, stripe * 0.52, 0.0);
+      tsN = cN;
+      roughness = clamp(cRough * 0.75, 0.25, 0.75);
+    }
+
+    // OpenGL tangent-space normal (+Y = North / -Z in world top-down orientation)
+    N = normalize(vNormal + vec3(tsN.x, 0.0, -tsN.y) * mix(1.15, 0.55, cliffMask));
+  } else {
+    float bladeMicro = (0.85 + 0.30 * detMicro.b) * crispGrit;
+    vec3 lushMoss  = vec3(0.095, 0.215, 0.062) * (0.80 + 0.42 * detMed.b) * bladeMicro;
+    vec3 cloverCol = vec3(0.185, 0.305, 0.082) * (0.82 + 0.38 * detMicro.r) * bladeMicro;
+    vec3 earthCol  = vec3(0.165, 0.132, 0.082) * (0.76 + 0.48 * detMicro.b) * crispGrit;
+    vec3 rockCol   = vec3(0.19, 0.18, 0.165) * (0.68 + 0.62 * detMicro.b) * mix(1.0, 0.90 + 0.20 * pebbleCell, nearDetail);
+    vec3 sandCol   = vec3(0.36, 0.30, 0.19) * (0.82 + 0.36 * detMicro.b) * crispGrit;
+    vec3 deckCol   = vec3(0.22, 0.25, 0.29) * (0.82 + 0.36 * detMicro.b);
+
+    vec3 turf = mix(lushMoss, cloverCol, smoothstep(0.24, 0.78, macroNoise));
+    float soilMix = smoothstep(0.54, 0.85, (1.0 - detMacro.r) * 0.52 + detMed.b * 0.48);
+    albedo = mix(turf, earthCol, soilMix * 0.46);
+    vec3 beach = sandCol * mix(1.0, 0.66, wetShore);
+    albedo = mix(beach, albedo, smoothstep(-0.18, 0.95, elev));
+    float strata = 0.78 + 0.22 * sin(elev * 5.6 + detMed.b * 3.4);
+    albedo = mix(albedo, rockCol * strata * (0.85 + 0.15 * detMicro.a), smoothstep(0.14, 0.40, slope));
+
+    if (roadMask > 0.01) {
+      albedo = mix(albedo, vec3(0.14, 0.15, 0.165) * crispGrit, roadMask * 0.84);
+    }
+    float apronMask = smoothstep(0.15, 0.65, bldgPad);
+    if (apronMask > 0.01 && !isBridge) {
+      albedo = mix(albedo, vec3(0.21, 0.22, 0.23) * crispGrit, apronMask * 0.86);
+      albedo *= mix(1.0, 0.64, smoothstep(0.75, 0.98, bldgPad));
+    }
+    if (isBridge) {
+      float stripe = step(0.88, fract(vWorldPos.z * 0.5)) * 0.18;
+      albedo = deckCol + vec3(stripe * 0.55, stripe * 0.38, 0.0);
+    }
+
+    float hDet = detMicro.b * 0.52 + detMed.r * 0.30 + mix(0.0, bladeCell * 0.18, nearDetail);
+    N = normalize(vNormal + vec3(dFdx(hDet), 0.0, dFdy(hDet)) * -2.45);
+    roughness = mix(0.86, 0.24, wetShore * smoothstep(0.35, 0.05, slope));
   }
 
   // Ore vein glow on surface (Red crystal vs Violet crystal)
@@ -278,15 +387,12 @@ void main() {
     emissive += oreCol * veinMask * (0.35 + 0.15 * sin(uTime * 2.4 + vWorldPos.x * 0.3));
   }
 
-  // Crisp subtle tactical grid softly grounded on terrain / reinforced bridges
+  // Crisp subtle tactical grid softly grounded on terrain / aprons / bridges
   vec2 cellGrid = abs(fract(vWorldPos.xz / 2.0 - 0.5) - 0.5) / max(fwidth(vWorldPos.xz / 2.0), vec2(0.001));
   float gridLine = 1.0 - min(min(cellGrid.x, cellGrid.y), 1.0);
-  float gridMask = isBridge ? 0.095 : 0.015;
-  albedo = mix(albedo, albedo * 1.08 + vec3(0.006), gridLine * gridMask);
+  float gridMask = isBridge ? 0.095 : (bldgPad > 0.15 ? 0.032 : 0.012);
+  albedo = mix(albedo, albedo * 1.08 + vec3(0.005), gridLine * gridMask);
 
-  // Multi-scale micro-bump surface normal relief for tangible close-range turf & rock grit
-  float hDet = detMicro.b * 0.52 + detMed.r * 0.30 + mix(0.0, bladeCell * 0.18, nearDetail);
-  vec3 N = normalize(vNormal + vec3(dFdx(hDet), 0.0, dFdy(hDet)) * -2.45);
   vec3 L = normalize(uLightDir);
   vec3 V = normalize(uCamPos - vWorldPos);
   vec3 H = normalize(V + L);
@@ -295,12 +401,12 @@ void main() {
   vec3 proj = (vShadowPos.xyz / vShadowPos.w) * 0.5 + 0.5;
   float shadow = sampleShadowPCSS(uShadowMap, proj, 0.0014, uShadowTexelSize);
 
-  float specPower = mix(24.0, 72.0, wetShore * (1.0 - smoothstep(0.15, 0.35, slope)));
-  float specGain = mix(0.055, 0.28, wetShore);
+  float specPower = mix(96.0, 14.0, roughness);
+  float specGain = mix(0.36, 0.04, roughness) * mix(1.0, 1.65, wetShore);
   float spec = pow(max(dot(N, H), 0.0), specPower) * specGain * shadow;
 
   // Dual-hemisphere cool-sky vs warm-sun daylight with saturated blue-slate shadow fill
-  vec3 skyAmbient = mix(vec3(0.12, 0.14, 0.16), vec3(0.16, 0.24, 0.35), N.y * 0.5 + 0.5);
+  vec3 skyAmbient = mix(vec3(0.12, 0.14, 0.16), vec3(0.17, 0.25, 0.36), N.y * 0.5 + 0.5);
   vec3 sunColor = vec3(1.36, 1.22, 1.00);
   vec3 directShadow = mix(vec3(0.16, 0.21, 0.31), vec3(1.0), shadow);
 
@@ -465,13 +571,107 @@ void main() {
   outColor = vec4(sum, 1.0);
 }`;
 
+const SSAO_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uDepthTex;
+uniform mat4 uInvProj;
+uniform vec2 uTexelSize;
+out vec4 outColor;
+
+vec3 reconstructViewPos(vec2 uv, float depth) {
+  vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+  vec4 vp = uInvProj * clip;
+  return vp.xyz / vp.w;
+}
+
+void main() {
+  float centerD = texture(uDepthTex, vUv).r;
+  if (centerD >= 0.99999) {
+    outColor = vec4(1.0);
+    return;
+  }
+
+  vec3 vp = reconstructViewPos(vUv, centerD);
+  vec3 vpR = reconstructViewPos(vUv + vec2(uTexelSize.x, 0.0), texture(uDepthTex, vUv + vec2(uTexelSize.x, 0.0)).r);
+  vec3 vpL = reconstructViewPos(vUv - vec2(uTexelSize.x, 0.0), texture(uDepthTex, vUv - vec2(uTexelSize.x, 0.0)).r);
+  vec3 vpU = reconstructViewPos(vUv + vec2(0.0, uTexelSize.y), texture(uDepthTex, vUv + vec2(0.0, uTexelSize.y)).r);
+  vec3 vpD = reconstructViewPos(vUv - vec2(0.0, uTexelSize.y), texture(uDepthTex, vUv - vec2(0.0, uTexelSize.y)).r);
+
+  vec3 dX = abs(vpR.z - vp.z) < abs(vp.z - vpL.z) ? (vpR - vp) : (vp - vpL);
+  vec3 dY = abs(vpU.z - vp.z) < abs(vp.z - vpD.z) ? (vpU - vp) : (vp - vpD);
+  vec3 nRaw = cross(dX, dY);
+  vec3 normal = dot(nRaw, nRaw) > 1e-8 ? normalize(nRaw) : vec3(0.0, 0.0, 1.0);
+
+  const vec2 dirs[8] = vec2[8](
+    vec2(0.707, 0.707), vec2(-0.707, 0.707), vec2(-0.707, -0.707), vec2(0.707, -0.707),
+    vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(-1.0, 0.0), vec2(0.0, -1.0)
+  );
+  float hash = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  float ang = hash * 6.283185;
+  float ca = cos(ang);
+  float sa = sin(ang);
+  mat2 rot = mat2(ca, -sa, sa, ca);
+
+  float radius = 1.65;
+  float projScale = clamp(radius * 22.0 / max(1.0, -vp.z), 4.0, 26.0);
+  float occ = 0.0;
+
+  for (int i = 0; i < 8; i++) {
+    vec2 offUv = vUv + (rot * dirs[i]) * ((float(i) + 1.5) * 0.12) * projScale * uTexelSize;
+    float sDepth = texture(uDepthTex, clamp(offUv, 0.001, 0.999)).r;
+    if (sDepth >= 0.99999) continue;
+    vec3 sVp = reconstructViewPos(offUv, sDepth);
+    vec3 diff = sVp - vp;
+    float dist = length(diff);
+    if (dist > 0.001 && dist < radius * 2.2) {
+      float nd = max(0.0, dot(normal, diff / dist) - 0.12);
+      float rangeW = smoothstep(radius * 2.2, 0.0, dist);
+      occ += nd * rangeW;
+    }
+  }
+
+  float ao = clamp(1.0 - (occ / 8.0) * 1.45, 0.25, 1.0);
+  outColor = vec4(ao, ao, ao, 1.0);
+}`;
+
+const SSAO_BLUR_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uAoTex;
+uniform sampler2D uDepthTex;
+uniform vec2 uTexelStep;
+out vec4 outColor;
+
+void main() {
+  float d0 = texture(uDepthTex, vUv).r;
+  float sum = 0.0;
+  float wSum = 0.0;
+  for (int i = -2; i <= 2; i++) {
+    vec2 uv = clamp(vUv + uTexelStep * float(i), 0.0, 1.0);
+    float d = texture(uDepthTex, uv).r;
+    float w = exp(-abs(d - d0) * 180.0 - float(i * i) * 0.25);
+    sum += texture(uAoTex, uv).r * w;
+    wSum += w;
+  }
+  float ao = sum / max(0.001, wSum);
+  outColor = vec4(ao, ao, ao, 1.0);
+}`;
+
 const COMPOSITE_FS = `#version 300 es
 precision highp float;
 in vec2 vUv;
 uniform sampler2D uSceneTex;
 uniform sampler2D uBloomTex;
+uniform sampler2D uSsaoTex;
+uniform sampler2D uDepthTex;
 uniform float uBloomStrength;
 uniform float uExposure;
+uniform float uSsaoStrength;
+uniform float uHasDepthTex;
+uniform mat4 uInvViewProj;
+uniform vec3 uCamPos;
+uniform vec3 uLightDir;
 out vec4 outColor;
 
 // Fitted AgX Filmic Tone Mapping Curve
@@ -495,18 +695,57 @@ vec3 agxToneMap(vec3 col) {
   return clamp(val, 0.0, 1.0);
 }
 
+vec3 sampleProceduralSky(vec3 dir, vec3 sunDir) {
+  float up = clamp(dir.y, 0.0, 1.0);
+  vec3 zenith = vec3(0.08, 0.26, 0.62);
+  vec3 midSky = vec3(0.24, 0.50, 0.82);
+  vec3 horizon = vec3(0.58, 0.72, 0.84);
+  vec3 sky = mix(horizon, midSky, smoothstep(0.0, 0.09, up));
+  sky = mix(sky, zenith, smoothstep(0.07, 0.30, up));
+
+  float sunCos = max(dot(normalize(dir), normalize(sunDir)), 0.0);
+  float mie = pow(sunCos, 8.0) * 0.32 + pow(sunCos, 64.0) * 0.58;
+  float disc = smoothstep(0.9985, 0.9996, sunCos) * 4.5;
+  sky += vec3(1.0, 0.90, 0.68) * (mie + disc);
+  return sky;
+}
+
 void main() {
   vec3 scene = texture(uSceneTex, vUv).rgb;
   vec3 bloom = texture(uBloomTex, vUv).rgb;
+  vec3 L = normalize(uLightDir);
+
+  if (uHasDepthTex > 0.5) {
+    float depth = texture(uDepthTex, vUv).r;
+    vec4 wpClip = uInvViewProj * vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec3 wp = wpClip.xyz / wpClip.w;
+    vec3 rayDir = normalize(wp - uCamPos);
+
+    if (depth >= 0.99999) {
+      vec3 skyHdr = sampleProceduralSky(rayDir, L) * uExposure;
+      vec3 skyMapped = agxToneMap(skyHdr);
+      float sl = dot(skyMapped, vec3(0.2126, 0.7152, 0.0722));
+      outColor = vec4(clamp(mix(vec3(sl), skyMapped, 1.10), 0.0, 1.0), 1.0);
+      return;
+    }
+
+    float ao = texture(uSsaoTex, vUv).r;
+    scene *= mix(1.0, ao, uSsaoStrength * 0.58);
+
+    float camDist = length(wp - uCamPos);
+    float haze = (1.0 - exp(-max(0.0, camDist - 95.0) * 0.0038)) * 0.62;
+    vec3 hazeCol = sampleProceduralSky(vec3(rayDir.x, max(0.02, rayDir.y), rayDir.z), L) * 0.72;
+    scene = mix(scene, hazeCol, haze);
+  }
+
   vec3 hdr = (scene + bloom * uBloomStrength) * uExposure;
-  // agxToneMap curves into display-referred space; apply gentle vibrance & crisp contrast grade
   vec3 mapped = agxToneMap(hdr);
   float luma = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
-  mapped = mix(vec3(luma), mapped, 1.14);
+  mapped = mix(vec3(luma), mapped, 1.12);
 
   // Subtle tactical edge vignette for HUD contrast
   vec2 centered = vUv - 0.5;
-  float vig = 1.0 - dot(centered, centered) * 0.22;
+  float vig = 1.0 - dot(centered, centered) * 0.20;
   outColor = vec4(clamp(mapped * vig, 0.0, 1.0), 1.0);
 }`;
 
@@ -674,6 +913,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
 
   // GPU-owned subsystems & programs (initialized/rebuilt by initGpuResources on startup & context restore)
   let pbr = null;
+  let terrainPbr = null;
   let gpuFog = null;
   let shadowSys = null;
   let waterRenderer = null;
@@ -686,6 +926,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   let heightTex = null;
   let splatTex = null;
   let terrainMesh = null;
+  let roadMask = new Uint8Array(MAP_SIZE * MAP_SIZE);
   let boundMapId = null;
   let lastOverlaySyncTick = -999;
   let vfxProg = null;
@@ -704,14 +945,21 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   let blurProg = null;
   let blurTexLoc = null;
   let blurStepLoc = null;
+  let ssaoProg = null;
+  let ssaoLoc = null;
+  let ssaoBlurProg = null;
+  let ssaoBlurLoc = null;
   let compositeProg = null;
   let compLoc = null;
   let sceneRT = null;
   let bloomRT0 = null;
   let bloomRT1 = null;
+  let ssaoRT0 = null;
+  let ssaoRT1 = null;
 
   function initGpuResources() {
     pbr = bakeProceduralPBRTextures(gl, 2048);
+    terrainPbr = loadTerrainPbrArrays(gl);
     gpuFog = createGpuFog(gl);
     shadowSys = createShadowSystem(gl, quality.shadowSize);
     waterRenderer = createWaterRenderer(gl, compileProgram);
@@ -729,6 +977,9 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       uDetailTex: gl.getUniformLocation(terrainProg, 'uDetailTex'),
       uShadowMap: gl.getUniformLocation(terrainProg, 'uShadowMap'),
       uFogTex: gl.getUniformLocation(terrainProg, 'uFogTex'),
+      uTerrainAlbedoArr: gl.getUniformLocation(terrainProg, 'uTerrainAlbedoArr'),
+      uTerrainNormRoughArr: gl.getUniformLocation(terrainProg, 'uTerrainNormRoughArr'),
+      uHasScannedTerrain: gl.getUniformLocation(terrainProg, 'uHasScannedTerrain'),
       uCamPos: gl.getUniformLocation(terrainProg, 'uCamPos'),
       uLightDir: gl.getUniformLocation(terrainProg, 'uLightDir'),
       uWorldSize: gl.getUniformLocation(terrainProg, 'uWorldSize'),
@@ -811,12 +1062,31 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     blurProg = compileProgram(gl, QUAD_VS, BLOOM_BLUR_FS);
     blurTexLoc = gl.getUniformLocation(blurProg, 'uTex');
     blurStepLoc = gl.getUniformLocation(blurProg, 'uTexelStep');
+    ssaoProg = compileProgram(gl, QUAD_VS, SSAO_FS);
+    ssaoLoc = {
+      uDepthTex: gl.getUniformLocation(ssaoProg, 'uDepthTex'),
+      uInvProj: gl.getUniformLocation(ssaoProg, 'uInvProj'),
+      uTexelSize: gl.getUniformLocation(ssaoProg, 'uTexelSize')
+    };
+    ssaoBlurProg = compileProgram(gl, QUAD_VS, SSAO_BLUR_FS);
+    ssaoBlurLoc = {
+      uAoTex: gl.getUniformLocation(ssaoBlurProg, 'uAoTex'),
+      uDepthTex: gl.getUniformLocation(ssaoBlurProg, 'uDepthTex'),
+      uTexelStep: gl.getUniformLocation(ssaoBlurProg, 'uTexelStep')
+    };
     compositeProg = compileProgram(gl, QUAD_VS, COMPOSITE_FS);
     compLoc = {
       uSceneTex: gl.getUniformLocation(compositeProg, 'uSceneTex'),
       uBloomTex: gl.getUniformLocation(compositeProg, 'uBloomTex'),
+      uSsaoTex: gl.getUniformLocation(compositeProg, 'uSsaoTex'),
+      uDepthTex: gl.getUniformLocation(compositeProg, 'uDepthTex'),
       uBloomStrength: gl.getUniformLocation(compositeProg, 'uBloomStrength'),
-      uExposure: gl.getUniformLocation(compositeProg, 'uExposure')
+      uExposure: gl.getUniformLocation(compositeProg, 'uExposure'),
+      uSsaoStrength: gl.getUniformLocation(compositeProg, 'uSsaoStrength'),
+      uHasDepthTex: gl.getUniformLocation(compositeProg, 'uHasDepthTex'),
+      uInvViewProj: gl.getUniformLocation(compositeProg, 'uInvViewProj'),
+      uCamPos: gl.getUniformLocation(compositeProg, 'uCamPos'),
+      uLightDir: gl.getUniformLocation(compositeProg, 'uLightDir')
     };
 
     terrainMesh = null;
@@ -825,9 +1095,58 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     sceneRT = null;
     bloomRT0 = null;
     bloomRT1 = null;
+    ssaoRT0 = null;
+    ssaoRT1 = null;
   }
 
   initGpuResources();
+
+  function buildRoadMask(map) {
+    roadMask.fill(0);
+    if (!map || map.id === 'gallery_showcase') return;
+    const paintDisk = (cx, cz, r) => {
+      const r2 = r * r;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dz * dz > r2) continue;
+          const x = cx + dx;
+          const z = cz + dz;
+          if (x < 0 || x >= MAP_SIZE || z < 0 || z >= MAP_SIZE) continue;
+          const idx = z * MAP_SIZE + x;
+          if (map.terrain[idx] === TERRAIN.LAND && map.oreType[idx] === 0) {
+            roadMask[idx] = 1;
+          }
+        }
+      }
+    };
+    const paintRoad = (x0, z0, x1, z1) => {
+      const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) * 1.5));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const cx = Math.round(x0 + (x1 - x0) * t);
+        const cz = Math.round(z0 + (z1 - z0) * t);
+        paintDisk(cx, cz, 2);
+      }
+    };
+    const spawns = map.spawns ?? [];
+    const bridges = map.bridges ?? [];
+    for (const sp of spawns) {
+      paintDisk(sp.gx, sp.gz, 4);
+      if (bridges.length > 0) {
+        let bestBr = bridges[0];
+        let bestD = Infinity;
+        for (const br of bridges) {
+          const bx = (br.x0 + br.x1) * 0.5;
+          const bz = (br.z0 + br.z1) * 0.5;
+          const d = Math.hypot(bx - sp.gx, bz - sp.gz);
+          if (d < bestD) { bestD = d; bestBr = br; }
+        }
+        const bx = Math.round((bestBr.x0 + bestBr.x1) * 0.5);
+        const bz = Math.round((bestBr.z0 + bestBr.z1) * 0.5);
+        paintRoad(sp.gx, sp.gz, bx, bz);
+      }
+    }
+  }
 
   function syncTerrainMap(map, tickCount, force = false) {
     if (!map) return;
@@ -840,6 +1159,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
         gl.deleteBuffer(terrainMesh.ibo);
       }
       terrainMesh = buildTerrainMesh(gl, map);
+      buildRoadMask(map);
       propsRenderer?.syncMap(map);
       gl.bindTexture(gl.TEXTURE_2D, heightTex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP_SIZE, MAP_SIZE, gl.RED, gl.FLOAT, map.elevation);
@@ -851,13 +1171,33 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     if (!force && tickCount - lastOverlaySyncTick < 6) return;
     lastOverlaySyncTick = tickCount;
 
-    for (let i = 0, n = MAP_SIZE * MAP_SIZE; i < n; i++) {
-      const dst = i * 4;
-      const t = map.terrain[i];
-      splatBytes[dst + 0] = Math.min(255, t * 50);
-      splatBytes[dst + 1] = map.oreType[i] === ORE_TYPE.VIOLET ? 255 : (map.oreType[i] === ORE_TYPE.RED ? 128 : 0);
-      splatBytes[dst + 2] = Math.min(255, Math.round((map.oreAmount[i] / ECONOMY_CONFIG.maxCellOreUnits) * 255));
-      splatBytes[dst + 3] = t === TERRAIN.BRIDGE ? 255 : (map.buildingId[i] !== 0 ? 110 : 0);
+    const bldg = map.buildingId;
+    for (let gz = 0; gz < MAP_SIZE; gz++) {
+      const row = gz * MAP_SIZE;
+      for (let gx = 0; gx < MAP_SIZE; gx++) {
+        const i = row + gx;
+        const dst = i * 4;
+        const t = map.terrain[i];
+        let pad = 0;
+        if (bldg[i] !== 0) {
+          pad = 255;
+        } else if (t === TERRAIN.LAND) {
+          const hasNb =
+            (gx > 0 && bldg[i - 1] !== 0) ||
+            (gx + 1 < MAP_SIZE && bldg[i + 1] !== 0) ||
+            (gz > 0 && bldg[i - MAP_SIZE] !== 0) ||
+            (gz + 1 < MAP_SIZE && bldg[i + MAP_SIZE] !== 0) ||
+            (gx > 0 && gz > 0 && bldg[i - MAP_SIZE - 1] !== 0) ||
+            (gx + 1 < MAP_SIZE && gz > 0 && bldg[i - MAP_SIZE + 1] !== 0) ||
+            (gx > 0 && gz + 1 < MAP_SIZE && bldg[i + MAP_SIZE - 1] !== 0) ||
+            (gx + 1 < MAP_SIZE && gz + 1 < MAP_SIZE && bldg[i + MAP_SIZE + 1] !== 0);
+          if (hasNb) pad = 165;
+        }
+        splatBytes[dst + 0] = pad;
+        splatBytes[dst + 1] = map.oreType[i] === ORE_TYPE.VIOLET ? 255 : (map.oreType[i] === ORE_TYPE.RED ? 128 : 0);
+        splatBytes[dst + 2] = Math.min(255, Math.round((map.oreAmount[i] / ECONOMY_CONFIG.maxCellOreUnits) * 255));
+        splatBytes[dst + 3] = t === TERRAIN.BRIDGE ? 255 : (roadMask[i] ? 120 : 0);
+      }
     }
 
     gl.bindTexture(gl.TEXTURE_2D, splatTex);
@@ -893,16 +1233,20 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       disposeRenderTarget(gl, sceneRT);
       disposeRenderTarget(gl, bloomRT0);
       disposeRenderTarget(gl, bloomRT1);
+      disposeRenderTarget(gl, ssaoRT0);
+      disposeRenderTarget(gl, ssaoRT1);
 
       sceneRT = createColorRenderTarget(gl, viewportW, viewportH, true, true);
       const bw = Math.max(160, Math.floor(viewportW * 0.5));
       const bh = Math.max(120, Math.floor(viewportH * 0.5));
       bloomRT0 = createColorRenderTarget(gl, bw, bh, sceneRT.isFloat, false);
       bloomRT1 = createColorRenderTarget(gl, bw, bh, sceneRT.isFloat, false);
+      ssaoRT0 = createColorRenderTarget(gl, bw, bh, false, false);
+      ssaoRT1 = createColorRenderTarget(gl, bw, bh, false, false);
     }
   }
 
-  // RTS Camera (52° default pitch clamped 38°~68°, FOV=42° or 16° classic isometric, height 14m~80m)
+  // Free 3D RTS Camera (52° default pitch clamped 18°~72°, FOV=42° or 16° classic isometric, height 6.5m~85m)
   const camState = {
     targetX: 88,
     targetZ: 256,
@@ -917,6 +1261,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
   const camUp = new Float32Array([0, 1, 0]);
   const viewMat = mat4Identity();
   const projMat = mat4Identity();
+  const invProjMat = mat4Identity();
   const viewProjMat = mat4Identity();
   const invViewProjMat = mat4Identity();
 
@@ -943,6 +1288,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       0, 1, 0
     );
     mat4Perspective(projMat, camState.fovRad, aspect, nearClip, farClip);
+    mat4Invert(invProjMat, projMat);
     mat4Multiply(viewProjMat, projMat, viewMat);
     mat4Invert(invViewProjMat, viewProjMat);
 
@@ -1049,11 +1395,11 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       this.pan((prevX - nextX) * scale, (prevY - nextY) * scale);
     },
     zoom(deltaHeight) {
-      camState.height = Math.max(14, Math.min(80, camState.height + deltaHeight));
+      camState.height = Math.max(6.5, Math.min(85, camState.height + deltaHeight));
     },
     orbit(dYaw, dPitchRad) {
       camState.yaw += dYaw;
-      camState.pitchRad = Math.max((38 * Math.PI) / 180, Math.min((68 * Math.PI) / 180, camState.pitchRad + dPitchRad));
+      camState.pitchRad = Math.max((18 * Math.PI) / 180, Math.min((72 * Math.PI) / 180, camState.pitchRad + dPitchRad));
     },
     resetOrientation() {
       camState.yaw = camState.isoMode ? Math.PI * 0.25 : 0;
@@ -1365,6 +1711,9 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, pbr.detailTex); gl.uniform1i(tLoc.uDetailTex, 1);
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, shadowSys.texture); gl.uniform1i(tLoc.uShadowMap, 2);
       gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, gpuFog.texture); gl.uniform1i(tLoc.uFogTex, 3);
+      gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D_ARRAY, terrainPbr.albedoArr); gl.uniform1i(tLoc.uTerrainAlbedoArr, 4);
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D_ARRAY, terrainPbr.normRoughArr); gl.uniform1i(tLoc.uTerrainNormRoughArr, 5);
+      gl.uniform1f(tLoc.uHasScannedTerrain, terrainPbr.ready ? 1.0 : 0.0);
 
       gl.enable(gl.CULL_FACE);
       gl.drawElements(gl.TRIANGLES, terrainMesh.indexCount, gl.UNSIGNED_INT, 0);
@@ -1444,9 +1793,45 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     billboardRenderer.render(frameCtx);
     rendererInfo.render.calls += frameCtx.calls;
 
-    // 3. Half-Res Bloom + AgX Filmic Composite to Screen
+    // 3. Half-Res SSAO + Bloom + Procedural Sky + AgX Filmic Composite to Screen
     gl.disable(gl.DEPTH_TEST);
     gl.bindVertexArray(postVao);
+
+    const hasDepth = Boolean(sceneRT.depthTex);
+    let activeSsaoTex = ssaoRT0.tex;
+    if (hasDepth) {
+      gl.viewport(0, 0, ssaoRT0.width, ssaoRT0.height);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, ssaoRT0.fbo);
+      gl.useProgram(ssaoProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, sceneRT.depthTex);
+      gl.uniform1i(ssaoLoc.uDepthTex, 0);
+      gl.uniformMatrix4fv(ssaoLoc.uInvProj, false, invProjMat);
+      gl.uniform2f(ssaoLoc.uTexelSize, 1.0 / ssaoRT0.width, 1.0 / ssaoRT0.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      rendererInfo.render.calls++;
+
+      // Bilateral blur H -> ssaoRT1
+      gl.bindFramebuffer(gl.FRAMEBUFFER, ssaoRT1.fbo);
+      gl.useProgram(ssaoBlurProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, ssaoRT0.tex);
+      gl.uniform1i(ssaoBlurLoc.uAoTex, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, sceneRT.depthTex);
+      gl.uniform1i(ssaoBlurLoc.uDepthTex, 1);
+      gl.uniform2f(ssaoBlurLoc.uTexelStep, 1.0 / ssaoRT0.width, 0.0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      rendererInfo.render.calls++;
+
+      // Bilateral blur V -> ssaoRT0
+      gl.bindFramebuffer(gl.FRAMEBUFFER, ssaoRT0.fbo);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, ssaoRT1.tex);
+      gl.uniform2f(ssaoBlurLoc.uTexelStep, 0.0, 1.0 / ssaoRT0.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      rendererInfo.render.calls++;
+    }
 
     let activeBloomTex = bloomRT0.tex;
     if (quality.bloomEnabled) {
@@ -1485,8 +1870,15 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     gl.useProgram(compositeProg);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneRT.tex); gl.uniform1i(compLoc.uSceneTex, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, activeBloomTex); gl.uniform1i(compLoc.uBloomTex, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, activeSsaoTex); gl.uniform1i(compLoc.uSsaoTex, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, hasDepth ? sceneRT.depthTex : activeSsaoTex); gl.uniform1i(compLoc.uDepthTex, 3);
     gl.uniform1f(compLoc.uBloomStrength, quality.bloomEnabled ? 0.55 : 0.0);
     gl.uniform1f(compLoc.uExposure, 1.18);
+    gl.uniform1f(compLoc.uSsaoStrength, hasDepth ? 0.85 : 0.0);
+    gl.uniform1f(compLoc.uHasDepthTex, hasDepth ? 1.0 : 0.0);
+    gl.uniformMatrix4fv(compLoc.uInvViewProj, false, invViewProjMat);
+    gl.uniform3fv(compLoc.uCamPos, camPos);
+    gl.uniform3fv(compLoc.uLightDir, shadowSys.lightDir);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     rendererInfo.render.calls++;
     gl.bindVertexArray(null);
@@ -1541,6 +1933,7 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
     renderFrame,
     dispose() {
       pbr.dispose();
+      terrainPbr.dispose();
       gpuFog.dispose();
       shadowSys.dispose();
       waterRenderer.dispose();
@@ -1551,6 +1944,8 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       disposeRenderTarget(gl, sceneRT);
       disposeRenderTarget(gl, bloomRT0);
       disposeRenderTarget(gl, bloomRT1);
+      disposeRenderTarget(gl, ssaoRT0);
+      disposeRenderTarget(gl, ssaoRT1);
       gl.deleteTexture(heightTex);
       gl.deleteTexture(splatTex);
       gl.deleteProgram(terrainProg);
@@ -1558,6 +1953,8 @@ export function createRenderPipeline(canvas, initialQuality = 'high') {
       gl.deleteProgram(ghostProg);
       gl.deleteProgram(extractProg);
       gl.deleteProgram(blurProg);
+      gl.deleteProgram(ssaoProg);
+      gl.deleteProgram(ssaoBlurProg);
       gl.deleteProgram(compositeProg);
     }
   };

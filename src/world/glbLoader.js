@@ -160,7 +160,15 @@ function readGlbImageBytes(json, arrayBuffer, binOffset, imgDef) {
   return null;
 }
 
-function extractEmbeddedBaseColorImage(json, arrayBuffer, binOffset, firstTexMaterialIdx) {
+function resolveTextureImage(json, arrayBuffer, binOffset, texIndex) {
+  if (texIndex === undefined || texIndex === null) return null;
+  const texDef = json.textures?.[texIndex];
+  const imgIdx = texDef?.source;
+  const imgDef = imgIdx !== undefined ? json.images?.[imgIdx] : null;
+  return readGlbImageBytes(json, arrayBuffer, binOffset, imgDef);
+}
+
+function extractEmbeddedPbrTextures(json, arrayBuffer, binOffset, firstTexMaterialIdx) {
   const materials = Array.isArray(json.materials) ? json.materials : [];
   const candidates = [];
   if (firstTexMaterialIdx >= 0 && materials[firstTexMaterialIdx]) {
@@ -170,36 +178,66 @@ function extractEmbeddedBaseColorImage(json, arrayBuffer, binOffset, firstTexMat
     if (i !== firstTexMaterialIdx && materials[i]) candidates.push(materials[i]);
   }
 
-  for (const matDef of candidates) {
-    const pbr = matDef?.pbrMetallicRoughness;
-    const texIdx = pbr?.baseColorTexture?.index;
-    if (texIdx === undefined) continue;
-    const texDef = json.textures?.[texIdx];
-    const imgIdx = texDef?.source;
-    const imgDef = imgIdx !== undefined ? json.images?.[imgIdx] : null;
-    const decoded = readGlbImageBytes(json, arrayBuffer, binOffset, imgDef);
-    if (decoded) {
-      const f = Array.isArray(pbr?.baseColorFactor) ? pbr.baseColorFactor : [1, 1, 1, 1];
-      return {
-        bytes: decoded.bytes,
-        mimeType: decoded.mimeType,
+  let primaryMat = candidates[0] || null;
+  for (const m of candidates) {
+    if (m?.pbrMetallicRoughness?.baseColorTexture?.index !== undefined) {
+      primaryMat = m;
+      break;
+    }
+  }
+
+  let albedoImage = null;
+  let normalImage = null;
+  let mrImage = null;
+  let emissiveImage = null;
+
+  const pbr = primaryMat?.pbrMetallicRoughness;
+  const f = Array.isArray(pbr?.baseColorFactor) ? pbr.baseColorFactor : [1, 1, 1, 1];
+  const metallicFactor = typeof pbr?.metallicFactor === 'number' ? pbr.metallicFactor : 1.0;
+  const roughnessFactor = typeof pbr?.roughnessFactor === 'number' ? pbr.roughnessFactor : 1.0;
+  const normalScale = typeof primaryMat?.normalTexture?.scale === 'number' ? primaryMat.normalTexture.scale : 1.0;
+  const emissiveFactor = Array.isArray(primaryMat?.emissiveFactor) ? primaryMat.emissiveFactor : [0, 0, 0];
+
+  const baseDecoded = resolveTextureImage(json, arrayBuffer, binOffset, pbr?.baseColorTexture?.index);
+  if (baseDecoded) {
+    albedoImage = {
+      bytes: baseDecoded.bytes,
+      mimeType: baseDecoded.mimeType,
+      baseColorFactor: [f[0] ?? 1, f[1] ?? 1, f[2] ?? 1, f[3] ?? 1]
+    };
+  } else if (Array.isArray(json.images) && json.images.length > 0) {
+    const fallbackDecoded = readGlbImageBytes(json, arrayBuffer, binOffset, json.images[0]);
+    if (fallbackDecoded) {
+      albedoImage = {
+        bytes: fallbackDecoded.bytes,
+        mimeType: fallbackDecoded.mimeType,
         baseColorFactor: [f[0] ?? 1, f[1] ?? 1, f[2] ?? 1, f[3] ?? 1]
       };
     }
   }
 
-  // Fallback: if an image exists without an explicit baseColorTexture link
-  if (Array.isArray(json.images) && json.images.length > 0) {
-    const decoded = readGlbImageBytes(json, arrayBuffer, binOffset, json.images[0]);
-    if (decoded) {
-      return {
-        bytes: decoded.bytes,
-        mimeType: decoded.mimeType,
-        baseColorFactor: [1, 1, 1, 1]
-      };
-    }
+  const norDecoded = resolveTextureImage(json, arrayBuffer, binOffset, primaryMat?.normalTexture?.index);
+  if (norDecoded) {
+    normalImage = { bytes: norDecoded.bytes, mimeType: norDecoded.mimeType, normalScale };
   }
-  return null;
+
+  const mrDecoded = resolveTextureImage(json, arrayBuffer, binOffset, pbr?.metallicRoughnessTexture?.index);
+  if (mrDecoded) {
+    mrImage = { bytes: mrDecoded.bytes, mimeType: mrDecoded.mimeType, metallicFactor, roughnessFactor };
+  }
+
+  const emDecoded = resolveTextureImage(json, arrayBuffer, binOffset, primaryMat?.emissiveTexture?.index);
+  if (emDecoded) {
+    emissiveImage = { bytes: emDecoded.bytes, mimeType: emDecoded.mimeType, emissiveFactor };
+  }
+
+  return {
+    albedoImage,
+    normalImage,
+    mrImage,
+    emissiveImage,
+    materialFactors: { metallicFactor, roughnessFactor, normalScale }
+  };
 }
 
 export function parseGlbGeometry(arrayBuffer, options = {}) {
@@ -320,29 +358,55 @@ export function parseGlbGeometry(arrayBuffer, options = {}) {
     visitNode(rIdx, null, 0);
   }
 
-  // Re-ground Y minimum cleanly at 0 unless caller disables grounding
-  if (options.groundY !== false && vertCount > 0) {
-    let minY = Infinity;
+  // Center XZ, ground Y minimum at 0, and optionally normalize bounding height or horizontal radius
+  if (vertCount > 0) {
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
     for (let i = 0; i < vertCount; i++) {
+      const x = outVerts[i * 10 + 0];
       const y = outVerts[i * 10 + 1];
-      if (y < minY) minY = y;
+      const z = outVerts[i * 10 + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
     }
-    if (Number.isFinite(minY) && Math.abs(minY) > 1e-4) {
+
+    const cx = options.centerXZ !== false ? (minX + maxX) * 0.5 : 0;
+    const cz = options.centerXZ !== false ? (minZ + maxZ) * 0.5 : 0;
+    const oy = options.groundY !== false ? minY : 0;
+
+    let normScale = 1.0;
+    const spanY = maxY - minY;
+    const halfSpanXZ = Math.max(maxX - minX, maxZ - minZ) * 0.5;
+    if (Number.isFinite(options.targetHeight) && options.targetHeight > 0 && spanY > 1e-4) {
+      normScale = options.targetHeight / spanY;
+    } else if (Number.isFinite(options.targetRadius) && options.targetRadius > 0 && halfSpanXZ > 1e-4) {
+      normScale = options.targetRadius / halfSpanXZ;
+    }
+
+    if (cx !== 0 || cz !== 0 || Math.abs(oy) > 1e-4 || Math.abs(normScale - 1.0) > 1e-4) {
       for (let i = 0; i < vertCount; i++) {
-        outVerts[i * 10 + 1] -= minY;
+        outVerts[i * 10 + 0] = (outVerts[i * 10 + 0] - cx) * normScale;
+        outVerts[i * 10 + 1] = (outVerts[i * 10 + 1] - oy) * normScale;
+        outVerts[i * 10 + 2] = (outVerts[i * 10 + 2] - cz) * normScale;
       }
     }
   }
 
   const useUint32 = vertCount > 65535;
-  const albedoImage = extractEmbeddedBaseColorImage(json, arrayBuffer, binOffset, firstTexMaterialIdx);
+  const pbrTex = extractEmbeddedPbrTextures(json, arrayBuffer, binOffset, firstTexMaterialIdx);
   return {
     vertices: new Float32Array(outVerts),
     indices: useUint32 ? new Uint32Array(outIdx) : new Uint16Array(outIdx),
     useUint32,
     indexCount: outIdx.length,
     vertexCount: vertCount,
-    albedoImage
+    albedoImage: pbrTex.albedoImage,
+    normalImage: pbrTex.normalImage,
+    mrImage: pbrTex.mrImage,
+    emissiveImage: pbrTex.emissiveImage,
+    materialFactors: pbrTex.materialFactors
   };
 }
 

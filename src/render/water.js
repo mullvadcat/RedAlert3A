@@ -136,7 +136,7 @@ void main() {
 
   vec3 shallowCol = vec3(0.06, 0.30, 0.42);
   vec3 deepCol = vec3(0.014, 0.065, 0.175);
-  vec3 skyReflect = vec3(0.26, 0.44, 0.68);
+  vec3 skyReflect = vec3(0.36, 0.58, 0.84);
   vec3 baseCol = mix(shallowCol, deepCol, smoothstep(0.0, 2.5, depth));
 
   // Crisp RA2 shoreline surf foam + subtle offshore wave crests where 0 < depth < 1.1m
