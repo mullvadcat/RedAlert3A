@@ -1,0 +1,113 @@
+{
+  "generatedAt": "2026-11-19",
+  "pipeline": "glTF-Transform (dedup + prune + meshopt simplify/reorder + WebP 512 textures) + Poly Haven 1K HDRI + Scanned 512 PBR Maps",
+  "models": [
+    {
+      "file": "tree.glb",
+      "source": "Poly Haven fir_tree_01 (CC0)",
+      "rawKb": 475936.4,
+      "optKb": 1238.3,
+      "rawTris": 6982937,
+      "optTris": 10067
+    },
+    {
+      "file": "factory.glb",
+      "source": "Poly Haven modular_factory_facade (CC0)",
+      "rawKb": 17213.1,
+      "optKb": 2872.9,
+      "rawTris": 175014,
+      "optTris": 50383
+    },
+    {
+      "file": "shrub.glb",
+      "source": "Poly Haven shrub_01 (CC0)",
+      "rawKb": 6716.3,
+      "optKb": 321.8,
+      "rawTris": 156012,
+      "optTris": 3956
+    },
+    {
+      "file": "boulder.glb",
+      "source": "Poly Haven boulder_01 (CC0)",
+      "rawKb": 5636.7,
+      "optKb": 2305.3,
+      "rawTris": 66122,
+      "optTris": 54122
+    },
+    {
+      "file": "barrier.glb",
+      "source": "Poly Haven concrete_road_barrier (CC0)",
+      "rawKb": 3662.9,
+      "optKb": 157.8,
+      "rawTris": 60928,
+      "optTris": 2000
+    },
+    {
+      "file": "generator.glb",
+      "source": "Poly Haven portable_generator (CC0)",
+      "rawKb": 3353.9,
+      "optKb": 431.7,
+      "rawTris": 26419,
+      "optTris": 4547
+    },
+    {
+      "file": "crate.glb",
+      "source": "Poly Haven wooden_crate_01 (CC0)",
+      "rawKb": 2223.7,
+      "optKb": 186.5,
+      "rawTris": 6576,
+      "optTris": 1998
+    },
+    {
+      "file": "fuel.glb",
+      "source": "Poly Haven propane_tank (CC0)",
+      "rawKb": 2162.2,
+      "optKb": 180.3,
+      "rawTris": 5238,
+      "optTris": 2000
+    },
+    {
+      "file": "soldier.glb",
+      "source": "Three.js Soldier Rigged (MIT)",
+      "rawKb": 2109.8,
+      "optKb": 2109.8
+    },
+    {
+      "file": "tank.glb",
+      "source": "Quaternius Tank Rigged (CC0)",
+      "rawKb": 891.4,
+      "optKb": 891.4,
+      "rawTris": 7222,
+      "optTris": 7222
+    },
+    {
+      "file": "sandbags.glb",
+      "source": "Quaternius Sandbags (CC0)",
+      "rawKb": 20.6,
+      "optKb": 20.6
+    }
+  ],
+  "texturesAndEnvironment": [
+    {
+      "name": "armor_{diff,nor,rough}.jpg",
+      "source": "Poly Haven painted_metal_shutter 512px (CC0)",
+      "rawKb": 1861.3,
+      "optKb": 87.0
+    },
+    {
+      "name": "sky.hdr",
+      "source": "Poly Haven kloofendal_48d_partly_cloudy_puresky 1K (CC0)",
+      "optKb": 1401.5
+    },
+    {
+      "name": "terrain/{grass,dirt,rock,concrete,sand}_{diff,nor,rough}.jpg",
+      "source": "Poly Haven 5x Scanned Terrain PBR 512px (CC0, 15 files)",
+      "optKb": 838.7
+    }
+  ],
+  "totals": {
+    "compressedPolyHavenRawKb": 518766.5,
+    "compressedPolyHavenOptKb": 7781.6,
+    "showcaseTotalDiskKb": 13043.5
+  }
+}

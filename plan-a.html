@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>墨陆：赤潮警戒 — 方案 A Three.js PBR + HDRI 实景对比切片</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0b111a; color: #e6eef8;
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+    #viewport { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+    .hud-top {
+      position: fixed; top: 12px; left: 12px; right: 12px; z-index: 20;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      pointer-events: none;
+    }
+    .hud-group {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+      pointer-events: auto;
+    }
+    .pill {
+      padding: 6px 12px; border-radius: 6px;
+      background: rgba(10, 16, 26, 0.78); backdrop-filter: blur(8px);
+      border: 1px solid rgba(92, 162, 232, 0.35);
+      color: #e6eef8; font-size: 12px; font-weight: 500;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    }
+    .pill strong { color: #67e8f9; }
+    .btn {
+      padding: 6px 11px; border-radius: 6px; cursor: pointer;
+      background: rgba(16, 26, 42, 0.85); color: #dce8f6;
+      border: 1px solid rgba(100, 148, 200, 0.45);
+      font-size: 12px; font-weight: 500; transition: all 0.15s ease;
+    }
+    .btn:hover { background: rgba(30, 52, 82, 0.95); border-color: #60a5fa; color: #ffffff; }
+    .btn.active { background: rgba(14, 94, 156, 0.88); border-color: #38bdf8; color: #ffffff; }
+    a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+    .hud-panel {
+      position: fixed; left: 12px; bottom: 14px; z-index: 20; max-width: 440px;
+      padding: 12px 14px; border-radius: 8px;
+      background: rgba(10, 16, 26, 0.80); backdrop-filter: blur(10px);
+      border: 1px solid rgba(92, 162, 232, 0.32);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .panel-title { font-size: 13px; font-weight: 700; color: #93c5fd; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .hint { font-size: 11px; color: #9fb3c8; line-height: 1.5; }
+    .drop-status { font-size: 11px; color: #7dd3fc; padding-top: 2px; border-top: 1px solid rgba(100,148,200,0.2); }
+
+    .loading-screen {
+      position: fixed; inset: 0; z-index: 40;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+      background: rgba(8, 12, 20, 0.92); color: #e2e8f0;
+      transition: opacity 0.35s ease;
+    }
+    .loading-screen.hidden { opacity: 0; pointer-events: none; }
+    .loading-bar { width: 260px; height: 6px; border-radius: 99px; background: #1e293b; overflow: hidden; }
+    .loading-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #38bdf8); transition: width 0.2s; }
+  </style>
+</head>
+<body>
+  <canvas id="viewport" tabindex="0" aria-label="Plan A Three.js PBR Battlefield"></canvas>
+
+  <header class="hud-top">
+    <div class="hud-group">
+      <div class="pill"><strong>方案 A 对比切片</strong> · Three.js PBR + 1K HDRI + 扫描级 3D 资产</div>
+      <div class="pill" id="perf-pill">加载中...</div>
+      <div class="pill" id="assets-pill">资产体积统计中...</div>
+    </div>
+    <div class="hud-group">
+      <a class="btn" href="./">返回原战局</a>
+      <a class="btn" href="./?show=gallery">返回原图鉴</a>
+    </div>
+  </header>
+
+  <aside class="hud-panel">
+    <div class="panel-title">镜头机位与渲染实时对比控制</div>
+    <div class="btn-row" id="camera-presets">
+      <button type="button" class="btn active" data-cam="rts">标准 RTS 俯角 (50°)</button>
+      <button type="button" class="btn" data-cam="cinematic">电影低角 (22°)</button>
+      <button type="button" class="btn" data-cam="tanks">装甲集群特写</button>
+      <button type="button" class="btn" data-cam="base">前哨基地特写</button>
+    </div>
+    <div class="btn-row" id="render-toggles">
+      <button type="button" class="btn active" id="btn-time">黄金下午 / 正午晴空</button>
+      <button type="button" class="btn active" id="btn-hdri">HDRI 环境反射: 开</button>
+      <button type="button" class="btn active" id="btn-post">Bloom+ACES: 开</button>
+      <button type="button" class="btn active" id="btn-action">战术演练动作: 开</button>
+    </div>
+    <div class="hint">
+      操作：左键旋转 360° 自由视角 · 右键平移地图 · 滚轮贴近特写（最近 5m）<br />
+      可将任意本地 <strong>.glb</strong>（例如经 optimize-glb 压到 300KB 的混元模型）直接拖入画面前哨空地实时检视！
+    </div>
+    <div class="drop-status" id="drop-status">等待载入所有 CC0 扫描 PBR 模型与骨架步兵...</div>
+  </aside>
+
+  <div class="loading-screen" id="loading-overlay">
+    <div id="loading-text">正在加载 1K HDRI 天空、扫描级植被建筑、装甲车辆与骨架步兵...</div>
+    <div class="loading-bar"><div class="loading-fill" id="loading-fill"></div></div>
+  </div>
+
+  <script type="module" src="./plan-a/showcase.bundle.js"></script>
+</body>
+</html>

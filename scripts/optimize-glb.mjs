@@ -2,12 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, prune, simplify, weld } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const modelsDir = path.resolve(rootDir, 'assets/models');
+const planADir = path.resolve(rootDir, 'assets/plan-a');
 const UNIT_ID_RE = /^[a-z0-9_]+$/;
 
 function parseArgs(argv) {
@@ -37,7 +39,7 @@ function assertAllowedOutputPath(rawOut, unitId) {
     return outPath;
   }
   const resolved = path.resolve(rawOut);
-  const allowedRoots = [modelsDir, '/tmp', '/private/tmp'];
+  const allowedRoots = [modelsDir, planADir, '/tmp', '/private/tmp'];
   const allowed = allowedRoots.some((dir) => resolved.startsWith(dir + path.sep));
   if (!allowed) {
     throw new Error(`Refusing to write outside assets/models or /tmp: ${resolved}`);
@@ -207,13 +209,10 @@ function splitTurretGeometry(doc, splitRatio, totalHeight) {
 }
 
 async function compressTextures(doc, maxTexSize) {
-  const alphaTextures = new Set();
+  const baseColorTextures = new Set();
   for (const mat of doc.getRoot().listMaterials()) {
-    const alphaMode = mat.getAlphaMode();
-    if (alphaMode === 'MASK' || alphaMode === 'BLEND') {
-      const tex = mat.getBaseColorTexture();
-      if (tex) alphaTextures.add(tex);
-    }
+    const tex = mat.getBaseColorTexture();
+    if (tex) baseColorTextures.add(tex);
   }
 
   let processed = 0;
@@ -224,9 +223,9 @@ async function compressTextures(doc, maxTexSize) {
     const img = sharp(raw);
     const meta = await img.metadata();
     let keepAlpha = false;
-    if (alphaTextures.has(tex) && meta.hasAlpha) {
+    if (baseColorTextures.has(tex) && meta.hasAlpha) {
       const stats = await sharp(raw).stats();
-      if (stats.channels[3] && stats.channels[3].min < 250) {
+      if (stats.channels[3] && stats.channels[3].min < 245) {
         keepAlpha = true;
       }
     }
@@ -293,22 +292,46 @@ async function main() {
   const targetHeight = flags.height !== undefined ? Number.parseFloat(String(flags.height)) : NaN;
   const splitTurret = flags['split-turret'] !== undefined ? Number.parseFloat(String(flags['split-turret'])) : NaN;
 
-  const inputBytes = fs.statSync(absInput).size;
+  let inputBytes = fs.statSync(absInput).size;
+  if (ext === '.gltf') {
+    try {
+      const gltfMeta = JSON.parse(fs.readFileSync(absInput, 'utf8'));
+      const baseDir = path.dirname(absInput);
+      const uris = new Set([
+        ...(gltfMeta.buffers || []).map((b) => b.uri).filter(Boolean),
+        ...(gltfMeta.images || []).map((im) => im.uri).filter(Boolean)
+      ]);
+      for (const rel of uris) {
+        if (/^data:/i.test(rel)) continue;
+        const depPath = path.resolve(baseDir, decodeURIComponent(rel));
+        if (depPath.startsWith(baseDir + path.sep) && fs.existsSync(depPath)) {
+          inputBytes += fs.statSync(depPath).size;
+        }
+      }
+    } catch {
+      // keep base .gltf file size if JSON dependency walk fails
+    }
+  }
   await MeshoptSimplifier.ready;
-  const io = new NodeIO();
+  const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
   const doc = await io.read(absInput);
 
   const beforeTris = countTriangles(doc);
   await doc.transform(weld());
   const ratio = Math.min(1, targetTris / Math.max(1, countTriangles(doc)));
+  const maxError = flags.error !== undefined
+    ? Number.parseFloat(String(flags.error))
+    : (ratio < 0.08 ? 0.18 : 0.025);
   if (ratio < 0.999) {
-    await doc.transform(simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.005 }));
+    await doc.transform(simplify({ simplifier: MeshoptSimplifier, ratio, error: maxError, lockBorder: false }));
   }
 
   const texCount = await compressTextures(doc, texSize);
-  const { height: finalHeight } = bakeAndNormalizeBounds(doc, targetHeight);
-  if (Number.isFinite(splitTurret) && splitTurret > 0 && splitTurret < 1) {
-    splitTurretGeometry(doc, splitTurret, finalHeight);
+  if (!flags['keep-nodes']) {
+    const { height: finalHeight } = bakeAndNormalizeBounds(doc, targetHeight);
+    if (Number.isFinite(splitTurret) && splitTurret > 0 && splitTurret < 1) {
+      splitTurretGeometry(doc, splitTurret, finalHeight);
+    }
   }
 
   await doc.transform(prune(), dedup());
