@@ -147,6 +147,17 @@ export function canBuildItem(state, playerId, typeId) {
   return true;
 }
 
+export function hasRequiredPrereqs(state, playerId, typeId) {
+  const def = ENTITY_DEFS[typeId];
+  if (!def) return false;
+  if (!def.prereqs || def.prereqs.length === 0) return true;
+  const { ownedTypes } = getPlayerTechUnlockSet(state, playerId);
+  for (let i = 0; i < def.prereqs.length; i++) {
+    if (!ownedTypes.has(def.prereqs[i])) return false;
+  }
+  return true;
+}
+
 export function getBuildableItemsForTab(state, playerId, queueKey, airNavalSubTab = null) {
   const list = [];
   for (const def of Object.values(ENTITY_DEFS)) {
@@ -160,6 +171,22 @@ export function getBuildableItemsForTab(state, playerId, queueKey, airNavalSubTa
       list.push(def);
     }
   }
+
+  // Never hide an active or READY queued item from the sidebar even if its prerequisite was lost
+  const seen = new Set(list.map((d) => d.id));
+  const activeQueue = state.players?.[playerId]?.queues?.[queueKey];
+  const entries = Array.isArray(activeQueue) ? activeQueue : (activeQueue ? [activeQueue] : []);
+  for (let i = 0; i < entries.length; i++) {
+    const qDef = ENTITY_DEFS[entries[i]?.typeId];
+    if (!qDef || seen.has(qDef.id) || qDef.queueKey !== queueKey) continue;
+    if (queueKey === 'air_naval' && airNavalSubTab) {
+      if (airNavalSubTab === 'air' && qDef.category !== 'air') continue;
+      if (airNavalSubTab === 'naval' && qDef.category !== 'naval') continue;
+    }
+    seen.add(qDef.id);
+    list.push(qDef);
+  }
+
   return list;
 }
 
@@ -180,7 +207,24 @@ export function startProduction(state, playerId, queueKey, typeId, count = 1) {
         cur.status = 'BUILDING';
         return true;
       }
-      return false;
+      if (cur.typeId !== typeId && !hasRequiredPrereqs(state, playerId, cur.typeId)) {
+        if (cur.paidCost > 0) {
+          player.credits += Math.round(cur.paidCost);
+        }
+        player.queues[targetQueueKey] = null;
+        if (player.isHuman) {
+          state.events.push({ type: 'hud:notice', playerId, key: 'hud.status.prodCancelledPrereq' });
+        }
+      } else {
+        if (player.isHuman) {
+          state.events.push({
+            type: 'hud:notice',
+            playerId,
+            key: cur.status === 'READY' ? 'hud.status.queueReadyFirst' : 'hud.status.queueBusy'
+          });
+        }
+        return false;
+      }
     }
     player.queues[targetQueueKey] = {
       typeId,
@@ -603,6 +647,16 @@ export function stepProductionAndPower(state) {
       if (!item) continue;
       const def = ENTITY_DEFS[item.typeId];
       if (!def) continue;
+      if (item.status !== 'READY' && !hasRequiredPrereqs(state, player.playerId, item.typeId)) {
+        if (item.paidCost > 0) {
+          player.credits += Math.round(item.paidCost);
+        }
+        player.queues[qKey] = null;
+        if (player.isHuman) {
+          state.events.push({ type: 'hud:notice', playerId: player.playerId, key: 'hud.status.prodCancelledPrereq' });
+        }
+        continue;
+      }
       if (item.status === 'READY') continue;
       // Resume automatically when credits recover or producer comes back
       if (item.status === 'PAUSED' && player.credits >= 1 && getCompatibleProducerCount(state, player.playerId, def.producerType) > 0) {

@@ -3,8 +3,8 @@ import { ENTITY_DEFS, getArmorMultiplier } from '../src/core/config.js';
 import { createGameState, enqueueCommand, stepSimulation } from '../src/core/engine.js';
 import { FOG_EXPLORED, FOG_VISIBLE, getCellFogMask, rebuildTeamFogGrids } from '../src/gameplay/fogCpu.js';
 import { requestFlowField } from '../src/gameplay/nav.js';
-import { cancelProduction, startProduction } from '../src/gameplay/production.js';
-import { spawnEntity } from '../src/gameplay/entities.js';
+import { cancelProduction, getBuildableItemsForTab, startProduction } from '../src/gameplay/production.js';
+import { removeEntity, spawnEntity } from '../src/gameplay/entities.js';
 import { compileMap, DEFAULT_M1_MAP_BLUEPRINT, MAP_SIZE, ORE_TYPE, TERRAIN, worldToGrid } from '../src/world/map.js';
 
 function testArmorAndConfig() {
@@ -230,9 +230,65 @@ function testM1PlayableLoopAndMixedHarvester() {
   console.log('[test-m1] Full M1 gameplay loop + mixed $1,050 harvester unload + N=0 guard + victory passed!');
 }
 
+function testPrereqLossRecovery() {
+  const testMap = compileMap({
+    id: 'prereq_loss_test',
+    baseElevation: 1.6,
+    seaChannels: [],
+    bridges: [],
+    cliffs: [],
+    orePatches: [],
+    spawns: []
+  });
+  const state = createGameState({
+    map: testMap,
+    populateDefault: false,
+    fastBuild: true,
+    startingCredits: 5000
+  });
+
+  spawnEntity(state, { typeId: 'conyard', playerId: 0, teamId: 0, factionId: 'abyssal', gx: 40, gz: 120 });
+  const ppA = spawnEntity(state, { typeId: 'power_plant', playerId: 0, teamId: 0, factionId: 'abyssal', gx: 46, gz: 120 });
+  spawnEntity(state, { typeId: 'conyard', playerId: 1, teamId: 1, factionId: 'crimson', gx: 140, gz: 120 });
+  rebuildTeamFogGrids(state);
+
+  const p0 = state.players[0];
+  const creditsStartA = p0.credits;
+  // Case A: building refinery loses power_plant mid-production -> auto-cancel, refund, allow power_plant immediately
+  assert.equal(startProduction(state, 0, 'main', 'refinery'), true);
+  for (let i = 0; i < 4; i++) stepSimulation(state);
+  assert.equal(p0.queues.main?.status, 'BUILDING');
+  assert.ok(p0.queues.main.paidCost > 0);
+
+  removeEntity(state, ppA.id, 'destroyed');
+  stepSimulation(state);
+  assert.equal(p0.queues.main, null, 'Orphaned BUILDING queue must auto-cancel on prereq loss');
+  assert.ok(Math.abs(p0.credits - creditsStartA) <= 1, 'Cancelled orphaned queue must refund paidCost');
+  assert.equal(startProduction(state, 0, 'main', 'power_plant'), true, 'Power plant must be immediately buildable');
+  cancelProduction(state, 0, 'main', 'power_plant');
+
+  // Case B: READY refinery loses power_plant -> remains visible in sidebar AND starting power_plant refunds & replaces it
+  const ppB = spawnEntity(state, { typeId: 'power_plant', playerId: 0, teamId: 0, factionId: 'abyssal', gx: 46, gz: 120 });
+  const creditsStartB = p0.credits;
+  assert.equal(startProduction(state, 0, 'main', 'refinery'), true);
+  for (let i = 0; i < 120 && p0.queues.main?.status !== 'READY'; i++) stepSimulation(state);
+  assert.equal(p0.queues.main?.status, 'READY');
+
+  removeEntity(state, ppB.id, 'destroyed');
+  stepSimulation(state);
+  const tabIds = getBuildableItemsForTab(state, 0, 'main').map((d) => d.id);
+  assert.ok(tabIds.includes('power_plant') && tabIds.includes('refinery'), 'Orphaned READY item must remain visible alongside power_plant');
+
+  assert.equal(startProduction(state, 0, 'main', 'power_plant'), true, 'Starting power_plant must replace orphaned READY item');
+  assert.equal(p0.queues.main?.typeId, 'power_plant');
+  assert.ok(Math.abs(p0.credits - creditsStartB) <= 1, 'Replacing orphaned READY queue must refund 100% paidCost');
+  console.log('[test-m1] Prereq-loss main queue deadlock & READY visibility recovery passed!');
+}
+
 testArmorAndConfig();
 testMapAndOreRegen();
 testFogPersistence();
 testNavTimeSliced();
 testM1PlayableLoopAndMixedHarvester();
+testPrereqLossRecovery();
 console.log('[test-m1] ALL SIMULATION GATES PASSED.');
