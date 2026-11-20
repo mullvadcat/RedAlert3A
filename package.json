@@ -17,7 +17,8 @@
     "test:m6": "node scripts/test-m6.mjs",
     "sim:balance": "node scripts/balance-sim.mjs",
     "optimize:glb": "node scripts/optimize-glb.mjs",
-    "build:plan-a": "esbuild plan-a/src/showcase.js --bundle --format=esm --minify --outfile=plan-a/showcase.bundle.js"
+    "build:plan-a": "esbuild plan-a/src/showcase.js --bundle --format=esm --minify --outfile=plan-a/showcase.bundle.js",
+    "build:three-vendor": "esbuild scripts/three-vendor-entry.js --bundle --format=esm --minify --outfile=src/render/threeVendor.bundle.js"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.5.1",

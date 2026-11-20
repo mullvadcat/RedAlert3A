@@ -1,0 +1,11 @@
+export * as THREE from 'three';
+export { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+export { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+export * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+export { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+export { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+export { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+export { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+export { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+export { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+export { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
