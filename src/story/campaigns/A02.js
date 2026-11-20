@@ -37,8 +37,26 @@ export default {
       when: 'onTimer',
       atTick: 10,
       actions: [
-        DirectorActions.dialogue('eva_abyssal', 'campaign.A02.dlgIntro', 5, '#38bdf8'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A02.dlgIntro', 5, '#38bdf8'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.A02.dlgCrimsonTaunt', 5, '#ef4444'),
         DirectorActions.triggerCheckpoint('a02_start')
+      ]
+    },
+    {
+      id: 'a02_wave2',
+      when: 'onTimer',
+      atTick: 390,
+      actions: [
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A02.dlgWaveWarning', 5, '#38bdf8'),
+        DirectorActions.dialogue('dr_lin_prism', 'campaign.A02.dlgAnomaly', 5, '#67e8f9'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'crimson', tag: 'a02_wave2',
+          x: 350, z: 244, attackMoveX: 150, attackMoveZ: 258,
+          units: [
+            { typeId: 'kirov', count: 1, air: true },
+            { typeId: 'typhoon', count: 2, naval: true }
+          ]
+        })
       ]
     },
     {
@@ -48,6 +66,7 @@ export default {
       minTick: 25,
       actions: [
         DirectorActions.objective('obj_a02_aegis', 'campaign.A02.objNavy', 'completed'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A02.dlgVictory', 5, '#38bdf8'),
         DirectorActions.victory(0)
       ]
     }

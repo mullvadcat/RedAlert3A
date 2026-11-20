@@ -45,9 +45,9 @@ const DIFFICULTY_PARAMS = {
     useDoctrines: true
   },
   hard: {
-    evalInterval: 10,
+    evalInterval: 15,
     attackInterval: 450,
-    minWaveSize: 5,
+    minWaveSize: 6,
     maxHarvestersPerRefinery: 2,
     maxDefenses: 6,
     counterSuperweapons: true,
@@ -390,7 +390,6 @@ function evaluateAiPlayer(state, player) {
   const params = getDiffParams(player.aiDifficulty ?? 'normal');
 
   const ownBuildings = [];
-  const ownUnits = [];
   const ownHarvesters = [];
   const ownMcvs = [];
   const ownCombatLandAir = [];
@@ -399,6 +398,17 @@ function evaluateAiPlayer(state, player) {
   const visibleEnemies = [];
   let underAttackTarget = null;
   let hasVisibleAirThreat = false;
+  let ownAirCount = 0;
+  let hurtCombatUnit = null;
+  let idleScoutUnit = null;
+  const idleDefenders = [];
+  const waveReadyIds = [];
+  const idleNavalIds = [];
+  let enemyStructure = null;
+  let firstVisibleEnemy = null;
+  let seaTarget = null;
+  let nearbyThreat = null;
+  let baseAnchor = null;
 
   for (let i = 0; i < state.entities.length; i++) {
     const ent = state.entities[i];
@@ -411,21 +421,40 @@ function evaluateAiPlayer(state, player) {
       }
       if (ent.isBuilding) {
         ownBuildings.push(ent);
+        if (!baseAnchor || ent.typeId === 'conyard') baseAnchor = ent;
+      } else if (ent.typeId === 'mcv') {
+        ownMcvs.push(ent);
+      } else if (ent.typeId === 'harvester') {
+        ownHarvesters.push(ent);
+      } else if (ent.domain === 'SEA' || ent.domain === 'SUBMERGED') {
+        ownNaval.push(ent);
+        if (ent.orderType === 'IDLE') idleNavalIds.push(ent.id);
       } else {
-        ownUnits.push(ent);
-        if (ent.typeId === 'mcv') {
-          ownMcvs.push(ent);
-        } else if (ent.typeId === 'harvester') {
-          ownHarvesters.push(ent);
-        } else if (ent.domain === 'SEA' || ent.domain === 'SUBMERGED') {
-          ownNaval.push(ent);
-        } else {
-          ownCombatLandAir.push(ent);
+        ownCombatLandAir.push(ent);
+        if (ent.domain === 'AIR') ownAirCount++;
+        if (!hurtCombatUnit && ent.hp < ent.maxHp * 0.6) hurtCombatUnit = ent;
+        if (ent.orderType === 'IDLE' || !ent.orderType) {
+          idleDefenders.push(ent.id);
+          if (!idleScoutUnit && ent.domain !== 'SEA') idleScoutUnit = ent;
         }
+        if (ent.orderType !== 'MOVE') waveReadyIds.push(ent.id);
       }
     } else if (isEnemyVisibleInFog(state, player.teamId, ent)) {
       visibleEnemies.push(ent);
+      if (!firstVisibleEnemy) firstVisibleEnemy = ent;
+      if (!enemyStructure && ent.isBuilding) enemyStructure = ent;
+      if (!seaTarget && (ent.domain === 'SEA' || ent.domain === 'SUBMERGED')) seaTarget = ent;
       if (ent.domain === 'AIR') hasVisibleAirThreat = true;
+    }
+  }
+  if (!enemyStructure) enemyStructure = firstVisibleEnemy;
+  if (baseAnchor && visibleEnemies.length > 0) {
+    for (let i = 0; i < visibleEnemies.length; i++) {
+      const ve = visibleEnemies[i];
+      if (Math.hypot(ve.x - baseAnchor.x, ve.z - baseAnchor.z) <= 55) {
+        nearbyThreat = ve;
+        break;
+      }
     }
   }
 
@@ -569,7 +598,7 @@ function evaluateAiPlayer(state, player) {
       } else {
         anId = player.factionId === 'abyssal' ? 'dolphin' : 'typhoon';
       }
-    } else if (ownTypes.airforce_radar > 0 && ownCombatLandAir.filter((u) => u.domain === 'AIR').length < 4) {
+    } else if (ownTypes.airforce_radar > 0 && ownAirCount < 4) {
       if (player.factionId === 'crimson' && ownTypes.battle_lab > 0 && player.credits >= 2400 && rAn > 0.72) {
         anId = 'kirov';
       } else {
@@ -588,11 +617,14 @@ function evaluateAiPlayer(state, player) {
   }
 
   // 5. Offensive Superweapons & Doctrines (strictly targeted using Fog-visible targets or unexplored spawns)
-  const enemySpawns = (state.map.spawns ?? []).filter((sp) => {
-    const anchor = ownBuildings[0];
-    return anchor && Math.hypot(sp.x - anchor.x, sp.z - anchor.z) > 60;
-  });
-  const enemyStructure = visibleEnemies.find((e) => e.isBuilding) ?? visibleEnemies[0] ?? null;
+  const enemySpawns = [];
+  const mapSpawns = state.map.spawns ?? [];
+  for (let i = 0; i < mapSpawns.length; i++) {
+    const sp = mapSpawns[i];
+    if (baseAnchor && Math.hypot(sp.x - baseAnchor.x, sp.z - baseAnchor.z) > 60) {
+      enemySpawns.push(sp);
+    }
+  }
 
   if (params.useDoctrines && player.doctrines) {
     if (player.doctrines.recon_satellite === 0 && enemySpawns.length > 0 && state.tickCount >= 180) {
@@ -620,14 +652,13 @@ function evaluateAiPlayer(state, player) {
         x: enemyStructure.x,
         z: enemyStructure.z
       });
-    } else if (player.doctrines.nano_repair === 0 && ownCombatLandAir.some((u) => u.hp < u.maxHp * 0.6)) {
-      const hurt = ownCombatLandAir.find((u) => u.hp < u.maxHp * 0.6);
+    } else if (player.doctrines.nano_repair === 0 && hurtCombatUnit) {
       state.commandQueue.push({
         playerId: player.playerId,
         type: 'USE_DOCTRINE',
         typeId: 'nano_repair',
-        x: hurt.x,
-        z: hurt.z
+        x: hurtCombatUnit.x,
+        z: hurtCombatUnit.z
       });
     }
   }
@@ -648,48 +679,33 @@ function evaluateAiPlayer(state, player) {
   }
 
   // 6. Tactical Defense & Fog-Constrained Wave Attacks
-  if (underAttackTarget) {
-    const idleDefenders = ownCombatLandAir.filter((u) => u.orderType === 'IDLE' || !u.orderType);
-    if (idleDefenders.length > 0) {
-      state.commandQueue.push({
-        playerId: player.playerId,
-        type: 'ATTACK_MOVE',
-        entityIds: idleDefenders.map((u) => u.id),
-        x: underAttackTarget.x,
-        z: underAttackTarget.z
-      });
-    }
+  if (underAttackTarget && idleDefenders.length > 0) {
+    state.commandQueue.push({
+      playerId: player.playerId,
+      type: 'ATTACK_MOVE',
+      entityIds: idleDefenders,
+      x: underAttackTarget.x,
+      z: underAttackTarget.z
+    });
   }
 
-  if (visibleEnemies.length > 0) {
-    const nearbyThreats = visibleEnemies.filter((e) => {
-      const anchor = ownBuildings[0];
-      return anchor && Math.hypot(e.x - anchor.x, e.z - anchor.z) <= 55;
+  if (nearbyThreat && idleDefenders.length > 0) {
+    state.commandQueue.push({
+      playerId: player.playerId,
+      type: 'ATTACK',
+      entityIds: idleDefenders,
+      targetId: nearbyThreat.id
     });
-    if (nearbyThreats.length > 0) {
-      const defenders = ownCombatLandAir.filter((u) => u.orderType === 'IDLE' || !u.orderType);
-      if (defenders.length > 0) {
-        state.commandQueue.push({
-          playerId: player.playerId,
-          type: 'ATTACK',
-          entityIds: defenders.map((u) => u.id),
-          targetId: nearbyThreats[0].id
-        });
-      }
-    }
   }
 
   if (ownCombatLandAir.length >= params.minWaveSize && state.tickCount >= aiState.nextAttackTick) {
     aiState.nextAttackTick = state.tickCount + params.attackInterval;
-    const waveIds = ownCombatLandAir
-      .filter((u) => u.orderType !== 'MOVE')
-      .map((u) => u.id);
-    if (waveIds.length >= Math.max(2, params.minWaveSize - 1)) {
+    if (waveReadyIds.length >= Math.max(2, params.minWaveSize - 1)) {
       if (enemyStructure) {
         state.commandQueue.push({
           playerId: player.playerId,
           type: 'ATTACK_MOVE',
-          entityIds: waveIds,
+          entityIds: waveReadyIds,
           x: enemyStructure.x,
           z: enemyStructure.z
         });
@@ -699,7 +715,7 @@ function evaluateAiPlayer(state, player) {
         state.commandQueue.push({
           playerId: player.playerId,
           type: 'ATTACK_MOVE',
-          entityIds: waveIds,
+          entityIds: waveReadyIds,
           x: sp.x,
           z: sp.z
         });
@@ -710,33 +726,27 @@ function evaluateAiPlayer(state, player) {
     enemySpawns.length > 0 &&
     visibleEnemies.length === 0
   ) {
-    // Send a single scout if no enemy is visible in fog yet
-    const idleScout = ownCombatLandAir.find((u) => u.orderType === 'IDLE' && u.domain !== 'SEA');
-    if (idleScout) {
+    if (idleScoutUnit) {
       aiState.lastScoutTick = state.tickCount;
       const sp = enemySpawns[aiState.scoutIndex % enemySpawns.length];
       aiState.scoutIndex++;
       state.commandQueue.push({
         playerId: player.playerId,
         type: 'ATTACK_MOVE',
-        entityIds: [idleScout.id],
+        entityIds: [idleScoutUnit.id],
         x: sp.x,
         z: sp.z
       });
     }
   }
 
-  if (ownNaval.length >= 2 && visibleEnemies.some((e) => e.domain === 'SEA' || e.domain === 'SUBMERGED')) {
-    const seaTarget = visibleEnemies.find((e) => e.domain === 'SEA' || e.domain === 'SUBMERGED');
-    const idleNaval = ownNaval.filter((u) => u.orderType === 'IDLE');
-    if (idleNaval.length > 0 && seaTarget) {
-      state.commandQueue.push({
-        playerId: player.playerId,
-        type: 'ATTACK',
-        entityIds: idleNaval.map((u) => u.id),
-        targetId: seaTarget.id
-      });
-    }
+  if (ownNaval.length >= 2 && seaTarget && idleNavalIds.length > 0) {
+    state.commandQueue.push({
+      playerId: player.playerId,
+      type: 'ATTACK',
+      entityIds: idleNavalIds,
+      targetId: seaTarget.id
+    });
   }
 }
 

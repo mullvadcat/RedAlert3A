@@ -41,7 +41,8 @@ export default {
       when: 'onTimer',
       atTick: 8,
       actions: [
-        DirectorActions.dialogue('eva_crimson', 'campaign.C01.dlgIntro', 5, '#ef4444')
+        DirectorActions.dialogue('commander_crimson', 'campaign.C01.dlgIntro', 5, '#ef4444'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.C01.dlgAbyssalTaunt', 5, '#38bdf8')
       ]
     },
     {
@@ -52,11 +53,46 @@ export default {
       actions: [
         DirectorActions.cameraPanTo(232, 252, 0.85, 3000),
         DirectorActions.triggerCheckpoint('c01_bridge_secured'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.C01.dlgCaptured', 5, '#ef4444'),
+        DirectorActions.choicePrompt('campaign.C01.choiceTitle', 'campaign.C01.choiceBody', [
+          {
+            labelKey: 'campaign.C01.choiceArmor',
+            actions: [
+              DirectorActions.spawnWave({
+                playerId: 0, factionId: 'crimson', tag: 'c01_armored',
+                units: [{ typeId: 'rhino', x: 125, z: 256, count: 3 }]
+              }),
+              DirectorActions.dialogue('commander_crimson', 'campaign.C01.dlgPickArmor', 4, '#ef4444')
+            ]
+          },
+          {
+            labelKey: 'campaign.C01.choiceInfantry',
+            actions: [
+              DirectorActions.spawnWave({
+                playerId: 0, factionId: 'crimson', tag: 'c01_infantry',
+                units: [{ typeId: 'tesla_trooper', x: 125, z: 256, count: 4 }]
+              }),
+              DirectorActions.grantCredits(0, 2000),
+              DirectorActions.dialogue('eva_crimson', 'campaign.C01.dlgPickInfantry', 4, '#ef4444')
+            ]
+          }
+        ])
+      ]
+    },
+    {
+      id: 'c01_counter',
+      when: 'onTimer',
+      atTick: 420,
+      actions: [
+        DirectorActions.dialogue('eva_crimson', 'campaign.C01.dlgCounter', 5, '#ef4444'),
         DirectorActions.spawnWave({
-          playerId: 0, factionId: 'crimson', tag: 'c01_armored',
-          units: [{ typeId: 'rhino', x: 125, z: 256, count: 3 }]
-        }),
-        DirectorActions.dialogue('commander_crimson', 'campaign.C01.dlgCaptured', 5, '#ef4444')
+          playerId: 1, factionId: 'abyssal', tag: 'c01_counter',
+          x: 376, z: 256, attackMoveX: 180, attackMoveZ: 256,
+          units: [
+            { typeId: 'grizzly', count: 2 },
+            { typeId: 'gi', count: 4 }
+          ]
+        })
       ]
     },
     {
@@ -66,6 +102,7 @@ export default {
       minTick: 25,
       actions: [
         DirectorActions.objective('obj_c01_bridge', 'campaign.C01.objBridge', 'completed'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.C01.dlgVictory', 5, '#ef4444'),
         DirectorActions.victory(0)
       ]
     }

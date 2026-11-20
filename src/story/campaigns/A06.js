@@ -41,9 +41,35 @@ export default {
       when: 'onTimer',
       atTick: 10,
       actions: [
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A06.dlgOpeningLin', 5, '#38bdf8'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.A06.dlgOpeningVolkov', 5, '#ef4444'),
+        DirectorActions.triggerCheckpoint('a06_finale_ready')
+      ]
+    },
+    {
+      id: 'a06_storm_ready',
+      when: 'onTimer',
+      atTick: 240,
+      actions: [
         DirectorActions.grantSuperweaponReady(0, 'weather_control'),
         DirectorActions.dialogue('eva_abyssal', 'campaign.A06.dlgIntro', 5, '#38bdf8'),
-        DirectorActions.triggerCheckpoint('a06_finale_ready')
+        DirectorActions.dialogue('abyss0_signal', 'campaign.A06.dlgAbyssBreach', 5, '#c084fc')
+      ]
+    },
+    {
+      id: 'a06_counter_wave',
+      when: 'onTimer',
+      atTick: 480,
+      actions: [
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A06.dlgCounterWave', 5, '#38bdf8'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'crimson', tag: 'a06_counter',
+          attackMoveX: 140, attackMoveZ: 256,
+          units: [
+            { typeId: 'apocalypse', x: 382, z: 256, count: 2 },
+            { typeId: 'dreadnought', x: 344, z: 256, count: 1, naval: true }
+          ]
+        })
       ]
     },
     {
@@ -53,6 +79,7 @@ export default {
       minTick: 25,
       actions: [
         DirectorActions.objective('obj_a06_seal', 'campaign.A06.objSeal', 'completed'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A06.dlgVictory', 5, '#38bdf8'),
         DirectorActions.victory(0)
       ]
     }

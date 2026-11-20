@@ -37,8 +37,26 @@ export default {
       when: 'onTimer',
       atTick: 8,
       actions: [
-        DirectorActions.dialogue('eva_crimson', 'campaign.C02.dlgIntro', 5, '#ef4444'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.C02.dlgIntro', 5, '#ef4444'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.C02.dlgAbyssalChallenge', 5, '#38bdf8'),
         DirectorActions.triggerCheckpoint('c02_subs_deployed')
+      ]
+    },
+    {
+      id: 'c02_escort',
+      when: 'onTimer',
+      atTick: 420,
+      actions: [
+        DirectorActions.dialogue('eva_crimson', 'campaign.C02.dlgWave', 5, '#ef4444'),
+        DirectorActions.dialogue('dr_volkov_tesla', 'campaign.C02.dlgSonarAnomaly', 5, '#fb923c'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'abyssal', tag: 'c02_escort',
+          x: 344, z: 256, attackMoveX: 160, attackMoveZ: 256,
+          units: [
+            { typeId: 'aegis', count: 1, naval: true },
+            { typeId: 'dolphin', count: 3, naval: true }
+          ]
+        })
       ]
     },
     {
@@ -47,6 +65,7 @@ export default {
       tag: 'c02_carrier',
       actions: [
         DirectorActions.objective('obj_c02_carriers', 'campaign.C02.objCarriers', 'completed'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.C02.dlgVictory', 5, '#ef4444'),
         DirectorActions.victory(0)
       ]
     }

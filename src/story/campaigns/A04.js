@@ -36,6 +36,15 @@ export default {
   },
   triggers: [
     {
+      id: 'a04_intro',
+      when: 'onTimer',
+      atTick: 8,
+      actions: [
+        DirectorActions.dialogue('dr_lin_prism', 'campaign.A04.dlgIntro', 5, '#67e8f9'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.A04.dlgCrimsonTaunt', 5, '#ef4444')
+      ]
+    },
+    {
       id: 'a04_wave1',
       when: 'onTimer',
       atTick: 180,
@@ -45,6 +54,46 @@ export default {
         DirectorActions.spawnWave({
           playerId: 1, factionId: 'crimson', tag: 'a04_wave',
           units: [{ typeId: 'rhino', x: 360, z: 256, count: 4, attackMoveX: 130, attackMoveZ: 256 }]
+        }),
+        DirectorActions.choicePrompt('campaign.A04.choiceTitle', 'campaign.A04.choiceBody', [
+          {
+            labelKey: 'campaign.A04.choicePrism',
+            actions: [
+              DirectorActions.spawnWave({
+                playerId: 0, factionId: 'abyssal', tag: 'a04_prism_reinf',
+                units: [{ typeId: 'prism', x: 132, z: 252, count: 2 }]
+              }),
+              DirectorActions.dialogue('dr_lin_prism', 'campaign.A04.dlgPickPrism', 4, '#67e8f9')
+            ]
+          },
+          {
+            labelKey: 'campaign.A04.choiceChrono',
+            actions: [
+              DirectorActions.spawnWave({
+                playerId: 0, factionId: 'abyssal', tag: 'a04_chrono_reinf',
+                units: [{ typeId: 'chrono', x: 126, z: 260, count: 3 }]
+              }),
+              DirectorActions.grantCredits(0, 2000),
+              DirectorActions.dialogue('eva_abyssal', 'campaign.A04.dlgPickChrono', 4, '#38bdf8')
+            ]
+          }
+        ])
+      ]
+    },
+    {
+      id: 'a04_wave2',
+      when: 'onTimer',
+      atTick: 600,
+      actions: [
+        DirectorActions.dialogue('abyss0_signal', 'campaign.A04.dlgAbyssSignal', 5, '#c084fc'),
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A04.dlgWave2', 5, '#38bdf8'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'crimson', tag: 'a04_wave2',
+          x: 368, z: 256, attackMoveX: 132, attackMoveZ: 256,
+          units: [
+            { typeId: 'rhino', count: 3 },
+            { typeId: 'v3', count: 2 }
+          ]
         })
       ]
     },
@@ -55,6 +104,7 @@ export default {
       minTick: 200,
       actions: [
         DirectorActions.objective('obj_a04_valley', 'campaign.A04.objValley', 'completed'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A04.dlgVictory', 5, '#38bdf8'),
         DirectorActions.victory(0)
       ]
     }

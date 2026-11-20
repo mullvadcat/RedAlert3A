@@ -106,13 +106,13 @@ export function createLobbyMenu(uiState, options = {}) {
   addRow('menu.faction', factionSelect);
 
   const creditsSelect = document.createElement('select');
-  for (const amt of [5000, 10000, 30000]) {
+  for (const amt of [6500, 10000, 30000]) {
     const opt = document.createElement('option');
     opt.value = String(amt);
     opt.textContent = `$${amt.toLocaleString('en-US')}`;
     creditsSelect.appendChild(opt);
   }
-  creditsSelect.value = '10000';
+  creditsSelect.value = '6500';
   addRow('menu.credits', creditsSelect);
 
   const modeSelect = document.createElement('select');
@@ -382,7 +382,7 @@ export function createLobbyMenu(uiState, options = {}) {
     const mapBlueprint = getSkirmishMapById(mapSelect.value);
     const humanFaction = factionSelect.value;
     const rivalFaction = humanFaction === 'abyssal' ? 'crimson' : 'abyssal';
-    const credits = Number(creditsSelect.value) || 10000;
+    const credits = Number(creditsSelect.value) || 6500;
     const diff = diffSelect.value || 'normal';
     const mode = modeSelect.value;
 

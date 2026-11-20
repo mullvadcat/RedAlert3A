@@ -1,0 +1,4 @@
+{
+  "note": "Optional voice OGG registry; add 'locale:voiceId': './assets/audio/voices/...' entries here.",
+  "voices": {}
+}

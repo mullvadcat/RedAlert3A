@@ -38,9 +38,35 @@ export default {
       when: 'onTimer',
       atTick: 10,
       actions: [
+        DirectorActions.dialogue('hero_sledge', 'campaign.C06.dlgSledgeLead', 5, '#f97316'),
+        DirectorActions.dialogue('dr_volkov_tesla', 'campaign.C06.dlgGromovaFissure', 5, '#fb923c'),
+        DirectorActions.triggerCheckpoint('c06_nuke_ready')
+      ]
+    },
+    {
+      id: 'c06_nuke_ready',
+      when: 'onTimer',
+      atTick: 240,
+      actions: [
         DirectorActions.grantSuperweaponReady(0, 'nuclear_silo'),
         DirectorActions.dialogue('eva_crimson', 'campaign.C06.dlgIntro', 5, '#ef4444'),
-        DirectorActions.triggerCheckpoint('c06_nuke_ready')
+        DirectorActions.dialogue('abyss0_signal', 'campaign.C06.dlgAbyssErupt', 5, '#c084fc')
+      ]
+    },
+    {
+      id: 'c06_counter_wave',
+      when: 'onTimer',
+      atTick: 450,
+      actions: [
+        DirectorActions.dialogue('eva_crimson', 'campaign.C06.dlgCounterWave', 5, '#ef4444'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'abyssal', tag: 'c06_wave',
+          x: 378, z: 256, attackMoveX: 140, attackMoveZ: 256,
+          units: [
+            { typeId: 'prism', count: 3 },
+            { typeId: 'grizzly', count: 3 }
+          ]
+        })
       ]
     },
     {
@@ -50,6 +76,7 @@ export default {
       minTick: 25,
       actions: [
         DirectorActions.objective('obj_c06_core', 'campaign.C06.objCore', 'completed'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.C06.dlgVictory', 5, '#ef4444'),
         DirectorActions.victory(0)
       ]
     }

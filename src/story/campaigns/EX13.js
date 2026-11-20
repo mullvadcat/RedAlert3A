@@ -43,13 +43,13 @@ export default {
     ]);
 
     // 3 Abyss-0 Sovereign Bio-Mecha Hive Cores
-    spawnMissionGroup(state, 1, 'crimson', [
-      { typeId: 'conyard', gx: 204, gz: 110, tag: 'ex13_hive', hpMult: 2.0 },
-      { typeId: 'conyard', gx: 208, gz: 128, tag: 'ex13_hive', hpMult: 2.0 },
-      { typeId: 'conyard', gx: 204, gz: 146, tag: 'ex13_hive', hpMult: 2.0 },
-      { typeId: 'war_factory', gx: 194, gz: 128 },
-      { typeId: 'apocalypse', x: 382, z: 256, count: 4 },
-      { typeId: 'kirov', x: 396, z: 256, count: 2 }
+    spawnMissionGroup(state, 1, 'abyss0', [
+      { typeId: 'conyard', gx: 204, gz: 110, factionId: 'abyss0', tag: 'ex13_hive', hpMult: 3.0 },
+      { typeId: 'conyard', gx: 208, gz: 128, factionId: 'abyss0', tag: 'ex13_hive', hpMult: 3.0 },
+      { typeId: 'conyard', gx: 204, gz: 146, factionId: 'abyss0', tag: 'ex13_hive', hpMult: 3.0 },
+      { typeId: 'war_factory', gx: 194, gz: 128, factionId: 'abyss0' },
+      { typeId: 'apocalypse', x: 382, z: 256, count: 4, factionId: 'abyss0' },
+      { typeId: 'kirov', x: 396, z: 256, count: 2, factionId: 'abyss0' }
     ]);
   },
   triggers: [
@@ -63,7 +63,60 @@ export default {
         DirectorActions.grantSuperweaponReady(0, 'weather_control'),
         DirectorActions.grantSuperweaponReady(0, 'nuclear_silo'),
         DirectorActions.dialogue('eva_abyssal', 'campaign.EX13.dlgIntro', 6, '#f59e0b'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.EX13.dlgLinJoint', 5, '#38bdf8'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.EX13.dlgVolkovJoint', 5, '#ef4444'),
+        DirectorActions.dialogue('abyss0_signal', 'campaign.EX13.dlgAbyss0', 5, '#c084fc'),
         DirectorActions.triggerCheckpoint('ex13_joint_command')
+      ]
+    },
+    {
+      id: 'ex13_wave1',
+      when: 'onTimer',
+      atTick: 210,
+      actions: [
+        DirectorActions.dialogue('dr_lin_prism', 'campaign.EX13.dlgWave1SciA', 5, '#67e8f9'),
+        DirectorActions.dialogue('dr_volkov_tesla', 'campaign.EX13.dlgWave1SciB', 5, '#fb923c'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'abyss0', tag: 'ex13_wave1',
+          x: 382, z: 256, attackMoveX: 115, attackMoveZ: 256,
+          units: [
+            { typeId: 'apocalypse', count: 2 },
+            { typeId: 'prism', count: 2 }
+          ]
+        })
+      ]
+    },
+    {
+      id: 'ex13_wave2',
+      when: 'onTimer',
+      atTick: 600,
+      actions: [
+        DirectorActions.dialogue('abyss0_signal', 'campaign.EX13.dlgWave2Abyss', 5, '#c084fc'),
+        DirectorActions.dialogue('hero_sledge', 'campaign.EX13.dlgWave2Heroes', 5, '#f97316'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'abyss0', tag: 'ex13_wave2',
+          x: 392, z: 256, attackMoveX: 95, attackMoveZ: 256,
+          units: [
+            { typeId: 'kirov', count: 2, air: true },
+            { typeId: 'v3', count: 2 }
+          ]
+        })
+      ]
+    },
+    {
+      id: 'ex13_wave3',
+      when: 'onTimer',
+      atTick: 1100,
+      actions: [
+        DirectorActions.dialogue('commander_abyssal', 'campaign.EX13.dlgWave3Final', 6, '#f59e0b'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'abyss0', tag: 'ex13_wave3',
+          x: 382, z: 256, attackMoveX: 105, attackMoveZ: 256,
+          units: [
+            { typeId: 'apocalypse', count: 3 },
+            { typeId: 'prism', count: 3 }
+          ]
+        })
       ]
     },
     {
@@ -73,6 +126,7 @@ export default {
       actions: [
         DirectorActions.objective('obj_ex13_hives', 'campaign.EX13.objHives', 'completed'),
         DirectorActions.dialogue('commander_abyssal', 'campaign.EX13.dlgVictory', 5, '#f59e0b'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.EX13.dlgVictoryVolkov', 5, '#f59e0b'),
         DirectorActions.victory(0)
       ]
     }

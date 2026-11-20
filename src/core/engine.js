@@ -45,7 +45,7 @@ function createPlayerState(spec) {
     isHuman: Boolean(spec.isHuman),
     aiDifficulty: spec.aiDifficulty ?? null,
     allowDualFaction: Boolean(spec.allowDualFaction),
-    credits: spec.credits ?? 10000,
+    credits: spec.credits ?? 6500,
     powerProduced: 0,
     powerConsumed: 0,
     powerFactor: 1.0,
@@ -86,7 +86,7 @@ export function createGameState(options = {}) {
   if (blueprint.supportsNaval !== undefined && map.supportsNaval === undefined) {
     map.supportsNaval = blueprint.supportsNaval;
   }
-  const startingCredits = options.startingCredits ?? missionSpec?.startingCredits ?? 10000;
+  const startingCredits = options.startingCredits ?? missionSpec?.startingCredits ?? 6500;
   const humanFaction = options.factionId ?? missionSpec?.factionId ?? FACTIONS.abyssal.id;
   const enemyFaction = missionSpec?.enemyFactionId ?? (humanFaction === FACTIONS.abyssal.id ? FACTIONS.crimson.id : FACTIONS.abyssal.id);
 
@@ -798,7 +798,9 @@ export function stepSimulation(state) {
   stepAirAndNaval(state);                 // 6
   stepCombatAndProjectiles(state);        // 7
   stepSuperweaponsAndAreaEffects(state);  // 8
-  rebuildTeamFogGrids(state);             // 9
+  if (state.tickCount <= 5 || state.tickCount % 3 === 0) {
+    rebuildTeamFogGrids(state);           // 9 (10 Hz deterministic fog update)
+  }
   stepAiAndCheckVictory(state);           // 10
   if (state.mode === 'campaign' && state.directorState) {
     stepDirector(state, getCampaignMission(state.missionId));

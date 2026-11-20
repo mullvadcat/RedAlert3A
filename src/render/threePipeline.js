@@ -94,6 +94,93 @@ function createScorchDecalTexture() {
   return tex;
 }
 
+function createFireballTexture() {
+  const s = 128;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 2, 64, 64, 62);
+  g.addColorStop(0.0, 'rgba(255,255,235,1.0)');
+  g.addColorStop(0.28, 'rgba(255,205,95,0.92)');
+  g.addColorStop(0.62, 'rgba(255,98,28,0.52)');
+  g.addColorStop(1.0, 'rgba(120,24,8,0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createSmokeTexture() {
+  const s = 128;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  const lobes = [
+    [64, 64, 54, 0.72],
+    [48, 54, 38, 0.45],
+    [80, 56, 36, 0.45],
+    [56, 78, 38, 0.40],
+    [76, 74, 34, 0.40]
+  ];
+  for (const [cx, cy, r, a] of lobes) {
+    const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, r);
+    g.addColorStop(0.0, `rgba(215,212,208,${a})`);
+    g.addColorStop(0.55, `rgba(145,142,138,${a * 0.55})`);
+    g.addColorStop(1.0, 'rgba(90,88,86,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createShockRingTexture() {
+  const s = 128;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 34, 64, 64, 62);
+  g.addColorStop(0.0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.28)');
+  g.addColorStop(0.75, 'rgba(255,255,255,0.95)');
+  g.addColorStop(1.0, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createWakeTexture() {
+  const s = 128;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, s, s);
+  ctx.strokeStyle = 'rgba(235,246,252,0.75)';
+  ctx.lineWidth = 10;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(64, 14);
+  ctx.lineTo(18, 114);
+  ctx.moveTo(64, 14);
+  ctx.lineTo(110, 114);
+  ctx.stroke();
+  const g = ctx.createLinearGradient(0, 10, 0, 124);
+  g.addColorStop(0, 'rgba(235,246,252,0.45)');
+  g.addColorStop(1, 'rgba(235,246,252,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(64, 18);
+  ctx.lineTo(24, 116);
+  ctx.lineTo(104, 116);
+  ctx.closePath();
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function resolveQualityPreset(presetId) {
   if (presetId === 'low' || presetId === 'medium' || presetId === 'balanced') {
     return { ...QUALITY_PRESETS.balanced };
@@ -299,7 +386,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       distanceExponent: 1.8,
       thickness: 2.0,
       scale: 1.0,
-      samples: 8,
+      samples: quality.id === 'ultra' ? 8 : 5,
       distanceFallOff: 1.0
     });
     const origGtaoRender = gtaoPass.render.bind(gtaoPass);
@@ -487,6 +574,64 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
   vfxInst.count = 0;
   overlayGroup.add(vfxInst);
 
+  // Soft Billboard Particle & Ground Shockwave/Wake Pools
+  const MAX_FIRE = 640;
+  const MAX_SMOKE = 960;
+  const MAX_RING_FX = 256;
+  const MAX_WAKES = 256;
+
+  const fireballTex = createFireballTexture();
+  const smokeTex = createSmokeTexture();
+  const shockRingTex = createShockRingTexture();
+  const wakeTex = createWakeTexture();
+  const quadGeo = new THREE.PlaneGeometry(1, 1);
+  const flatQuadGeo = new THREE.PlaneGeometry(1, 1);
+  flatQuadGeo.rotateX(-Math.PI / 2);
+
+  const fireMat = new THREE.MeshBasicMaterial({
+    map: fireballTex,
+    color: 0xffffff,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const smokeMat = new THREE.MeshBasicMaterial({
+    map: smokeTex,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false
+  });
+  const ringFxMat = new THREE.MeshBasicMaterial({
+    map: shockRingTex,
+    color: 0xffffff,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const wakeMat = new THREE.MeshBasicMaterial({
+    map: wakeTex,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false
+  });
+
+  const makeFxInst = (geo, mat, cap, ro) => {
+    const inst = new THREE.InstancedMesh(geo, mat, cap);
+    inst.userData.skipGtao = true;
+    inst.frustumCulled = false;
+    inst.renderOrder = ro;
+    inst.setColorAt(0, new THREE.Color(0xffffff));
+    inst.count = 0;
+    overlayGroup.add(inst);
+    return inst;
+  };
+  const fireInst = makeFxInst(quadGeo, fireMat, MAX_FIRE, 14);
+  const smokeInst = makeFxInst(quadGeo, smokeMat, MAX_SMOKE, 12);
+  const ringFxInst = makeFxInst(flatQuadGeo, ringFxMat, MAX_RING_FX, 7);
+  const wakeInst = makeFxInst(flatQuadGeo, wakeMat, MAX_WAKES, 3);
+
   // Live Entity Sync Store
   const entityGroup = new THREE.Group();
   scene.add(entityGroup);
@@ -528,6 +673,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     mixerCandidates.length = 0;
     let ringCount = 0;
     let hpCount = 0;
+    let wakeCount = 0;
 
     // Camera basis for billboarded HP bars
     camRightVec.setFromMatrixColumn(threeCamera.matrixWorld, 0).normalize();
@@ -540,18 +686,32 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       activeIds.add(e.id);
 
       let rec = entityMap.get(e.id);
-      if (!rec || rec.typeId !== e.typeId || rec.teamId !== e.teamId || rec.assetRev !== assets.revision) {
+      if (
+        !rec ||
+        rec.typeId !== e.typeId ||
+        rec.teamId !== e.teamId ||
+        rec.factionId !== e.factionId ||
+        rec.campaignTag !== e.campaignTag ||
+        rec.assetRev !== assets.revision
+      ) {
+        const prevSpawnTime = rec ? rec.spawnTime : ((e.isBuilding && state.tickCount > 4) ? elapsedSec : -10);
         if (rec) {
           entityGroup.remove(rec.root);
           rec.parts?.mixer?.stopAllAction?.();
           for (const g of rec.root.userData?.ownedGeos ?? []) g.dispose();
         }
-        const built = assets.buildInstance(e.typeId, e.teamId);
+        const built = assets.buildInstance(e.typeId, e.teamId, {
+          factionId: e.factionId,
+          campaignTag: e.campaignTag
+        });
         rec = {
           id: e.id,
           typeId: e.typeId,
           teamId: e.teamId,
+          factionId: e.factionId,
+          campaignTag: e.campaignTag,
           assetRev: assets.revision,
+          spawnTime: prevSpawnTime,
           root: built.root,
           parts: built.parts || {},
           smoothYaw: e.yaw ?? 0
@@ -587,11 +747,12 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       let drawY = baseY;
       let pitchRollX = 0;
       let pitchRollZ = 0;
+      let navalInWater = false;
       if (e.category === 'naval') {
         const groundElev = state.map ? getElevationAtWorld(state.map, ix, iz) : baseY;
-        const inWater = groundElev < 0.05;
-        drawY = inWater ? (e.typeId === 'typhoon' && e.stealth ? -1.1 : 0.0) : Math.max(0.0, groundElev);
-        if (inWater) {
+        navalInWater = groundElev < 0.05;
+        drawY = navalInWater ? (e.typeId === 'typhoon' && e.stealth ? -1.1 : 0.0) : Math.max(0.0, groundElev);
+        if (navalInWater) {
           pitchRollX = Math.sin(elapsedSec * 1.9 + e.id * 0.7) * 0.025;
           pitchRollZ = Math.cos(elapsedSec * 1.5 + e.id * 1.1) * 0.028;
         }
@@ -609,6 +770,15 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       rec.smoothYaw = lerpAngle(rec.smoothYaw, targetYaw, Math.min(1, dtSec * 14 + 0.12));
       rec.root.position.set(ix, drawY, iz);
       rec.root.rotation.set(pitchRollX, rec.smoothYaw, pitchRollZ);
+
+      // 1.2s Hydraulic Construction Deploy Rise Animation
+      if (rec.spawnTime > 0 && elapsedSec - rec.spawnTime < 1.2) {
+        const u = Math.max(0.0, Math.min(1.0, (elapsedSec - rec.spawnTime) / 1.2));
+        const eased = 1.0 - Math.pow(1.0 - u, 3);
+        rec.root.scale.set(1, 0.14 + 0.86 * eased, 1);
+      } else if (rec.root.scale.y !== 1) {
+        rec.root.scale.set(1, 1, 1);
+      }
 
       // Cloak shimmer for shadow / stealth
       if (rec.parts.cloakMeshes?.length) {
@@ -652,9 +822,23 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         p.v3Rocket.visible = (e.cooldown ?? 0) < (def?.weapon?.cooldownTicks ?? 210) * 0.65;
       }
 
-      // Infantry locomotion (mixamo mixer budgeted to closest <= 48 units + fallback leg swing)
+      // Infantry locomotion & naval stern wakes
       const isMoving = Math.hypot((e.vx ?? 0), (e.vz ?? 0)) > 0.25 ||
         (e.prevX !== undefined && Math.hypot(e.x - e.prevX, e.z - e.prevZ) > 0.015);
+      if (navalInWater && isMoving && !(e.typeId === 'typhoon' && e.stealth) && wakeCount < MAX_WAKES) {
+        const rad = e.radius ?? 1.5;
+        const backOffset = rad * 1.55;
+        const pulse = 0.92 + Math.sin(elapsedSec * 4.5 + e.id) * 0.10;
+        dummy.position.set(
+          ix - Math.sin(rec.smoothYaw) * backOffset,
+          0.05,
+          iz - Math.cos(rec.smoothYaw) * backOffset
+        );
+        dummy.rotation.set(0, rec.smoothYaw + Math.PI, 0);
+        dummy.scale.set(rad * 2.1 * pulse, 1, rad * 3.4 * pulse);
+        dummy.updateMatrix();
+        wakeInst.setMatrixAt(wakeCount++, dummy.matrix);
+      }
       if (p.mixer) {
         const d2 = Math.hypot(ix - camera.targetX, iz - camera.targetZ);
         mixerCandidates.push({ rec, d2, isMoving });
@@ -740,6 +924,9 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     ringInst.instanceMatrix.needsUpdate = true;
     if (ringInst.instanceColor) ringInst.instanceColor.needsUpdate = true;
 
+    wakeInst.count = wakeCount;
+    wakeInst.instanceMatrix.needsUpdate = true;
+
     hpBgInst.count = hpCount;
     hpFillInst.count = hpCount;
     hpBgInst.instanceMatrix.needsUpdate = true;
@@ -774,6 +961,11 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
 
   function populateVfx(state, alpha, elapsedSec) {
     let count = 0;
+    let fireCount = 0;
+    let smokeCount = 0;
+    let ringFxCount = 0;
+    const camQ = threeCamera.quaternion;
+
     const writeVfx = (x, y, z, yaw, sx, sy, sz, pitch, r, g, b) => {
       if (count >= MAX_VFX) return;
       dummy.position.set(x, y, z);
@@ -786,7 +978,43 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       count++;
     };
 
-    // Projectiles & Missile Contrails
+    const writeFire = (x, y, z, size, r, g, b) => {
+      if (fireCount >= MAX_FIRE) return;
+      dummy.position.set(x, y, z);
+      dummy.quaternion.copy(camQ);
+      dummy.scale.set(size, size, 1);
+      dummy.updateMatrix();
+      fireInst.setMatrixAt(fireCount, dummy.matrix);
+      colTmp.setRGB(r, g, b);
+      fireInst.setColorAt(fireCount, colTmp);
+      fireCount++;
+    };
+
+    const writeSmoke = (x, y, z, size, shade) => {
+      if (smokeCount >= MAX_SMOKE) return;
+      dummy.position.set(x, y, z);
+      dummy.quaternion.copy(camQ);
+      dummy.scale.set(size, size, 1);
+      dummy.updateMatrix();
+      smokeInst.setMatrixAt(smokeCount, dummy.matrix);
+      colTmp.setRGB(shade, shade * 0.98, shade * 0.96);
+      smokeInst.setColorAt(smokeCount, colTmp);
+      smokeCount++;
+    };
+
+    const writeRingFx = (x, y, z, radius, r, g, b) => {
+      if (ringFxCount >= MAX_RING_FX) return;
+      dummy.position.set(x, y, z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(radius * 2, 1, radius * 2);
+      dummy.updateMatrix();
+      ringFxInst.setMatrixAt(ringFxCount, dummy.matrix);
+      colTmp.setRGB(r, g, b);
+      ringFxInst.setColorAt(ringFxCount, colTmp);
+      ringFxCount++;
+    };
+
+    // Projectiles & Soft Missile Thrusters / Smoke Contrails
     const projs = state.projectiles ?? [];
     for (let i = 0; i < projs.length; i++) {
       const p = projs[i];
@@ -798,20 +1026,18 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       if (isMissile) {
         const vx = Math.sin(yaw);
         const vz = Math.cos(yaw);
-        writeVfx(ix, iy, iz, yaw, 0.28, 0.28, 1.25, 0, 0.92, 0.92, 0.96);
-        writeVfx(ix - vx * 0.7, iy, iz - vz * 0.7, yaw, 0.36, 0.36, 0.65, 0, 1.0, 0.62, 0.16);
+        writeVfx(ix, iy, iz, yaw, 0.24, 0.24, 1.25, 0, 0.92, 0.92, 0.96);
+        writeFire(ix - vx * 0.72, iy, iz - vz * 0.72, 1.25, 1.0, 0.68, 0.22);
         for (let t = 1; t <= 3; t++) {
-          const lag = 1.1 + t * 1.1;
-          const s = 0.28 + t * 0.14;
-          const sh = 0.56 - t * 0.1;
-          writeVfx(ix - vx * lag, iy + t * 0.05, iz - vz * lag, elapsedSec * 2 + t, s, s, s, 0.2, sh, sh, sh);
+          const lag = 1.05 + t * 1.15;
+          writeSmoke(ix - vx * lag, iy + t * 0.06, iz - vz * lag, 0.75 + t * 0.42, 0.72 - t * 0.14);
         }
       } else {
-        writeVfx(ix, iy, iz, yaw, 0.18, 0.18, 0.95, 0, 1.0, 0.85, 0.35);
+        writeVfx(ix, iy, iz, yaw, 0.16, 0.16, 0.95, 0, 1.0, 0.85, 0.35);
       }
     }
 
-    // Carrier & Orphan Drones
+    // Carrier & Orphan Drones, Active Status Auras & Soft Damage Smoke Plumes
     const ents = state.entities ?? [];
     for (let i = 0; i < ents.length; i++) {
       const ent = ents[i];
@@ -828,25 +1054,24 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         writeVfx(ent.x, (ent.y ?? 1.6) + 0.9, ent.z, elapsedSec * 1.8, s, 1.75, s, 0, 0.92, 0.16, 0.22);
       }
       if (ent.empTicks > 0) {
-        writeVfx(
+        writeFire(
           ent.x + Math.sin(elapsedSec * 24 + ent.id) * 0.45,
           (ent.y ?? 1.6) + 1.35,
           ent.z + Math.cos(elapsedSec * 21 + ent.id) * 0.45,
-          elapsedSec * 6.0,
-          0.26, 1.15, 0.26, 0.35, 0.32, 0.88, 1.0
+          1.4,
+          0.32, 0.88, 1.0
         );
       }
       if (ent.maxHp > 0 && ent.hp < ent.maxHp * 0.5 && (ent.category === 'building' || ent.category === 'vehicle' || ent.category === 'naval')) {
         for (let k = 0; k < 2; k++) {
-          const cyc = (elapsedSec * 0.6 + ent.id * 0.31 + k * 0.5) % 1.0;
-          const sc = (ent.category === 'building' ? 0.85 : 0.48) * (0.65 + cyc * 1.1);
-          const shade = 0.18 + cyc * 0.15;
-          writeVfx(
-            ent.x + Math.sin(elapsedSec * 1.3 + k + ent.id) * 0.6,
-            (ent.y ?? 1.6) + 1.5 + cyc * 3.0,
-            ent.z + Math.cos(elapsedSec * 1.1 + k) * 0.5,
-            cyc * 2.5,
-            sc, sc * 0.85, sc, 0.2, shade, shade, shade
+          const cyc = (elapsedSec * 0.58 + ent.id * 0.31 + k * 0.5) % 1.0;
+          const sc = (ent.category === 'building' ? 1.65 : 0.95) * (0.75 + cyc * 1.35);
+          writeSmoke(
+            ent.x + Math.sin(elapsedSec * 1.3 + k + ent.id) * 0.55,
+            (ent.y ?? 1.6) + 1.45 + cyc * 3.4,
+            ent.z + Math.cos(elapsedSec * 1.1 + k) * 0.50,
+            sc,
+            0.34 - cyc * 0.18
           );
         }
       }
@@ -864,27 +1089,22 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         const r = isNuke ? 1.0 : 0.35;
         const g = isNuke ? 0.22 : 0.82;
         const b = isNuke ? 0.15 : 1.0;
-        writeVfx(fx.x, 8.0, fx.z, elapsedSec * 2.5, 0.45, 16.0, 0.45, 0, r, g, b);
-        for (let k = 0; k < 8; k++) {
-          const ang = (k / 8) * Math.PI * 2 + elapsedSec * 1.4;
-          writeVfx(fx.x + Math.cos(ang) * rad, 2.2, fx.z + Math.sin(ang) * rad, -ang, 0.42, 0.42, rad * 0.62, 0, r, g, b);
-        }
+        writeVfx(fx.x, 8.0, fx.z, elapsedSec * 2.5, 0.42, 16.0, 0.42, 0, r, g, b);
+        writeRingFx(fx.x, 1.85, fx.z, rad * (0.88 + 0.12 * Math.sin(elapsedSec * 6.0)), r, g, b);
       } else if (fx.kind === 'radiation' || fx.type === 'radiation') {
-        for (let k = 0; k < 5; k++) {
-          const ang = (k / 5) * Math.PI * 2 + elapsedSec * 0.8;
-          writeVfx(fx.x + Math.cos(ang) * rad * 0.55, 2.0, fx.z + Math.sin(ang) * rad * 0.55, ang, 1.0, 0.24, 1.0, 0, 0.38, 0.95, 0.22);
+        for (let k = 0; k < 4; k++) {
+          const ang = (k / 4) * Math.PI * 2 + elapsedSec * 0.7;
+          writeFire(fx.x + Math.cos(ang) * rad * 0.45, 2.2, fx.z + Math.sin(ang) * rad * 0.45, 4.2, 0.28, 0.85, 0.18);
         }
       } else if (fx.kind === 'satellite') {
-        for (let k = 0; k < 8; k++) {
-          const ang = (k / 8) * Math.PI * 2 - elapsedSec * 1.2;
-          writeVfx(fx.x + Math.cos(ang) * rad, 3.0, fx.z + Math.sin(ang) * rad, -ang, 0.28, 0.28, 2.8, 0, 0.24, 0.88, 1.0);
-        }
+        writeRingFx(fx.x, 2.05, fx.z, rad, 0.24, 0.88, 1.0);
       } else if (fx.kind === 'lightning_storm') {
-        writeVfx(fx.x, 12.5, fx.z, elapsedSec, 8.2, 0.85, 8.2, 0, 0.35, 0.58, 1.0);
+        writeSmoke(fx.x, 12.5, fx.z, 15.0, 0.25);
+        writeFire(fx.x + Math.sin(elapsedSec * 17) * 3.5, 11.8, fx.z + Math.cos(elapsedSec * 14) * 3.5, 5.5, 0.45, 0.75, 1.0);
       }
     }
 
-    // Transient Flashes / Explosions / Beams / Order Rings
+    // Transient Fireballs / Shockwaves / Jagged Arcs / Order Ripples
     for (let i = transientFx.length - 1; i >= 0; i--) {
       const fx = transientFx[i];
       const age = elapsedSec - fx.startSec;
@@ -894,13 +1114,14 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       }
       const prog = age / fx.duration;
       if (fx.kind === 'explosion') {
-        const baseS = (fx.scale ?? 1.2) * (0.65 + prog * 1.75);
-        writeVfx(fx.x, fx.y + 0.7 + prog * 0.9, fx.z, prog * 2.2, baseS, baseS * (1.1 - prog * 0.3), baseS, 0.3, 1.0, 0.72 - prog * 0.4, 0.16);
+        const sc = fx.scale ?? 1.2;
+        const heat = Math.max(0.15, 1.0 - prog);
+        writeFire(fx.x, fx.y + 0.8 + prog * 1.1, fx.z, sc * (1.45 + prog * 2.4), heat, heat * 0.75, heat * 0.35);
+        writeRingFx(fx.x, fx.y + 0.15, fx.z, sc * (0.8 + prog * 3.4), heat, heat * 0.65, heat * 0.25);
         for (let k = 0; k < 3; k++) {
-          const ang = (k / 3) * Math.PI * 2 + prog * 1.2;
-          const rOff = (fx.scale ?? 1.2) * (0.35 + prog * 1.15);
-          const smS = (fx.scale ?? 1.2) * (0.75 + prog * 1.85);
-          writeVfx(fx.x + Math.cos(ang) * rOff, fx.y + 1.1 + prog * 3.0, fx.z + Math.sin(ang) * rOff, ang, smS, smS * 0.9, smS, 0.35, 0.24, 0.22, 0.22);
+          const ang = (k / 3) * Math.PI * 2 + prog * 1.1;
+          const rOff = sc * (0.35 + prog * 1.2);
+          writeSmoke(fx.x + Math.cos(ang) * rOff, fx.y + 1.2 + prog * 3.2, fx.z + Math.sin(ang) * rOff, sc * (1.2 + prog * 2.2), 0.38 * (1.0 - prog * 0.5));
         }
       } else if (fx.kind === 'beam') {
         const dx = fx.tx - fx.x;
@@ -908,14 +1129,28 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         const dist = Math.hypot(dx, dz);
         const fade = Math.max(0.25, 1.0 - prog);
         if (dist < 0.05 && fx.y > 8.0) {
-          writeVfx(fx.x, fx.y * 0.5, fx.z, elapsedSec * 12.0, 0.34 * fade, fx.y, 0.34 * fade, 0, fx.r, fx.g, fx.b);
+          for (let seg = 0; seg < 4; seg++) {
+            const yMid = ((seg + 0.5) / 4) * fx.y;
+            const jx = (seg === 0 || seg === 3) ? 0 : Math.sin(elapsedSec * 55 + seg * 2.1) * 0.55;
+            const jz = (seg === 0 || seg === 3) ? 0 : Math.cos(elapsedSec * 49 + seg * 1.7) * 0.55;
+            writeVfx(fx.x + jx, yMid, fx.z + jz, elapsedSec * 14, 0.26 * fade, fx.y * 0.28, 0.26 * fade, 0.1, fx.r, fx.g, fx.b);
+          }
+          writeFire(fx.x, 1.85, fx.z, 3.2 * fade, fx.r, fx.g, fx.b);
         } else {
           const d = dist || 1;
-          writeVfx((fx.x + fx.tx) * 0.5, fx.y, (fx.z + fx.tz) * 0.5, Math.atan2(dx, dz), 0.22 * fade, 0.22 * fade, d, 0, fx.r, fx.g, fx.b);
+          const segs = 3;
+          const yaw = Math.atan2(dx, dz);
+          for (let seg = 0; seg < segs; seg++) {
+            const tMid = (seg + 0.5) / segs;
+            const jitter = fx.b > 0.7 && fx.r < 0.6 ? Math.sin(elapsedSec * 48 + seg * 3.3) * 0.22 : 0;
+            writeVfx(fx.x + dx * tMid + jitter, fx.y, fx.z + dz * tMid - jitter, yaw, 0.18 * fade, 0.18 * fade, d / segs + 0.15, 0, fx.r, fx.g, fx.b);
+          }
+          writeFire(fx.tx, fx.y, fx.tz, 1.45 * fade, fx.r, fx.g, fx.b);
         }
       } else if (fx.kind === 'order') {
-        const s = 1.5 * (1.0 - prog * 0.65);
-        writeVfx(fx.x, fx.y + 0.3, fx.z, elapsedSec * 4.0, s, 0.16, s, 0, fx.r, fx.g, fx.b);
+        const rad = 0.55 + prog * 1.45;
+        const fade = Math.max(0.1, 1.0 - prog);
+        writeRingFx(fx.x, fx.y + 0.18, fx.z, rad, fx.r * fade, fx.g * fade, fx.b * fade);
       }
     }
 
@@ -929,6 +1164,18 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     vfxInst.count = count;
     vfxInst.instanceMatrix.needsUpdate = true;
     if (vfxInst.instanceColor) vfxInst.instanceColor.needsUpdate = true;
+
+    fireInst.count = fireCount;
+    fireInst.instanceMatrix.needsUpdate = true;
+    if (fireInst.instanceColor) fireInst.instanceColor.needsUpdate = true;
+
+    smokeInst.count = smokeCount;
+    smokeInst.instanceMatrix.needsUpdate = true;
+    if (smokeInst.instanceColor) smokeInst.instanceColor.needsUpdate = true;
+
+    ringFxInst.count = ringFxCount;
+    ringFxInst.instanceMatrix.needsUpdate = true;
+    if (ringFxInst.instanceColor) ringFxInst.instanceColor.needsUpdate = true;
   }
 
   function renderFrame(state, alpha, uiState, elapsedSec) {
@@ -978,6 +1225,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     quality = resolveQualityPreset(presetId);
     if (gtaoPass && gtaoEnabledRuntime) {
       gtaoPass.enabled = Boolean(quality.gtaoEnabled);
+      gtaoPass.updateGtaoMaterial?.({ samples: quality.id === 'ultra' ? 8 : 5 });
     }
     bloomPass.enabled = Boolean(quality.bloomEnabled);
     targetW = 0;
@@ -1001,6 +1249,16 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     buildRingMat.dispose();
     vfxGeo.dispose();
     vfxMat.dispose();
+    quadGeo.dispose();
+    flatQuadGeo.dispose();
+    fireballTex.dispose();
+    smokeTex.dispose();
+    shockRingTex.dispose();
+    wakeTex.dispose();
+    fireMat.dispose();
+    smokeMat.dispose();
+    ringFxMat.dispose();
+    wakeMat.dispose();
     gtaoPass?.dispose?.();
     bloomPass?.dispose?.();
     composer?.dispose?.();

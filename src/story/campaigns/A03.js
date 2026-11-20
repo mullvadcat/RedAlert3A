@@ -38,7 +38,24 @@ export default {
       when: 'onTimer',
       atTick: 8,
       actions: [
-        DirectorActions.dialogue('commander_abyssal', 'campaign.A03.dlgIntro', 5, '#38bdf8')
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A03.dlgIntro', 5, '#38bdf8'),
+        DirectorActions.dialogue('hero_shadow', 'campaign.A03.dlgShadowRecon', 5, '#22d3ee')
+      ]
+    },
+    {
+      id: 'a03_patrol',
+      when: 'onTimer',
+      atTick: 360,
+      actions: [
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A03.dlgPatrol', 5, '#38bdf8'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'crimson', tag: 'a03_patrol',
+          x: 376, z: 256, attackMoveX: 160, attackMoveZ: 256,
+          units: [
+            { typeId: 'flak_trooper', count: 4 },
+            { typeId: 'rhino', count: 2 }
+          ]
+        })
       ]
     },
     {
@@ -48,7 +65,8 @@ export default {
       actions: [
         DirectorActions.objective('obj_a03_v3', 'campaign.A03.objV3', 'completed'),
         DirectorActions.triggerCheckpoint('a03_v3_cleared'),
-        DirectorActions.dialogue('eva_abyssal', 'campaign.A03.dlgV3Cleared', 4, '#38bdf8')
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A03.dlgV3Cleared', 4, '#38bdf8'),
+        DirectorActions.dialogue('abyss0_signal', 'campaign.A03.dlgAbyssPulse', 5, '#c084fc')
       ]
     },
     {
@@ -56,7 +74,10 @@ export default {
       when: 'onAllEnemiesCleared',
       enemyTeamId: 1,
       minTick: 25,
-      actions: [DirectorActions.victory(0)]
+      actions: [
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A03.dlgVictory', 5, '#38bdf8'),
+        DirectorActions.victory(0)
+      ]
     }
   ]
 };

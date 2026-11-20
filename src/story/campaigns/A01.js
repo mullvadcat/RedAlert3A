@@ -46,7 +46,8 @@ export default {
       when: 'onTimer',
       atTick: 5,
       actions: [
-        DirectorActions.dialogue('eva_abyssal', 'campaign.A01.dlgIntro', 5, '#38bdf8')
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A01.dlgIntro', 5, '#38bdf8'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.A01.dlgCrimsonTaunt', 5, '#ef4444')
       ]
     },
     {
@@ -81,12 +82,29 @@ export default {
       ]
     },
     {
+      id: 'a01_counterattack',
+      when: 'onTimer',
+      atTick: 420,
+      actions: [
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A01.dlgWaveCounter', 5, '#38bdf8'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'crimson', tag: 'a01_counter',
+          x: 376, z: 256, attackMoveX: 170, attackMoveZ: 256,
+          units: [
+            { typeId: 'rhino', count: 2 },
+            { typeId: 'conscript', count: 4 }
+          ]
+        })
+      ]
+    },
+    {
       id: 'a01_victory',
       when: 'onAllEnemiesCleared',
       enemyTeamId: 1,
       minTick: 20,
       actions: [
         DirectorActions.objective('obj_clear_beach', 'campaign.A01.objClear', 'completed'),
+        DirectorActions.dialogue('commander_abyssal', 'campaign.A01.dlgVictory', 5, '#38bdf8'),
         DirectorActions.victory(0)
       ]
     }

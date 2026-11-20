@@ -22,6 +22,16 @@ export function createAudioMixer() {
   let muted = false;
   let unlocked = false;
   const voiceCache = new Map();
+  let voiceManifestPromise = null;
+
+  function loadVoiceManifest() {
+    if (!voiceManifestPromise) {
+      voiceManifestPromise = fetch('./assets/audio/voices/manifest.json')
+        .then((res) => (res.ok ? res.json() : { voices: {} }))
+        .catch(() => ({ voices: {} }));
+    }
+    return voiceManifestPromise;
+  }
 
   let musicBus = null;
   let layerNodes = null;
@@ -230,8 +240,14 @@ export function createAudioMixer() {
     }
 
     try {
-      const url = `./assets/audio/voices/${encodeURIComponent(locale)}/${encodeURIComponent(safeVoice)}.ogg`;
-      const res = await fetch(url);
+      const manifest = await loadVoiceManifest();
+      const registeredUrl = manifest?.voices?.[cacheKey];
+      if (!registeredUrl || typeof registeredUrl !== 'string') {
+        voiceCache.set(cacheKey, 'missing');
+        playSynthEvaCue(safeVoice);
+        return;
+      }
+      const res = await fetch(registeredUrl);
       if (!res.ok) {
         voiceCache.set(cacheKey, 'missing');
         playSynthEvaCue(safeVoice);

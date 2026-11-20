@@ -127,13 +127,13 @@ export const VETERANCY_CONFIG = {
   2: {
     rank: 2,
     minKillRatio: 4.0,
-    damageMult: 1.45,
+    damageMult: 1.32,
     speedMult: 1.15,
     sightBonus: 2,
-    damageTakenMult: 0.75,
-    cooldownMult: 0.80,
-    hpMult: 1.25,
-    selfHealPerSec: 10
+    damageTakenMult: 0.84,
+    cooldownMult: 0.88,
+    hpMult: 1.15,
+    selfHealPerSec: 7
   }
 };
 
@@ -189,14 +189,14 @@ export const ENTITY_DEFS = {
     speed: 3.6, hp: 135, armor: 'None', domain: 'GROUND', sight: 13, radius: 0.45,
     producerType: 'barracks', queueKey: 'infantry', prereqs: ['barracks'],
     weapon: { damage: 20, burst: 1, cooldownTicks: sec(0.35), range: 10.5, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
-    deployedWeapon: { damage: 30, burst: 1, cooldownTicks: sec(0.35), range: 15.5, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
+    deployedWeapon: { damage: 30, burst: 1, cooldownTicks: sec(0.35), range: 13.0, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 },
     canDeploy: true
   },
   conscript: {
     id: 'conscript', category: 'infantry', factions: ['crimson'], cost: 100, buildTicks: sec(1.8),
-    speed: 3.8, hp: 110, armor: 'None', domain: 'GROUND', sight: 12, radius: 0.45,
+    speed: 3.8, hp: 115, armor: 'None', domain: 'GROUND', sight: 12, radius: 0.45,
     producerType: 'barracks', queueKey: 'infantry', prereqs: ['barracks'],
-    weapon: { damage: 12, burst: 1, cooldownTicks: sec(0.40), range: 9, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 }
+    weapon: { damage: 13, burst: 1, cooldownTicks: sec(0.40), range: 9, damageType: 'Bullet', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 60 }
   },
   flak_trooper: {
     id: 'flak_trooper', category: 'infantry', factions: ['abyssal', 'crimson'], cost: 300, buildTicks: sec(3.2),
@@ -256,9 +256,9 @@ export const ENTITY_DEFS = {
   },
   rhino: {
     id: 'rhino', category: 'vehicle', factions: ['crimson'], cost: 900, buildTicks: sec(7.5),
-    speed: 5.4, hp: 480, armor: 'Heavy', domain: 'GROUND', sight: 16, radius: 1.35,
+    speed: 5.4, hp: 555, armor: 'Heavy', domain: 'GROUND', sight: 16, radius: 1.35,
     producerType: 'war_factory', queueKey: 'vehicle', prereqs: ['war_factory'],
-    weapon: { damage: 94, burst: 1, cooldownTicks: sec(1.8), range: 16, damageType: 'APShell', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 45 }
+    weapon: { damage: 98, burst: 1, cooldownTicks: sec(1.62), range: 16, damageType: 'APShell', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 45 }
   },
   ifv: {
     id: 'ifv', category: 'vehicle', factions: ['abyssal'], cost: 600, buildTicks: sec(5.5),
@@ -311,7 +311,7 @@ export const ENTITY_DEFS = {
     weapon: { damage: 160, burst: 2, splashRadius: 5, cooldownTicks: sec(3.0), range: 18, damageType: 'HighExplosive', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 32 }
   },
   kirov: {
-    id: 'kirov', category: 'air', factions: ['crimson'], cost: 2000, buildTicks: sec(16.0),
+    id: 'kirov', category: 'air', factions: ['crimson'], cost: 1850, buildTicks: sec(15.0),
     speed: 3.0, hp: 2000, armor: 'Air', domain: 'AIR', sight: 18, radius: 2.2,
     producerType: 'war_factory', queueKey: 'air_naval', prereqs: ['war_factory', 'battle_lab'],
     weapon: { damage: 360, burst: 1, splashRadius: 5, cooldownTicks: sec(2.2), range: 4, damageType: 'HighExplosive', targetDomains: ['GROUND', 'SEA'], projectileSpeed: 18 }
@@ -334,11 +334,11 @@ export const ENTITY_DEFS = {
     id: 'sea_scorpion', category: 'naval', factions: ['crimson'], cost: 600, buildTicks: sec(5.5),
     speed: 8.8, hp: 360, armor: 'Light', domain: 'SEA', detector: true, detectorRadius: 12, sight: 18, radius: 1.35,
     producerType: 'naval_yard', queueKey: 'air_naval', prereqs: ['naval_yard'],
-    weapon: { damage: 32, antiAirDamage: 45, burst: 1, cooldownTicks: sec(0.5), range: 18, seaRange: 12, damageType: 'Missile', targetDomains: ['GROUND', 'SEA', 'AIR', 'SUBMERGED'], projectileSpeed: 36 }
+    weapon: { damage: 32, antiAirDamage: 52, burst: 1, cooldownTicks: sec(0.5), range: 21, seaRange: 12, damageType: 'Missile', targetDomains: ['GROUND', 'SEA', 'AIR', 'SUBMERGED'], projectileSpeed: 36 }
   },
   aegis: {
     id: 'aegis', category: 'naval', factions: ['abyssal'], cost: 1200, buildTicks: sec(9.0),
-    speed: 5.8, hp: 750, armor: 'Heavy', domain: 'SEA', sight: 24, radius: 1.75,
+    speed: 5.8, hp: 650, armor: 'Heavy', domain: 'SEA', sight: 24, radius: 1.75,
     producerType: 'naval_yard', queueKey: 'air_naval', prereqs: ['naval_yard', 'airforce_radar'],
     weapon: { damage: 65, burst: 2, cooldownTicks: sec(0.5), range: 28, damageType: 'Missile', targetDomains: ['AIR'], projectileSpeed: 42 }
   },

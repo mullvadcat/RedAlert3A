@@ -42,7 +42,25 @@ export default {
       actions: [
         DirectorActions.grantSuperweaponReady(0, 'chrono_sphere'),
         DirectorActions.dialogue('commander_abyssal', 'campaign.A05.dlgIntro', 5, '#38bdf8'),
+        DirectorActions.dialogue('dr_lin_prism', 'campaign.A05.dlgLinWarn', 5, '#67e8f9'),
+        DirectorActions.dialogue('commander_crimson', 'campaign.A05.dlgVolkovDefiant', 5, '#ef4444'),
         DirectorActions.triggerCheckpoint('a05_chrono_ready')
+      ]
+    },
+    {
+      id: 'a05_surge',
+      when: 'onTimer',
+      atTick: 420,
+      actions: [
+        DirectorActions.dialogue('eva_abyssal', 'campaign.A05.dlgSurge', 5, '#38bdf8'),
+        DirectorActions.spawnWave({
+          playerId: 1, factionId: 'crimson', tag: 'a05_surge',
+          x: 382, z: 256, attackMoveX: 150, attackMoveZ: 256,
+          units: [
+            { typeId: 'apocalypse', count: 2 },
+            { typeId: 'flak_trooper', count: 4 }
+          ]
+        })
       ]
     },
     {
@@ -51,6 +69,7 @@ export default {
       tag: 'a05_silo',
       actions: [
         DirectorActions.objective('obj_a05_silos', 'campaign.A05.objSilos', 'completed'),
+        DirectorActions.dialogue('dr_lin_prism', 'campaign.A05.dlgVictory', 5, '#67e8f9'),
         DirectorActions.victory(0)
       ]
     }
