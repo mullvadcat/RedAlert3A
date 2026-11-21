@@ -114,7 +114,7 @@
 | `L-03` | 2026-11-21 | M0 · 步兵程序化 R2 | 9 种步兵毫米级比例/护盾角度/配饰精修；新增低 `edgeWear` 军服材质消除薄片灰白反光 | `50518ca` | build / test:m1 / test:m6 / 49 几何体全过 | [infantry_comparison.md](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/infantry_comparison.md) | 已完成 |
 | `L-04` | 2026-11-21 | M0 · 验证回退与修复 | 方案 B（HD-2D）3 单位试点后因静态无 3D 动作回退；保留 GI 沙袋部署判定、血条防遮挡高度、陈列室 `teamId` 红蓝同步 3 项修复 | `ef89e95` | `node --check` / build(60模块) / m1 / m6(`0.337 ms/tick`) / 49 几何 / 0 报错全过 | `final_step_422.png`, [hd2d_demo_comparison.md](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/hd2d_demo_comparison.md) | 已完成 / 已封档 |
 | `L-05` | 2026-11-21 | M1 · 渲染底座 2.0 | 新增 4 套专属 PBR 贴图（铆钉装甲/帆布织物/可滚动履带/工业格栅）+ 倒角/穹顶/炮塔/Tube 构造器 + Rim Light 轮廓光 + 512 单位接触阴影 + 履带滚动/后坐力/侧倾/GI 蹲姿架枪 | `582ed0e` | `node --check` / build(60模块) / m1 / m6(`0.317 ms/tick`) / 49 几何 / 0 报错(113–127 FPS)全过 | [war_factory 实机](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/browser_evidence/d9fa4771-20e3-4b5e-a645-d55e6c188c0d/final_step_24.png), [gi 蹲姿实机](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/browser_evidence/d9fa4771-20e3-4b5e-a645-d55e6c188c0d/final_step_34.png) | 已完成 |
-| `L-06` | — | M2 · Phase 2A 陆军 | 8 型陆军载具 1:1 精雕与陈列室对比验收 | 待执行 | — | — | 待启动 |
+| `L-06` | 2026-11-21 | M2 · Phase 2A 陆军 | 移除旧通用 `tank.glb` 覆盖，1:1 精雕 2.0 重建全部 8 型陆军载具（`harvester`, `grizzly`, `rhino`, `ifv`, `v3`, `prism`, `apocalypse`, `mcv`），补全负重轮履带/8×8军卡/四履带猛犸/晶体光棱/双滚筒采矿斗 | `024fa2d` | `node --check` / build(60模块) / m1 / m6(`0.526 ms/tick`) / 49 几何 / 8车实机 0 报错(50–126 FPS)全过 | [vehicles_comparison.md](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/vehicles_comparison.md), [board_all8.png](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/compare_vehicles/board_all8.png) | 已完成 |
 | `L-07` | — | M3 · Phase 2B 空/海 | 4 型空军 + 7 型海军共 11 型装备 1:1 精雕与验收 | 待执行 | — | — | 待启动 |
 | `L-08` | — | M4 · Phase 3 建筑群 | 剩余 4 基地建筑 + 4 防御 + 4 超武 + 3 中立建筑（共 15 座）1:1 精雕与验收 | 待执行 | — | — | 待启动 |
 | `L-09` | — | M5 · 步兵骨骼试点 | 9 人物无遮挡 A-Pose 规范 + 骨骼 `.glb` 染色/归一化/动作状态机 + 1 型试点入库验收 | 待执行 | — | — | 待启动 |
@@ -142,14 +142,14 @@
 
 | 序号 | Entity ID | 官方名称 | 所属类别 | 目标方案 | 当前状态 | 关联阶段 |
 | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| 10 | `harvester` | 武装采矿车 | vehicle | Layer 1（精雕 2.0 + 采矿滚筒旋转） | 待重建 | M2 |
-| 11 | `grizzly` | 灰熊主战坦克 | vehicle | Layer 1（精雕 2.0 + 履带滚动/炮管后坐） | 待重建 | M2 |
-| 12 | `rhino` | 犀牛主战坦克 | vehicle | Layer 1（精雕 2.0 + 履带滚动/炮管后坐） | 待重建 | M2 |
-| 13 | `ifv` | 多功能步兵车 | vehicle | Layer 1（精雕 2.0 + 轮式底盘细节） | 待重建 | M2 |
-| 14 | `v3` | V3 火箭发射车 | vehicle | Layer 1（精雕 2.0 + 弹体仰角机构） | 待重建 | M2 |
-| 15 | `prism` | 光棱坦克 | vehicle | Layer 1（精雕 2.0 + 棱镜发光阵列） | 待重建 | M2 |
-| 16 | `apocalypse` | 天启坦克 | vehicle | Layer 1（精雕 2.0 + 双炮管/四履带） | 待重建 | M2 |
-| 17 | `mcv` | 机动基地车 | vehicle | Layer 1（精雕 2.0 + 重型折叠吊臂） | 待重建 | M2 |
+| 10 | `harvester` | 武装采矿车 | vehicle | Layer 1（精雕 2.0 + 采矿滚筒旋转） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 11 | `grizzly` | 灰熊主战坦克 | vehicle | Layer 1（精雕 2.0 + 履带滚动/炮管后坐） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 12 | `rhino` | 犀牛主战坦克 | vehicle | Layer 1（精雕 2.0 + 履带滚动/炮管后坐） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 13 | `ifv` | 多功能步兵车 | vehicle | Layer 1（精雕 2.0 + 轮式底盘细节） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 14 | `v3` | V3 火箭发射车 | vehicle | Layer 1（精雕 2.0 + 弹体仰角机构） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 15 | `prism` | 光棱坦克 | vehicle | Layer 1（精雕 2.0 + 棱镜发光阵列） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 16 | `apocalypse` | 天启坦克 | vehicle | Layer 1（精雕 2.0 + 双炮管/四履带） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
+| 17 | `mcv` | 机动基地车 | vehicle | Layer 1（精雕 2.0 + 重型折叠吊臂） | 已完成（M2 1:1 精雕 2.0，`024fa2d`） | 已完成 |
 
 ### 5.3 空军单位（4 / 49 · 目标层：Layer 1 精雕 2.0）
 
