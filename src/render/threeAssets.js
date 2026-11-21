@@ -465,6 +465,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       hazard: makePbrArmorMat(0xf5f5f5, { roughness: 0.48, metalness: 0.22, edgeWear: 0.14, mapOverride: hazardTex }, `haz-${ti}`),
       gold: makePbrArmorMat(0xd59f2a, { roughness: 0.42, metalness: 0.48, edgeWear: 0.22 }, `gold-${ti}`),
       copper: makePbrArmorMat(0xb66e41, { roughness: 0.34, metalness: 0.84, edgeWear: 0.25 }, `cop-${ti}`),
+      skin: makePbrArmorMat(0xd6a584, { roughness: 0.78, metalness: 0.02, edgeWear: 0.04 }, `skin-${ti}`),
+      olive: makePbrArmorMat(0x5b6446, { roughness: 0.72, metalness: 0.14, edgeWear: 0.12 }, `olive-${ti}`),
+      leather: makePbrArmorMat(0x3d2a20, { roughness: 0.76, metalness: 0.08, edgeWear: 0.10 }, `leath-${ti}`),
+      silver: makePbrArmorMat(0xcfd8e2, { roughness: 0.30, metalness: 0.68, edgeWear: 0.18 }, `silv-${ti}`),
       glass: fogHook(new THREE.MeshPhysicalMaterial({ color: 0x162e42, roughness: 0.14, metalness: 0.2, clearcoat: 0.9 }), `glass-${ti}`),
       glowCyan: fogHook(new THREE.MeshStandardMaterial({ color: 0x3bc2f2, emissive: 0x1694d4, emissiveIntensity: 1.08, roughness: 0.22 }), `glowc-${ti}`),
       glowRed: fogHook(new THREE.MeshStandardMaterial({ color: 0xf24a38, emissive: 0xd82012, emissiveIntensity: 1.15, roughness: 0.24 }), `glowr-${ti}`),
@@ -692,156 +696,383 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     return wrap;
   }
 
-  // === 1. INFANTRY BUILDER (9 types, soldier.glb Mixamo rig when loaded + role kitbash) ===
+  // === 1. INFANTRY BUILDER (9 bespoke 1:1 prototype-accurate anatomical rigs) ===
   function buildInfantry(typeId, pal, teamId) {
     const root = new THREE.Group();
     const parts = { mixer: null, actions: null, sandbags: null, weaponPivot: null, legL: null, legR: null, cloakMeshes: [] };
-    const isHeavy = typeId === 'tesla_trooper' || typeId === 'sledge' || typeId === 'shadow';
-    const scaleH = typeId === 'sledge' ? 2.15 : (typeId === 'tesla_trooper' ? 2.0 : 1.75);
 
-    if (glbTemplates.soldier) {
-      const soldierClone = SkeletonUtils.clone(glbTemplates.soldier);
-      soldierClone.rotation.y = Math.PI; // soldier.glb Mixamo model faces -Z -> rotate to +Z
-      soldierClone.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(soldierClone);
-      const sz = new THREE.Vector3();
-      const ctr = new THREE.Vector3();
-      box.getSize(sz);
-      box.getCenter(ctr);
-      const inner = new THREE.Group();
-      soldierClone.position.set(-ctr.x, -box.min.y, -ctr.z);
-      inner.add(soldierClone);
-      inner.scale.setScalar(scaleH / Math.max(0.1, sz.y));
+    const track = (m) => {
+      if (typeId === 'shadow' && m?.isMesh) parts.cloakMeshes.push(m);
+      return m;
+    };
+    const pBox = (parent, sx, sy, sz, x, y, z, mat, rx = 0, ry = 0, rz = 0) =>
+      track(addBox(parent, sx, sy, sz, x, y, z, mat, rx, ry, rz));
+    const pCyl = (parent, rt, rb, h, x, y, z, mat, rx = 0, ry = 0, rz = 0) =>
+      track(addCyl(parent, rt, rb, h, x, y, z, mat, rx, ry, rz));
+    const pSph = (parent, r, x, y, z, mat, sx = 1, sy = 1, sz = 1) =>
+      track(addSphere(parent, r, x, y, z, mat, sx, sy, sz));
+    const pOct = (parent, r, h, x, y, z, mat) =>
+      track(addOct(parent, r, h, x, y, z, mat));
+    const pCone = (parent, r, h, x, y, z, mat, rx = 0, ry = 0, rz = 0) =>
+      track(addCone(parent, r, h, x, y, z, mat, rx, ry, rz));
+    const pTorus = (parent, mat, x, y, z, sx, sy, sz, rx = 0, ry = 0, rz = 0) => {
+      const m = new THREE.Mesh(unitTorus, mat);
+      m.position.set(x, y, z);
+      m.scale.set(sx, sy, sz);
+      if (rx || ry || rz) m.rotation.set(rx, ry, rz);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      parent.add(m);
+      return track(m);
+    };
 
-      soldierClone.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-          const isVisor = (o.name || '').toLowerCase().includes('visor');
-          o.material = getSoldierTeamMaterial(o.material, isVisor, teamId);
-          if (typeId === 'shadow') parts.cloakMeshes.push(o);
+    const s = typeId === 'sledge' ? 1.24 : (typeId === 'tesla_trooper' ? 1.14 : (typeId === 'shadow' ? 1.02 : 1.0));
+    const b = typeId === 'sledge' ? 1.34 : (typeId === 'tesla_trooper' ? 1.26 : (typeId === 'flak_trooper' ? 1.08 : (typeId === 'shadow' ? 0.94 : 1.0)));
+
+    function buildBipedBase(cfg) {
+      const hipX = 0.125 * b * s;
+      const hipY = 0.80 * s;
+      for (const side of [-1, 1]) {
+        const leg = new THREE.Group();
+        leg.position.set(side * hipX, hipY, 0);
+        // Sculpted Thigh + Knee Pad + Shin Greave + Combat Boot
+        pCyl(leg, 0.088 * b * s, 0.072 * b * s, 0.34 * s, 0, -0.17 * s, 0, cfg.legMat);
+        pBox(leg, 0.13 * b * s, 0.11 * s, 0.12 * b * s, 0, -0.34 * s, 0.03 * b * s, cfg.kneeMat);
+        pCyl(leg, 0.074 * b * s, 0.064 * b * s, 0.32 * s, 0, -0.50 * s, -0.005 * s, cfg.shinMat);
+        if (cfg.shinPlateMat) {
+          pBox(leg, 0.12 * b * s, 0.22 * s, 0.06 * b * s, 0, -0.50 * s, 0.06 * b * s, cfg.shinPlateMat);
         }
-      });
-      root.add(inner);
-
-      if (glbTemplates.soldierAnims.length > 0) {
-        const mixer = new THREE.AnimationMixer(soldierClone);
-        const idleClip = glbTemplates.soldierAnims.find((c) => /idle/i.test(c.name)) || glbTemplates.soldierAnims[0];
-        const walkClip = glbTemplates.soldierAnims.find((c) => /walk|run/i.test(c.name)) || idleClip;
-        const idleAct = mixer.clipAction(idleClip);
-        const walkAct = mixer.clipAction(walkClip);
-        idleAct.play();
-        parts.mixer = mixer;
-        parts.actions = { idle: idleAct, walk: walkAct, current: 'idle' };
+        pBox(leg, 0.145 * b * s, 0.125 * s, 0.25 * s, 0, -0.73 * s, 0.045 * s, cfg.bootMat);
+        pSph(leg, 0.072 * b * s, 0, -0.72 * s, 0.12 * s, cfg.bootMat, 1.0, 0.72, 1.0);
+        root.add(leg);
+        if (side < 0) parts.legL = leg;
+        else parts.legR = leg;
       }
-    } else {
-      // Articulated Plan A Tactical Exo-Soldier Fallback
-      const bodyMat = isHeavy ? pal.hull : pal.team;
-      const legL = new THREE.Group();
-      legL.position.set(-0.14, 0.72, 0);
-      addBox(legL, 0.16, 0.72, 0.18, 0, -0.36, 0, pal.dark);
-      addBox(legL, 0.18, 0.14, 0.24, 0, -0.65, 0.03, pal.hull);
-      root.add(legL);
 
-      const legR = new THREE.Group();
-      legR.position.set(0.14, 0.72, 0);
-      addBox(legR, 0.16, 0.72, 0.18, 0, -0.36, 0, pal.dark);
-      addBox(legR, 0.18, 0.14, 0.24, 0, -0.65, 0.03, pal.hull);
-      root.add(legR);
-      parts.legL = legL;
-      parts.legR = legR;
+      // Sculpted Pelvis & Utility Belt + Front Pouches
+      const torsoCore = pCyl(root, 0.155 * b * s, 0.155 * b * s, 0.20 * s, 0, 0.86 * s, 0, cfg.pelvisMat);
+      torsoCore.scale.x *= 1.16;
+      torsoCore.scale.z *= 0.82;
+      const beltMesh = pCyl(root, 0.165 * b * s, 0.165 * b * s, 0.075 * s, 0, 0.91 * s, 0, cfg.beltMat);
+      beltMesh.scale.x *= 1.18;
+      beltMesh.scale.z *= 0.84;
+      for (const px of [-0.11, 0, 0.11]) {
+        pBox(root, 0.075 * s, 0.085 * s, 0.065 * s, px * b * s, 0.90 * s, 0.145 * b * s, cfg.pouchMat);
+      }
 
-      addBox(root, isHeavy ? 0.56 : 0.44, 0.58, isHeavy ? 0.36 : 0.28, 0, 1.04, 0, bodyMat);
-      addBox(root, isHeavy ? 0.68 : 0.54, 0.16, 0.24, 0, 1.28, 0, pal.trim);
-      addSphere(root, isHeavy ? 0.19 : 0.16, 0, 1.48, 0.02, typeId === 'engineer' ? pal.gold : pal.hull);
-      addBox(root, 0.22, 0.09, 0.08, 0, 1.49, 0.14, typeId === 'chrono' || typeId === 'shadow' ? pal.glowCyan : pal.glass);
+      // Sculpted Ribcage / Chest Cuirass
+      const chest = pCyl(root, 0.185 * b * s, 0.185 * b * s, 0.42 * s, 0, 1.14 * s, 0, cfg.torsoMat);
+      chest.scale.x *= 1.24;
+      chest.scale.z *= 0.76;
+      if (cfg.chestPlateMat) {
+        pBox(root, 0.34 * b * s, 0.28 * s, 0.12 * b * s, 0, 1.18 * s, 0.105 * b * s, cfg.chestPlateMat);
+        pBox(root, 0.30 * b * s, 0.22 * s, 0.10 * b * s, 0, 1.18 * s, -0.105 * b * s, cfg.chestPlateMat);
+      }
 
-      const armL = addBox(root, 0.14, 0.46, 0.14, -0.28, 1.05, 0.12, bodyMat, -0.45);
-      const armR = addBox(root, 0.14, 0.46, 0.14, 0.28, 1.05, 0.14, bodyMat, -0.6);
-      if (typeId === 'shadow') parts.cloakMeshes.push(armL, armR);
+      // Collar / Neck & Sculpted Head
+      pCyl(root, 0.075 * s, 0.095 * s, 0.10 * s, 0, 1.38 * s, 0, cfg.collarMat || cfg.torsoMat);
+      if (cfg.openFace) {
+        pSph(root, 0.122 * s, 0, 1.49 * s, 0.015 * s, pal.skin, 0.92, 1.12, 0.98);
+        pBox(root, 0.14 * s, 0.032 * s, 0.04 * s, 0, 1.515 * s, 0.115 * s, pal.dark); // stern brow/eyes shadow
+        pBox(root, 0.035 * s, 0.045 * s, 0.035 * s, 0, 1.48 * s, 0.125 * s, pal.skin); // nose ridge
+      } else {
+        pSph(root, 0.132 * s, 0, 1.49 * s, 0.01 * s, cfg.headMat, 0.95, 1.10, 1.02);
+      }
+
+      // Shoulders & Arms (posed symmetrically or per-role)
+      const shX = 0.27 * b * s;
+      const shY = 1.29 * s;
+      const armAngles = cfg.armAngles || { lRx: -0.78, lRz: -0.22, rRx: -0.92, rRz: 0.18 };
+      for (const side of [-1, 1]) {
+        const isLeft = side > 0;
+        const rx = isLeft ? armAngles.lRx : armAngles.rRx;
+        const rz = isLeft ? armAngles.lRz : armAngles.rRz;
+        pSph(root, 0.095 * b * s, side * shX, shY, 0, cfg.pauldronMat, 1.08, 0.95, 1.05);
+        if (cfg.heavyPauldron) {
+          pSph(root, 0.135 * b * s, side * (shX + 0.035 * b * s), shY + 0.035 * s, 0, cfg.pauldronMat, 1.12, 0.96, 1.24);
+          pSph(root, 0.115 * b * s, side * (shX + 0.045 * b * s), shY - 0.02 * s, 0, pal.hull, 1.10, 0.55, 1.26);
+        }
+        const arm = new THREE.Group();
+        arm.position.set(side * shX, shY - 0.02 * s, 0);
+        arm.rotation.set(rx, 0, rz);
+        pCyl(arm, 0.068 * b * s, 0.058 * b * s, 0.24 * s, 0, -0.13 * s, 0, cfg.armMat);
+        pSph(arm, 0.060 * b * s, 0, -0.26 * s, 0, cfg.kneeMat);
+        pCyl(arm, 0.060 * b * s, 0.050 * b * s, 0.23 * s, 0, -0.38 * s, 0.03 * s, cfg.armMat, -0.35);
+        if (cfg.bracerMat) {
+          pBox(arm, 0.105 * b * s, 0.16 * s, 0.075 * b * s, 0, -0.38 * s, 0.07 * s, cfg.bracerMat, -0.35);
+        }
+        pSph(arm, 0.056 * s, 0, -0.49 * s, 0.075 * s, cfg.gloveMat);
+        root.add(arm);
+      }
     }
 
-    // Role Weapons & Distinct Battlefield Silhouettes
     const wPivot = new THREE.Group();
-    wPivot.position.set(0.24, 1.06, 0.16);
+    if (typeId === 'sledge') {
+      wPivot.position.set(-0.26 * s, 0.98 * s, 0.24 * s);
+    } else if (typeId === 'flak_trooper') {
+      wPivot.position.set(-0.24 * s, 1.36 * s, 0.08 * s);
+    } else if (typeId === 'engineer') {
+      wPivot.position.set(0.30 * s, 0.88 * s, 0.14 * s);
+    } else {
+      wPivot.position.set(-0.20 * s, 1.04 * s, 0.20 * s);
+    }
     root.add(wPivot);
     parts.weaponPivot = wPivot;
 
-    if (typeId === 'gi' || typeId === 'conscript') {
-      addBox(wPivot, 0.08, 0.12, 0.62, 0, 0.02, 0.22, pal.hull);
-      addCyl(wPivot, 0.028, 0.028, 0.36, 0, 0.04, 0.62, pal.dark, Math.PI * 0.5);
-      addBox(wPivot, 0.05, 0.16, 0.09, 0, -0.09, 0.30, pal.dark, 0.25);
-      if (typeId === 'conscript') {
-        addBox(root, 0.52, 0.14, 0.34, 0, 1.24, -0.02, pal.team);
-        addSphere(root, 0.21, 0, 1.56, 0, pal.hull, 1.05, 0.72, 1.08);
-      } else {
-        addBox(root, 0.30, 0.36, 0.18, 0, 1.08, -0.20, pal.hull);
-        const sb = new THREE.Group();
-        if (glbTemplates.sandbags) {
-          clonePropInto('sandbags', sb, 0.46, 0, 0, 0.65, 0);
-          clonePropInto('sandbags', sb, 0.44, -0.46, 0, 0.22, Math.PI * 0.4);
-          clonePropInto('sandbags', sb, 0.44, 0.46, 0, 0.22, -Math.PI * 0.4);
-        } else {
-          addBox(sb, 1.05, 0.42, 0.26, 0, 0.21, 0.62, pal.sandbag);
-          addBox(sb, 0.26, 0.40, 0.82, -0.48, 0.20, 0.25, pal.sandbag);
-          addBox(sb, 0.26, 0.40, 0.82, 0.48, 0.20, 0.25, pal.sandbag);
-        }
-        sb.visible = false;
-        root.add(sb);
-        parts.sandbags = sb;
+    if (typeId === 'gi') {
+      // 1:1 Allied GI (infantry_classes.jpg TL): Blue M1 helmet + visible face + blue tunic + leather webbing + M60 LMG w/ olive ammo box & bipod + deployed staggered sandbag bunker
+      buildBipedBase({
+        legMat: pal.team, kneeMat: pal.dark, shinMat: pal.team, bootMat: pal.leather,
+        pelvisMat: pal.team, beltMat: pal.leather, pouchMat: pal.leather,
+        torsoMat: pal.team, chestPlateMat: pal.hull, pauldronMat: pal.team,
+        armMat: pal.team, gloveMat: pal.leather, openFace: true,
+        armAngles: { lRx: -1.05, lRz: -0.38, rRx: -1.05, rRz: 0.12 }
+      });
+      // M1 Helmet dome + rim + gold rank star pad
+      pSph(root, 0.155 * s, 0, 1.565 * s, -0.005 * s, pal.team, 1.04, 0.78, 1.08);
+      pCyl(root, 0.158 * s, 0.172 * s, 0.045 * s, 0, 1.525 * s, 0.005 * s, pal.team);
+      pBox(root, 0.05, 0.06, 0.04, -0.32, 1.24, 0, pal.gold);
+      // Leather chest Y-webbing & tactical backpack
+      pBox(root, 0.055, 0.34, 0.26, -0.10, 1.15, 0.01, pal.leather);
+      pBox(root, 0.055, 0.34, 0.26, 0.10, 1.15, 0.01, pal.leather);
+      pBox(root, 0.30, 0.34, 0.18, 0, 1.14, -0.20, pal.hull);
+      // Heavy M60 LMG with olive belt box & folded bipod
+      pBox(wPivot, 0.09, 0.13, 0.56, 0.10, 0, 0.24, pal.hull, 0, 0.24, 0);
+      pBox(wPivot, 0.12, 0.14, 0.16, -0.02, -0.04, 0.26, pal.olive, 0, 0.24, 0);
+      pCyl(wPivot, 0.026, 0.026, 0.48, 0.20, 0.02, 0.68, pal.dark, Math.PI * 0.5, 0, -0.24);
+      pCyl(wPivot, 0.014, 0.014, 0.28, 0.14, -0.06, 0.62, pal.dark, 0.35, 0, -0.25);
+      pCyl(wPivot, 0.014, 0.014, 0.28, 0.22, -0.06, 0.60, pal.dark, 0.35, 0, 0.25);
+
+      const sb = new THREE.Group();
+      for (const [bx, by, bz, ry] of [
+        [0, 0.12, 0.64, 0], [-0.34, 0.12, 0.52, 0.42], [0.34, 0.12, 0.52, -0.42],
+        [-0.54, 0.12, 0.28, 0.95], [0.54, 0.12, 0.28, -0.95],
+        [-0.17, 0.30, 0.60, 0.20], [0.17, 0.30, 0.60, -0.20]
+      ]) {
+        pBox(sb, 0.38, 0.19, 0.22, bx, by, bz, pal.sandbag, 0, ry, 0);
       }
+      sb.visible = false;
+      root.add(sb);
+      parts.sandbags = sb;
+    } else if (typeId === 'conscript') {
+      // 1:1 Conscript (infantry_classes.jpg BL): Flared gunmetal steel helmet + long flared faction greatcoat + leather belt, cross-strap & tall boots + assault rifle
+      buildBipedBase({
+        legMat: pal.team, kneeMat: pal.leather, shinMat: pal.leather, bootMat: pal.leather,
+        pelvisMat: pal.team, beltMat: pal.leather, pouchMat: pal.leather,
+        torsoMat: pal.team, chestPlateMat: null, pauldronMat: pal.team,
+        armMat: pal.team, gloveMat: pal.leather, openFace: true,
+        armAngles: { lRx: -1.02, lRz: -0.34, rRx: -0.98, rRz: 0.16 }
+      });
+      // Iconic full-round flared-brim Red Alert helmet
+      pSph(root, 0.154, 0, 1.56, -0.005, pal.hull, 1.04, 0.80, 1.06);
+      pCyl(root, 0.178, 0.178, 0.045, 0, 1.52, 0, pal.hull);
+      // Long flared trenchcoat tails, collar, brown leather cross-strap & dark front coat seam
+      pCyl(root, 0.17, 0.19, 0.12, 0, 1.36, -0.01, pal.team);
+      pBox(root, 0.055, 0.44, 0.28, 0, 1.15, 0.01, pal.leather, 0, 0, -0.48);
+      pBox(root, 0.035, 0.34, 0.04, 0, 1.14, 0.145, pal.dark);
+      pBox(root, 0.40, 0.48, 0.14, 0, 0.66, -0.14, pal.team, 0.14, 0, 0);
+      pBox(root, 0.12, 0.44, 0.24, -0.22, 0.68, -0.02, pal.team, 0.04, 0, -0.12);
+      pBox(root, 0.12, 0.44, 0.24, 0.22, 0.68, -0.02, pal.team, 0.04, 0, 0.12);
+      // Assault rifle w/ upper carry handle & curved magazine
+      pBox(wPivot, 0.075, 0.12, 0.54, 0.10, 0.02, 0.22, pal.dark, 0, 0.22, 0);
+      pBox(wPivot, 0.045, 0.06, 0.26, 0.10, 0.10, 0.22, pal.hull, 0, 0.22, 0);
+      pCyl(wPivot, 0.022, 0.022, 0.34, 0.18, 0.03, 0.60, pal.hull, Math.PI * 0.5, 0, -0.22);
+      pBox(wPivot, 0.045, 0.16, 0.075, 0.12, -0.09, 0.30, pal.dark, 0.32, 0.22, 0);
     } else if (typeId === 'flak_trooper') {
-      addCyl(wPivot, 0.12, 0.14, 1.02, 0.05, 0.22, 0.18, pal.dark, Math.PI * 0.44);
-      addCyl(wPivot, 0.16, 0.12, 0.16, 0.05, 0.32, 0.68, pal.hull, Math.PI * 0.44);
-      addBox(root, 0.42, 0.46, 0.26, 0, 1.08, -0.22, pal.hull);
-      addCyl(root, 0.10, 0.10, 0.38, -0.11, 1.12, -0.26, pal.trim);
-      addCyl(root, 0.10, 0.10, 0.38, 0.11, 1.12, -0.26, pal.trim);
+      // 1:1 Flak Trooper (infantry_classes.jpg BR-left): Olive steel helmet + visible face + armored gunmetal flak vest over olive fatigues + level shoulder flak cannon
+      buildBipedBase({
+        legMat: pal.olive, kneeMat: pal.dark, shinMat: pal.olive, bootMat: pal.dark,
+        pelvisMat: pal.olive, beltMat: pal.leather, pouchMat: pal.hull,
+        torsoMat: pal.olive, chestPlateMat: pal.hull, pauldronMat: pal.hull,
+        armMat: pal.olive, gloveMat: pal.dark, openFace: true,
+        armAngles: { lRx: -1.18, lRz: -0.44, rRx: -1.45, rRz: 0.14 }
+      });
+      pSph(root, 0.156 * s, 0, 1.56 * s, -0.005, pal.olive, 1.04, 0.78, 1.08);
+      pCyl(root, 0.168, 0.168, 0.045, 0, 1.52, 0, pal.olive);
+      // Twin drum flak ammunition backpack
+      pBox(root, 0.38, 0.44, 0.22, 0, 1.12, -0.20, pal.hull);
+      pCyl(root, 0.10, 0.10, 0.40, -0.10, 1.14, -0.28, pal.dark);
+      pCyl(root, 0.10, 0.10, 0.40, 0.10, 1.14, -0.28, pal.dark);
+      // Level heavy shoulder-mounted wide-bore flak cannon barrel w/ flared muzzle & rear venturi
+      pCyl(wPivot, 0.12, 0.12, 1.08, 0, 0.08, 0.16, pal.olive, Math.PI * 0.50);
+      pCyl(wPivot, 0.15, 0.15, 0.18, 0, 0.08, 0.72, pal.dark, Math.PI * 0.50);
+      pCyl(wPivot, 0.135, 0.105, 0.18, 0, 0.08, -0.40, pal.dark, Math.PI * 0.50);
+      pBox(wPivot, 0.08, 0.12, 0.22, 0.12, 0.12, 0.26, pal.gold);
     } else if (typeId === 'engineer') {
-      addSphere(root, 0.21, 0, 1.56, 0, pal.gold, 1.08, 0.72, 1.10);
-      addBox(root, 0.40, 0.44, 0.24, 0, 1.04, -0.22, pal.hazard);
-      addBox(wPivot, 0.14, 0.18, 0.28, 0, -0.10, 0.10, pal.gold);
-      addCyl(wPivot, 0.03, 0.03, 0.26, 0, -0.08, 0.30, pal.glowCyan, Math.PI * 0.5);
+      // 1:1 Engineer (infantry_classes.jpg TR-left): Yellow hazmat armor suit + yellow chestplate w/ dark ribs + silver pauldrons + steel toolbox (right -X) + large open-jaw silver wrench (left +X)
+      buildBipedBase({
+        legMat: pal.gold, kneeMat: pal.hull, shinMat: pal.gold, bootMat: pal.dark,
+        pelvisMat: pal.gold, beltMat: pal.leather, pouchMat: pal.hull,
+        torsoMat: pal.gold, chestPlateMat: pal.gold, pauldronMat: pal.silver,
+        armMat: pal.gold, gloveMat: pal.dark, headMat: pal.gold, openFace: false,
+        armAngles: { lRx: -0.62, lRz: 0.14, rRx: -0.16, rRz: -0.16 }
+      });
+      // Hazmat Respirator Helmet + Glowing Amber Twin Goggles & Dark Ribbed Abdomen Accents
+      pSph(root, 0.155, 0, 1.54, 0, pal.gold, 1.02, 0.94, 1.06);
+      pBox(root, 0.16, 0.12, 0.12, 0, 1.44, 0.11, pal.dark);
+      pSph(root, 0.042, -0.052, 1.52, 0.135, pal.glowGold, 1.1, 0.85, 0.7);
+      pSph(root, 0.042, 0.052, 1.52, 0.135, pal.glowGold, 1.1, 0.85, 0.7);
+      pBox(root, 0.24, 0.08, 0.08, 0, 1.00, 0.135, pal.hull);
+      // Diagnostic Hazard Backpack
+      pBox(root, 0.34, 0.40, 0.20, 0, 1.14, -0.20, pal.hull);
+      pBox(root, 0.28, 0.14, 0.22, 0, 1.24, -0.22, pal.hazard);
+      // Right hand (-X): Heavy Steel Toolbox at side
+      pBox(root, 0.16, 0.26, 0.38, -0.35, 0.74, 0.08, pal.hull);
+      pBox(root, 0.17, 0.05, 0.39, -0.35, 0.82, 0.08, pal.trim);
+      pBox(root, 0.05, 0.06, 0.14, -0.35, 0.90, 0.08, pal.dark);
+      // Left hand (+X / wPivot): Oversized Open-Jaw Silver Wrench
+      pCyl(wPivot, 0.032, 0.032, 0.62, 0.02, 0.04, 0.18, pal.silver, Math.PI * 0.30);
+      pBox(wPivot, 0.045, 0.11, 0.16, 0.02, 0.24, 0.42, pal.silver, -0.55);
+      pBox(wPivot, 0.045, 0.05, 0.12, 0.02, 0.30, 0.48, pal.silver, -0.55);
+      pBox(wPivot, 0.045, 0.05, 0.12, 0.02, 0.18, 0.46, pal.silver, -0.55);
     } else if (typeId === 'rocketeer') {
-      addBox(root, 0.46, 0.48, 0.28, 0, 1.08, -0.22, pal.hull);
-      addGeo(root, tailWingGeo, pal.team, 0.65, 0.75, 0.55, 0, 1.16, -0.26, Math.PI * 0.45);
-      addCyl(root, 0.09, 0.10, 0.48, -0.16, 1.02, -0.28, pal.dark, 0.18);
-      addCyl(root, 0.09, 0.10, 0.48, 0.16, 1.02, -0.28, pal.dark, 0.18);
-      addSphere(root, 0.09, -0.16, 0.72, -0.32, pal.glowCyan);
-      addSphere(root, 0.09, 0.16, 0.72, -0.32, pal.glowCyan);
-      addBox(wPivot, 0.10, 0.11, 0.68, 0, 0, 0.24, pal.dark);
+      // 1:1 Rocketeer (infantry_classes.jpg BR-right): Sleek contoured blue flight armor + segmented dark midriff + bright cyan-silver visor + twin silver-cyan jetpack pods + carbine
+      buildBipedBase({
+        legMat: pal.team, kneeMat: pal.dark, shinMat: pal.team, bootMat: pal.hull,
+        pelvisMat: pal.dark, beltMat: pal.dark, pouchMat: pal.hull,
+        torsoMat: pal.team, chestPlateMat: pal.team, pauldronMat: pal.team,
+        armMat: pal.team, gloveMat: pal.dark, headMat: pal.team, openFace: false,
+        armAngles: { lRx: -0.92, lRz: -0.32, rRx: -0.92, rRz: 0.16 }
+      });
+      // Aero flight helmet w/ bright reflective cyan-silver faceplate & segmented midriff
+      pSph(root, 0.152, 0, 1.54, 0, pal.team, 0.98, 1.02, 1.12);
+      pSph(root, 0.118, 0, 1.52, 0.078, pal.silver, 0.98, 0.92, 0.85);
+      pBox(root, 0.145, 0.095, 0.075, 0, 1.535, 0.135, pal.glowCyan);
+      pBox(root, 0.26, 0.09, 0.08, 0, 1.01, 0.125, pal.dark);
+      // Twin tall contoured jetpack thruster pods & glowing cyan exhaust cones
+      pBox(root, 0.38, 0.38, 0.18, 0, 1.18, -0.20, pal.hull);
+      for (const tx of [-0.17, 0.17]) {
+        pCyl(root, 0.082, 0.095, 0.56, tx, 1.24, -0.26, pal.silver, 0.12);
+        pCyl(root, 0.070, 0.105, 0.14, tx, 0.92, -0.30, pal.dark, 0.12);
+        pBox(root, 0.03, 0.22, 0.16, tx * 1.35, 1.36, -0.30, pal.team, 0.12, 0, tx > 0 ? -0.22 : 0.22);
+        pCone(root, 0.092, 0.36, tx, 0.68, -0.34, pal.glowCyan, Math.PI + 0.12);
+      }
+      // Compact flight carbine
+      pBox(wPivot, 0.07, 0.10, 0.52, 0.10, 0.02, 0.22, pal.dark, 0, 0.20, 0);
+      pCyl(wPivot, 0.022, 0.022, 0.26, 0.16, 0.02, 0.56, pal.silver, Math.PI * 0.5, 0, -0.20);
     } else if (typeId === 'tesla_trooper') {
-      addBox(root, 0.68, 0.22, 0.34, 0, 1.32, 0, pal.hull);
-      addCyl(root, 0.12, 0.16, 0.68, -0.24, 1.42, -0.16, pal.copper);
-      addCyl(root, 0.12, 0.16, 0.68, 0.24, 1.42, -0.16, pal.copper);
-      addSphere(root, 0.10, -0.24, 1.80, -0.16, pal.glowCyan);
-      addSphere(root, 0.10, 0.24, 1.80, -0.16, pal.glowCyan);
-      addCyl(wPivot, 0.09, 0.11, 0.72, 0, 0, 0.28, pal.copper, Math.PI * 0.5);
-      addSphere(wPivot, 0.08, 0, 0, 0.66, pal.glowCyan);
+      // 1:1 Tesla Trooper (infantry_classes.jpg BC): Massive bulky power armor + oversized domed pauldrons + narrow glowing visor + twin copper Tesla coils on back + electric arc gauntlet
+      buildBipedBase({
+        legMat: pal.hull, kneeMat: pal.team, shinMat: pal.team, bootMat: pal.dark,
+        pelvisMat: pal.dark, beltMat: pal.hull, pouchMat: pal.team,
+        torsoMat: pal.team, chestPlateMat: pal.team, pauldronMat: pal.team,
+        armMat: pal.hull, gloveMat: pal.team, headMat: pal.team, heavyPauldron: true, openFace: false,
+        armAngles: { lRx: -0.96, lRz: -0.28, rRx: -0.82, rRz: 0.14 }
+      });
+      // Heavy Domed Armored Helmet + Narrow Glowing Visor Slit
+      pSph(root, 0.175 * s, 0, 1.52 * s, 0, pal.team, 1.06, 0.96, 1.06);
+      pBox(root, 0.18 * s, 0.048 * s, 0.08 * s, 0, 1.51 * s, 0.155 * s, pal.glowCyan);
+      pBox(root, 0.44 * s, 0.14 * s, 0.34 * s, 0, 1.36 * s, -0.02 * s, pal.hull); // heavy gorget collar
+      // Twin Iconic Angled Copper Tesla Coils sprouting V-shaped from Armored Power Pack
+      pBox(root, 0.52 * s, 0.48 * s, 0.26 * s, 0, 1.18 * s, -0.24 * s, pal.hull);
+      for (const side of [-1, 1]) {
+        const coilG = new THREE.Group();
+        coilG.position.set(side * 0.18 * s, 1.38 * s, -0.26 * s);
+        coilG.rotation.set(-0.24, 0, -side * 0.32);
+        pCyl(coilG, 0.068 * s, 0.085 * s, 0.58 * s, 0, 0.28 * s, 0, pal.dark);
+        for (let r = 0; r < 4; r++) {
+          pTorus(coilG, pal.copper, 0, (0.12 + r * 0.11) * s, 0, 0.22 * s, 0.22 * s, 0.20 * s, Math.PI * 0.5);
+        }
+        pSph(coilG, 0.085 * s, 0, 0.60 * s, 0, pal.glowGold);
+        pSph(coilG, 0.055 * s, 0, 0.68 * s, 0, pal.glowCyan);
+        root.add(coilG);
+      }
+      // Heavy Left & Right Tesla Projector Gauntlet
+      pCyl(wPivot, 0.095 * s, 0.11 * s, 0.54 * s, 0, 0, 0.26 * s, pal.hull, Math.PI * 0.5);
+      pTorus(wPivot, pal.copper, 0, 0, 0.36 * s, 0.24 * s, 0.24 * s, 0.22 * s);
+      pTorus(wPivot, pal.copper, 0, 0, 0.48 * s, 0.22 * s, 0.22 * s, 0.22 * s);
+      pSph(wPivot, 0.085 * s, 0, 0, 0.58 * s, pal.glowCyan);
     } else if (typeId === 'chrono') {
-      addCyl(root, 0.22, 0.22, 0.56, 0, 1.12, -0.24, pal.copper);
+      // 1:1 Chrono Legionnaire (infantry_classes.jpg TC): Sleek silver-white & blue futuristic exo-suit + glowing oval cyan visor + chest arc core + spinning chrono gyro backpack + chrono beam rifle
+      buildBipedBase({
+        legMat: pal.silver, kneeMat: pal.team, shinMat: pal.whiteMed, shinPlateMat: pal.team, bootMat: pal.silver,
+        pelvisMat: pal.team, beltMat: pal.silver, pouchMat: pal.team,
+        torsoMat: pal.whiteMed, chestPlateMat: pal.silver, pauldronMat: pal.team,
+        armMat: pal.whiteMed, gloveMat: pal.silver, headMat: pal.whiteMed, openFace: false,
+        armAngles: { lRx: -1.04, lRz: -0.34, rRx: -0.96, rRz: 0.16 }
+      });
+      // Sleek Futuristic Helmet w/ Large Oval Glowing Cyan Faceplate + Chest Core Node
+      pSph(root, 0.148, 0, 1.54, 0, pal.whiteMed, 0.96, 1.04, 1.08);
+      pSph(root, 0.108, 0, 1.53, 0.075, pal.glowCyan, 0.88, 1.05, 0.72);
+      pCyl(root, 0.095, 0.095, 0.055, 0, 1.20, 0.175, pal.glowCyan, Math.PI * 0.5);
+      // Large Circular Chrono Sphere & Gyro Backpack
+      pCyl(root, 0.22, 0.22, 0.16, 0, 1.18, -0.22, pal.silver, Math.PI * 0.5);
       const cGyro = new THREE.Group();
-      cGyro.position.set(0, 1.14, -0.30);
-      const cRing = new THREE.Mesh(unitTorus, pal.glowCyan);
-      cRing.scale.setScalar(0.46);
-      const cCore = addSphere(cGyro, 0.13, 0, 0, 0, pal.glowCyan);
-      cGyro.add(cRing);
+      cGyro.position.set(0, 1.18, -0.30);
+      pTorus(cGyro, pal.glowCyan, 0, 0, 0, 0.52, 0.52, 0.45);
+      const cCore = pSph(cGyro, 0.14, 0, 0, 0, pal.glowCyan);
       root.add(cGyro);
       parts.rotor = cGyro;
       parts.glowMesh = cCore;
-      addBox(wPivot, 0.12, 0.14, 0.86, 0, 0, 0.30, pal.trim);
-      addSphere(wPivot, 0.07, 0, 0, 0.76, pal.glowCyan);
+      // Sleek Silver-Dark Chrono Beam Rifle w/ Cyan Rails
+      pBox(wPivot, 0.09, 0.12, 0.82, 0.08, 0.02, 0.34, pal.silver, 0, 0.18, 0);
+      pBox(wPivot, 0.04, 0.05, 0.62, 0.11, 0.06, 0.42, pal.glowCyan, 0, 0.18, 0);
+      pSph(wPivot, 0.065, 0.16, 0.02, 0.76, pal.glowCyan);
     } else if (typeId === 'shadow') {
-      addBox(wPivot, 0.07, 0.09, 1.22, 0, 0.02, 0.48, pal.dark);
-      addCyl(wPivot, 0.04, 0.04, 0.34, 0, 0.09, 0.36, pal.hull, Math.PI * 0.5);
-      const cloak = addBox(root, 0.48, 0.84, 0.12, 0, 1.02, -0.20, pal.hull, 0.12);
-      addSphere(root, 0.19, 0, 1.54, -0.02, pal.dark, 1.05, 0.9, 1.05);
-      parts.cloakMeshes.push(cloak);
+      // 1:1 Shadow Commando (infantry_classes.jpg TR-right): Matte black stealth bodysuit & balaclava + blue tactical chest/shoulder/forearm/shin armor + dual suppressed tactical pistols
+      buildBipedBase({
+        legMat: pal.dark, kneeMat: pal.team, shinMat: pal.dark, shinPlateMat: pal.team, bootMat: pal.dark,
+        pelvisMat: pal.dark, beltMat: pal.leather, pouchMat: pal.dark,
+        torsoMat: pal.dark, chestPlateMat: pal.team, pauldronMat: pal.team,
+        armMat: pal.dark, bracerMat: pal.team, gloveMat: pal.dark, headMat: pal.dark, openFace: false,
+        armAngles: { lRx: -1.32, lRz: 0.06, rRx: -1.32, rRz: -0.06 }
+      });
+      // Black balaclava w/ narrow tactical eye-slit
+      pSph(root, 0.132 * s, 0, 1.50 * s, 0.01, pal.dark, 0.94, 1.08, 1.02);
+      pBox(root, 0.11 * s, 0.028 * s, 0.045 * s, 0, 1.515 * s, 0.126 * s, pal.skin);
+      pBox(root, 0.022 * s, 0.032 * s, 0.05 * s, 0, 1.515 * s, 0.129 * s, pal.dark);
+      // Right suppressed tactical pistol in wPivot (scaled cleanly for RTS silhouette)
+      pBox(wPivot, 0.055, 0.10, 0.28, -0.04, 0.18, 0.24, pal.dark);
+      pBox(wPivot, 0.05, 0.12, 0.065, -0.04, 0.09, 0.12, pal.hull, -0.2);
+      pCyl(wPivot, 0.030, 0.030, 0.24, -0.04, 0.19, 0.46, pal.hull, Math.PI * 0.5);
+      // Left suppressed tactical pistol
+      pBox(root, 0.055, 0.10, 0.28, 0.28, 1.22, 0.44, pal.dark);
+      pBox(root, 0.05, 0.12, 0.065, 0.28, 1.13, 0.32, pal.hull, -0.2);
+      pCyl(root, 0.030, 0.030, 0.24, 0.28, 1.23, 0.66, pal.hull, Math.PI * 0.5);
     } else if (typeId === 'sledge') {
-      addBox(root, 0.78, 0.26, 0.38, 0, 1.40, 0, pal.team);
-      addBox(root, 0.24, 0.28, 0.40, -0.36, 1.44, 0, pal.hazard);
-      addBox(root, 0.24, 0.28, 0.40, 0.36, 1.44, 0, pal.hazard);
-      addCyl(root, 0.11, 0.11, 0.92, -0.36, 1.04, 0.36, pal.dark, Math.PI * 0.5);
-      addCyl(root, 0.11, 0.11, 0.92, 0.36, 1.04, 0.36, pal.dark, Math.PI * 0.5);
+      // 1:1 Hero Sledge (roster_hero_air_support_1794749281119.jpg TL): Towering power armor + glowing cyan T-visor + cyan chest arc reactor + huge forward-angled yellow riot shield + 6-barrel gatling minigun
+      buildBipedBase({
+        legMat: pal.hull, kneeMat: pal.team, shinMat: pal.team, bootMat: pal.dark,
+        pelvisMat: pal.dark, beltMat: pal.hull, pouchMat: pal.hull,
+        torsoMat: pal.team, chestPlateMat: pal.team, pauldronMat: pal.team,
+        armMat: pal.hull, gloveMat: pal.dark, headMat: pal.team, heavyPauldron: true, openFace: false,
+        armAngles: { lRx: -0.95, lRz: -0.10, rRx: -1.05, rRz: 0.24 }
+      });
+      // Heavy Domed Helmet + Glowing Cyan T-Visor & Glowing Arc Chest Reactor Core
+      pSph(root, 0.168 * s, 0, 1.52 * s, 0, pal.team, 1.05, 0.96, 1.08);
+      pBox(root, 0.18 * s, 0.042 * s, 0.07 * s, 0, 1.52 * s, 0.155 * s, pal.glowCyan);
+      pBox(root, 0.048 * s, 0.095 * s, 0.07 * s, 0, 1.48 * s, 0.155 * s, pal.glowCyan);
+      pCyl(root, 0.115 * s, 0.115 * s, 0.06 * s, 0, 1.18 * s, 0.195 * s, pal.dark, Math.PI * 0.5);
+      pCyl(root, 0.082 * s, 0.082 * s, 0.075 * s, 0, 1.18 * s, 0.205 * s, pal.glowCyan, Math.PI * 0.5);
+      // Twin Vertical Armored Exhaust Stacks on Backpack
+      pBox(root, 0.54 * s, 0.46 * s, 0.26 * s, 0, 1.18 * s, -0.24 * s, pal.hull);
+      pCyl(root, 0.065 * s, 0.075 * s, 0.38 * s, -0.18 * s, 1.52 * s, -0.26 * s, pal.dark);
+      pCyl(root, 0.065 * s, 0.075 * s, 0.38 * s, 0.18 * s, 1.52 * s, -0.26 * s, pal.dark);
+
+      // Left Arm (+X side): Massive Battered Yellow Ballistic Riot Shield angled forward so yellow front face is clearly visible
+      const shield = new THREE.Group();
+      shield.position.set(0.46 * s, 1.06 * s, 0.26 * s);
+      shield.rotation.set(-0.08, -1.12, 0);
+      pBox(shield, 0.10 * s, 1.18 * s, 0.66 * s, 0, 0, 0, pal.gold);
+      pBox(shield, 0.12 * s, 0.11 * s, 0.70 * s, 0, 0.54 * s, 0, pal.hull);
+      pBox(shield, 0.12 * s, 0.11 * s, 0.70 * s, 0, -0.54 * s, 0, pal.hull);
+      pBox(shield, 0.12 * s, 1.06 * s, 0.085 * s, 0, 0, -0.31 * s, pal.hull);
+      pBox(shield, 0.12 * s, 1.06 * s, 0.085 * s, 0, 0, 0.31 * s, pal.hull);
+      pBox(shield, 0.13 * s, 0.11 * s, 0.36 * s, 0.02 * s, 0.32 * s, 0, pal.dark);
+      pBox(shield, 0.125 * s, 0.085 * s, 0.50 * s, 0.015 * s, -0.24 * s, 0, pal.hazard);
+      root.add(shield);
+
+      // Giant 6-Barrel Rotary Gatling Minigun & Heavy Drum Magazine in wPivot
+      pBox(wPivot, 0.18 * s, 0.22 * s, 0.44 * s, 0.06 * s, 0, 0.16 * s, pal.hull, 0, 0.16, 0);
+      pCyl(wPivot, 0.15 * s, 0.15 * s, 0.22 * s, 0.04 * s, -0.18 * s, 0.18 * s, pal.dark, 0, 0.16, Math.PI * 0.5);
+      pCyl(wPivot, 0.11 * s, 0.11 * s, 0.06 * s, 0.15 * s, 0, 0.66 * s, pal.trim, Math.PI * 0.5, 0, -0.16);
+      pCyl(wPivot, 0.11 * s, 0.11 * s, 0.06 * s, 0.18 * s, 0, 0.86 * s, pal.trim, Math.PI * 0.5, 0, -0.16);
+      for (let bi = 0; bi < 6; bi++) {
+        const ang = (bi / 6) * Math.PI * 2;
+        const bx = Math.cos(ang) * 0.068 * s;
+        const by = Math.sin(ang) * 0.068 * s;
+        pCyl(wPivot, 0.020 * s, 0.020 * s, 0.62 * s, 0.15 * s + bx, by, 0.68 * s, pal.dark, Math.PI * 0.5, 0, -0.16);
+      }
     }
 
     return { root, parts };
