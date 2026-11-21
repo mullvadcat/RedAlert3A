@@ -206,99 +206,6 @@ function createHoloDomeTexture() {
   return tex;
 }
 
-const HD2D_UNIT_SPECS = {
-  sledge: { url: 'assets/hd2d/sledge.png', baseColor: 'red', w: 2.76, h: 2.76, shadowR: 0.78 },
-  tesla_trooper: { url: 'assets/hd2d/tesla_trooper.png', baseColor: 'red', w: 2.50, h: 2.50, shadowR: 0.68 },
-  gi: {
-    url: 'assets/hd2d/gi.png',
-    deployedUrl: 'assets/hd2d/gi_deployed.png',
-    baseColor: 'blue',
-    w: 2.15,
-    h: 2.15,
-    deployedW: 2.80,
-    deployedH: 2.25,
-    shadowR: 0.58
-  }
-};
-
-function createContactShadowTexture() {
-  const c = makeCanvas(128, 128);
-  const ctx = c.getContext('2d');
-  const grad = ctx.createRadialGradient(64, 64, 8, 64, 64, 60);
-  grad.addColorStop(0.0, 'rgba(6, 10, 14, 0.56)');
-  grad.addColorStop(0.55, 'rgba(6, 10, 14, 0.28)');
-  grad.addColorStop(1.0, 'rgba(6, 10, 14, 0.0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 128, 128);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-function rgbToHsvDeg(r, g, b) {
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-  let h = 0;
-  if (d > 1e-5) {
-    if (max === r) h = 60 * (((g - b) / d) + (g < b ? 6 : 0));
-    else if (max === g) h = 60 * (((b - r) / d) + 2);
-    else h = 60 * (((r - g) / d) + 4);
-  }
-  return [h, max > 1e-5 ? d / max : 0, max];
-}
-
-function hsvDegToRgb(h, s, v) {
-  const c = v * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - c;
-  let rp = 0, gp = 0, bp = 0;
-  if (h < 60) { rp = c; gp = x; }
-  else if (h < 120) { rp = x; gp = c; }
-  else if (h < 180) { gp = c; bp = x; }
-  else if (h < 240) { gp = x; bp = c; }
-  else if (h < 300) { rp = x; bp = c; }
-  else { rp = c; bp = x; }
-  return [
-    Math.round((rp + m) * 255),
-    Math.round((gp + m) * 255),
-    Math.round((bp + m) * 255)
-  ];
-}
-
-function recolorHd2dCell(srcImg, sx, sy, sw, sh, baseColor, slot) {
-  const c = makeCanvas(sw, sh);
-  const ctx = c.getContext('2d');
-  ctx.drawImage(srcImg, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  const keepNative = (baseColor === 'red' && slot === 1) || (baseColor === 'blue' && slot === 0);
-  if (keepNative) return c;
-
-  const rgb = TEAM_RGB_LIST[slot] || TEAM_RGB_LIST[4];
-  const [tH, tS] = rgbToHsvDeg(rgb[0], rgb[1], rgb[2]);
-  const isNeutral = slot === 4;
-  const imgData = ctx.getImageData(0, 0, sw, sh);
-  const data = imgData.data;
-
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] < 16) continue;
-    const [h, s, v] = rgbToHsvDeg(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255);
-    const matchRed = baseColor === 'red' && (h < 16 || h > 340) && s > 0.24 && v > 0.14;
-    const matchBlue = baseColor === 'blue' && h >= 195 && h <= 250 && s > 0.36 && v > 0.14;
-    if (!matchRed && !matchBlue) continue;
-
-    const outS = isNeutral ? s * 0.14 : Math.min(1, s * (0.72 + tS * 0.34));
-    const outV = isNeutral ? v * 0.88 : Math.min(1, v * (slot === 0 && baseColor === 'red' ? 1.06 : 1.0));
-    const [nr, ng, nb] = hsvDegToRgb(tH, outS, outV);
-    data[i] = nr;
-    data[i + 1] = ng;
-    data[i + 2] = nb;
-  }
-  ctx.putImageData(imgData, 0, 0);
-  return c;
-}
-
 function getBoxInParentSpace(obj, parent) {
   obj.updateWorldMatrix(true, true);
   parent.updateWorldMatrix(true, false);
@@ -340,25 +247,10 @@ export function createThreeAssetLibrary(renderer, worldRef) {
   const hazardTex = createHazardStripeTexture();
   const concreteTex = createConcretePadTexture();
   const holoTex = createHoloDomeTexture();
-  const contactShadowTex = createContactShadowTexture();
-  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough, hazardTex, concreteTex, holoTex, contactShadowTex);
+  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough, hazardTex, concreteTex, holoTex);
 
   let revision = 1;
   let disposed = false;
-
-  const hd2dImages = new Map();
-  const hd2dDeployedImages = new Map();
-  const hd2dMatCache = new Map();
-  const hd2dGeos = new Map();
-  const contactShadowGeo = new THREE.CircleGeometry(1, 20);
-  contactShadowGeo.rotateX(-Math.PI * 0.5);
-  const contactShadowMat = new THREE.MeshBasicMaterial({
-    map: contactShadowTex,
-    transparent: true,
-    depthWrite: false,
-    opacity: 0.92
-  });
-  disposables.push(contactShadowGeo, contactShadowMat);
 
   const glbTemplates = {
     tank: null,
@@ -514,95 +406,6 @@ export function createThreeAssetLibrary(renderer, worldRef) {
   );
 
   const fogHook = (mat, key) => (worldRef?.applyFogToMaterial ? worldRef.applyFogToMaterial(mat, key) : mat);
-
-  function getHd2dBundle(typeId, teamId) {
-    const spec = HD2D_UNIT_SPECS[typeId];
-    const baseImg = hd2dImages.get(typeId);
-    if (!spec || !baseImg) return null;
-    const slot = (teamId === undefined || teamId === null || teamId < 0 || teamId >= TEAM_RGB_LIST.length - 1) ? 4 : teamId;
-    const key = `${typeId}-${slot}`;
-    if (hd2dMatCache.has(key)) return hd2dMatCache.get(key);
-
-    let geos = hd2dGeos.get(typeId);
-    if (!geos) {
-      const geo = new THREE.PlaneGeometry(spec.w, spec.h);
-      geo.translate(0, spec.h * 0.475, 0);
-      disposables.push(geo);
-      let depGeo = null;
-      if (spec.deployedUrl) {
-        depGeo = new THREE.PlaneGeometry(spec.deployedW, spec.deployedH);
-        depGeo.translate(0, spec.deployedH * 0.47, 0);
-        disposables.push(depGeo);
-      }
-      geos = { geo, depGeo };
-      hd2dGeos.set(typeId, geos);
-    }
-
-    const cw = Math.floor(baseImg.width / 2);
-    const ch = Math.floor(baseImg.height / 2);
-    const quads = [[0, 0], [cw, 0], [0, ch], [cw, ch]];
-    const aniso = Math.min(4, renderer?.capabilities?.getMaxAnisotropy?.() || 4);
-    const mats = [];
-    const depthMats = [];
-
-    for (let q = 0; q < 4; q++) {
-      const [qx, qy] = quads[q];
-      const canvas = recolorHd2dCell(baseImg, qx, qy, cw, ch, spec.baseColor, slot);
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = aniso;
-      tex.needsUpdate = true;
-      const mat = fogHook(new THREE.MeshStandardMaterial({
-        map: tex,
-        emissiveMap: tex,
-        emissive: new THREE.Color(0xffffff),
-        emissiveIntensity: 0.48,
-        roughness: 0.88,
-        metalness: 0.04,
-        alphaTest: 0.42,
-        side: THREE.DoubleSide
-      }), `hd2d-${key}-${q}`);
-      const dMat = new THREE.MeshDepthMaterial({
-        depthPacking: THREE.RGBADepthPacking,
-        map: tex,
-        alphaTest: 0.42
-      });
-      disposables.push(tex, mat, dMat);
-      mats.push(mat);
-      depthMats.push(dMat);
-    }
-
-    let deployedMat = null;
-    let deployedDepthMat = null;
-    const depImg = spec.deployedUrl ? hd2dDeployedImages.get(typeId) : null;
-    if (depImg) {
-      const dc = recolorHd2dCell(depImg, 0, 0, depImg.width, depImg.height, spec.baseColor, slot);
-      const dTex = new THREE.CanvasTexture(dc);
-      dTex.colorSpace = THREE.SRGBColorSpace;
-      dTex.anisotropy = aniso;
-      dTex.needsUpdate = true;
-      deployedMat = fogHook(new THREE.MeshStandardMaterial({
-        map: dTex,
-        emissiveMap: dTex,
-        emissive: new THREE.Color(0xffffff),
-        emissiveIntensity: 0.48,
-        roughness: 0.88,
-        metalness: 0.04,
-        alphaTest: 0.42,
-        side: THREE.DoubleSide
-      }), `hd2d-${key}-dep`);
-      deployedDepthMat = new THREE.MeshDepthMaterial({
-        depthPacking: THREE.RGBADepthPacking,
-        map: dTex,
-        alphaTest: 0.42
-      });
-      disposables.push(dTex, deployedMat, deployedDepthMat);
-    }
-
-    const bundle = { spec, geos, mats, depthMats, deployedMat, deployedDepthMat };
-    hd2dMatCache.set(key, bundle);
-    return bundle;
-  }
 
   function makePbrArmorMat(hexCol, { roughness = 0.44, metalness = 0.68, edgeWear = 0.32, transparent = false, opacity = 1, mapOverride = null } = {}, key = 'armor') {
     const mat = new THREE.MeshStandardMaterial({
@@ -895,45 +698,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     return wrap;
   }
 
-  // === 1. INFANTRY BUILDER (HD-2D concept-art rigs for demo units + bespoke 3D rigs) ===
+  // === 1. INFANTRY BUILDER (9 bespoke 1:1 prototype-accurate anatomical rigs) ===
   function buildInfantry(typeId, pal, teamId) {
     const root = new THREE.Group();
     const parts = { mixer: null, actions: null, sandbags: null, weaponPivot: null, legL: null, legR: null, cloakMeshes: [] };
-
-    const hd2d = getHd2dBundle(typeId, teamId);
-    if (hd2d) {
-      const shadowMesh = new THREE.Mesh(contactShadowGeo, contactShadowMat);
-      shadowMesh.scale.setScalar(hd2d.spec.shadowR);
-      shadowMesh.position.y = 0.04;
-      shadowMesh.renderOrder = 1;
-      root.add(shadowMesh);
-
-      const mesh = new THREE.Mesh(hd2d.geos.geo, hd2d.mats[0]);
-      mesh.customDepthMaterial = hd2d.depthMats[0];
-      mesh.castShadow = true;
-      mesh.receiveShadow = false;
-      root.add(mesh);
-
-      let deployedMesh = null;
-      if (hd2d.geos.depGeo && hd2d.deployedMat) {
-        deployedMesh = new THREE.Mesh(hd2d.geos.depGeo, hd2d.deployedMat);
-        deployedMesh.customDepthMaterial = hd2d.deployedDepthMat;
-        deployedMesh.castShadow = true;
-        deployedMesh.receiveShadow = false;
-        deployedMesh.visible = false;
-        root.add(deployedMesh);
-      }
-
-      parts.hd2d = {
-        mesh,
-        deployedMesh,
-        mats: hd2d.mats,
-        depthMats: hd2d.depthMats,
-        dirIdx: 0
-      };
-      parts.hd2dMeshes = deployedMesh ? [mesh, shadowMesh, deployedMesh] : [mesh, shadowMesh];
-      return { root, parts };
-    }
 
     const track = (m) => {
       if (typeId === 'shadow' && m?.isMesh) parts.cloakMeshes.push(m);
@@ -2274,43 +2042,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     } else {
       built = buildBuilding(typeId, def, pal, opts);
     }
-    if (!built.parts?.hd2d) {
-      mergeStaticMeshes(built.root, built.parts);
-    }
+    mergeStaticMeshes(built.root, built.parts);
     return built;
   }
 
-  // Upgrade steel PBR textures, HD-2D sprite sheets & Plan A CC0 GLB batch asynchronously
+  // Upgrade steel PBR textures & Plan A CC0 GLB batch asynchronously
   function loadPlanAAssetSuite() {
-    if (typeof Image !== 'undefined') {
-      for (const [typeId, spec] of Object.entries(HD2D_UNIT_SPECS)) {
-        const loadImg = (src, cb) => {
-          const im = new Image();
-          im.decoding = 'async';
-          im.onload = () => { if (!disposed) cb(im); };
-          im.onerror = () => {};
-          im.src = src;
-        };
-        if (spec.deployedUrl) {
-          let baseLoaded = null;
-          let depLoaded = null;
-          const finishBoth = () => {
-            if (!baseLoaded || !depLoaded || disposed) return;
-            hd2dImages.set(typeId, baseLoaded);
-            hd2dDeployedImages.set(typeId, depLoaded);
-            revision++;
-          };
-          loadImg(spec.url, (im) => { baseLoaded = im; finishBoth(); });
-          loadImg(spec.deployedUrl, (im) => { depLoaded = im; finishBoth(); });
-        } else {
-          loadImg(spec.url, (im) => {
-            hd2dImages.set(typeId, im);
-            revision++;
-          });
-        }
-      }
-    }
-
     const texLoader = new THREE.TextureLoader();
     const upgradeTex = (url, targetTex) => {
       texLoader.load(

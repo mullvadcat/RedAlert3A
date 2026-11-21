@@ -848,46 +848,6 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         p.legR.rotation.x = -sw;
       }
 
-      if (p.hd2d) {
-        rec.root.rotation.set(0, 0, 0);
-        const camAngle = Math.atan2(threeCamera.position.x - ix, threeCamera.position.z - iz);
-        let relYaw = rec.smoothYaw - camAngle;
-        while (relYaw > Math.PI) relYaw -= Math.PI * 2;
-        while (relYaw < -Math.PI) relYaw += Math.PI * 2;
-        const isFront = Math.cos(relYaw) >= 0;
-        const isRight = Math.sin(relYaw) >= 0;
-        const dirIdx = isFront ? (isRight ? 0 : 1) : (isRight ? 2 : 3);
-        const h2 = p.hd2d;
-        if (dirIdx !== h2.dirIdx) {
-          h2.dirIdx = dirIdx;
-          h2.mesh.material = h2.mats[dirIdx];
-          h2.mesh.customDepthMaterial = h2.depthMats[dirIdx];
-        }
-        const deployed = Boolean((e.deployState === 'DEPLOYED' || e.deployed) && h2.deployedMesh);
-        if (h2.deployedMesh) {
-          h2.mesh.visible = !deployed;
-          h2.deployedMesh.visible = deployed;
-          if (deployed) {
-            h2.deployedMesh.rotation.order = 'YXZ';
-            h2.deployedMesh.rotation.set(-0.40, camAngle, 0);
-            h2.deployedMesh.scale.set(isRight ? 1 : -1, 1, 1);
-          }
-        }
-        if (!deployed) {
-          h2.mesh.rotation.order = 'YXZ';
-          if (isMoving) {
-            const ph = elapsedSec * 12 + e.id;
-            h2.mesh.position.y = Math.abs(Math.sin(ph)) * 0.14;
-            h2.mesh.rotation.set(-0.40, camAngle, Math.sin(ph) * 0.055);
-            h2.mesh.scale.set(1, 1, 1);
-          } else {
-            h2.mesh.position.y = 0;
-            h2.mesh.rotation.set(-0.40, camAngle, 0);
-            h2.mesh.scale.set(1, 1 + Math.sin(elapsedSec * 2.6 + e.id) * 0.016, 1);
-          }
-        }
-      }
-
       // Selection Ring
       const isSel = selectedIds?.has(e.id);
       const isHov = hoveredId === e.id;
