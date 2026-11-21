@@ -808,7 +808,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         p.pump.rotation.x = Math.sin(elapsedSec * 2.6 + e.id) * 0.28;
       }
       if (p.sandbags) {
-        p.sandbags.visible = Boolean(e.deployed);
+        p.sandbags.visible = e.deployState === 'DEPLOYED' || Boolean(e.deployed);
       }
       if (p.oreFill) {
         const fill = Math.max(0.04, Math.min(1, (e.cargo ?? 0) / ECONOMY_CONFIG.maxHarvesterCargoCells));
@@ -848,6 +848,46 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         p.legR.rotation.x = -sw;
       }
 
+      if (p.hd2d) {
+        rec.root.rotation.set(0, 0, 0);
+        const camAngle = Math.atan2(threeCamera.position.x - ix, threeCamera.position.z - iz);
+        let relYaw = rec.smoothYaw - camAngle;
+        while (relYaw > Math.PI) relYaw -= Math.PI * 2;
+        while (relYaw < -Math.PI) relYaw += Math.PI * 2;
+        const isFront = Math.cos(relYaw) >= 0;
+        const isRight = Math.sin(relYaw) >= 0;
+        const dirIdx = isFront ? (isRight ? 0 : 1) : (isRight ? 2 : 3);
+        const h2 = p.hd2d;
+        if (dirIdx !== h2.dirIdx) {
+          h2.dirIdx = dirIdx;
+          h2.mesh.material = h2.mats[dirIdx];
+          h2.mesh.customDepthMaterial = h2.depthMats[dirIdx];
+        }
+        const deployed = Boolean((e.deployState === 'DEPLOYED' || e.deployed) && h2.deployedMesh);
+        if (h2.deployedMesh) {
+          h2.mesh.visible = !deployed;
+          h2.deployedMesh.visible = deployed;
+          if (deployed) {
+            h2.deployedMesh.rotation.order = 'YXZ';
+            h2.deployedMesh.rotation.set(-0.40, camAngle, 0);
+            h2.deployedMesh.scale.set(isRight ? 1 : -1, 1, 1);
+          }
+        }
+        if (!deployed) {
+          h2.mesh.rotation.order = 'YXZ';
+          if (isMoving) {
+            const ph = elapsedSec * 12 + e.id;
+            h2.mesh.position.y = Math.abs(Math.sin(ph)) * 0.14;
+            h2.mesh.rotation.set(-0.40, camAngle, Math.sin(ph) * 0.055);
+            h2.mesh.scale.set(1, 1, 1);
+          } else {
+            h2.mesh.position.y = 0;
+            h2.mesh.rotation.set(-0.40, camAngle, 0);
+            h2.mesh.scale.set(1, 1 + Math.sin(elapsedSec * 2.6 + e.id) * 0.016, 1);
+          }
+        }
+      }
+
       // Selection Ring
       const isSel = selectedIds?.has(e.id);
       const isHov = hoveredId === e.id;
@@ -868,7 +908,8 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
       // Health Bar
       if ((isSel || isHov || (e.maxHp > 0 && e.hp < e.maxHp)) && hpCount < MAX_HP_BARS) {
         const barW = e.isBuilding ? Math.max(2.6, (def?.footprintW ?? 2) * 1.45) : Math.max(1.35, (e.radius ?? 0.9) * 1.8);
-        const barY = drawY + (e.isBuilding ? 3.8 : (e.category === 'infantry' ? 2.25 : 2.15));
+        const infBarH = e.typeId === 'sledge' ? 3.05 : (e.typeId === 'tesla_trooper' ? 2.85 : 2.55);
+        const barY = drawY + (e.isBuilding ? 3.8 : (e.category === 'infantry' ? infBarH : 2.15));
         const ratio = Math.max(0.0, Math.min(1.0, e.hp / Math.max(1, e.maxHp)));
 
         dummy.position.set(ix, barY, iz);

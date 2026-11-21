@@ -805,6 +805,7 @@ function bootstrap() {
       for (let i = 0; i < state.entities.length; i++) {
         const ent = state.entities[i];
         ent.playerId = factionRed ? 1 : 0;
+        ent.teamId = factionRed ? 1 : 0;
         ent.factionId = factionRed ? 'crimson' : 'abyssal';
       }
     };
