@@ -21,7 +21,7 @@ function makeCanvas(w, h) {
 export function applyWorldFogShader(mat, fogState, cacheKey) {
   if (!mat || !fogState) return mat;
   const prevCompile = mat.onBeforeCompile;
-  mat.customProgramCacheKey = () => `ra3a-fog-${cacheKey}`;
+  mat.customProgramCacheKey = () => `ra3a-fog-v2-${cacheKey}`;
   mat.onBeforeCompile = (shader, renderer) => {
     if (prevCompile) prevCompile(shader, renderer);
     shader.uniforms.uFogTex = fogState.fogTexUniform;
@@ -49,17 +49,25 @@ vFogWorldPos = (modelMatrix * _fogWp).xyz;`
         `varying vec3 vFogWorldPos;
 uniform sampler2D uFogTex;
 uniform float uNoFog;
+float _sampleFogSmooth(vec2 uv) {
+  float d = 1.85 / 256.0;
+  return texture2D(uFogTex, uv).r * 0.36
+    + texture2D(uFogTex, clamp(uv + vec2(d, d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(-d, d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(d, -d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(-d, -d), vec2(0.002), vec2(0.998))).r * 0.16;
+}
 void main() {`
       )
       .replace(
         '#include <dithering_fragment>',
         `vec2 _fogUv = clamp(vFogWorldPos.xz / ${WORLD_SIZE.toFixed(1)}, vec2(0.002), vec2(0.998));
-float _fogVis = mix(texture2D(uFogTex, _fogUv).r, 1.0, uNoFog);
+float _fogVis = mix(_sampleFogSmooth(_fogUv), 1.0, uNoFog);
 float _fogLuma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-vec3 _exploredCol = mix(vec3(_fogLuma), gl_FragColor.rgb, 0.34) * vec3(0.36, 0.41, 0.52);
+vec3 _exploredCol = mix(vec3(_fogLuma), gl_FragColor.rgb, 0.36) * vec3(0.38, 0.43, 0.54);
 vec3 _unexploredCol = vec3(0.014, 0.018, 0.026);
-vec3 _shadedCol = mix(_unexploredCol, _exploredCol, smoothstep(0.05, 0.44, _fogVis));
-gl_FragColor.rgb = mix(_shadedCol, gl_FragColor.rgb, smoothstep(0.47, 0.90, _fogVis));
+vec3 _shadedCol = mix(_unexploredCol, _exploredCol, smoothstep(0.06, 0.44, _fogVis));
+gl_FragColor.rgb = mix(_shadedCol, gl_FragColor.rgb, smoothstep(0.46, 0.91, _fogVis));
 #include <dithering_fragment>`
       );
   };
@@ -482,7 +490,13 @@ export function createThreeWorld(renderer, scene, sharedAssets = null) {
     uFogTex: gpuFog.fogTexUniform,
     uNoFog: gpuFog.noFogUniform,
     uTerrainSize: { value: WORLD_SIZE },
-    uWaterLevel: { value: WATER_LEVEL }
+    uWaterLevel: { value: WATER_LEVEL },
+    uBiomeGrassLo: { value: new THREE.Color(0x6b8e47) },
+    uBiomeGrassHi: { value: new THREE.Color(0xb2c775) },
+    uBiomeDirt: { value: new THREE.Color(0x9e8c7a) },
+    uBiomeRock: { value: new THREE.Color(0xbec2c9) },
+    uBiomeSand: { value: new THREE.Color(0xdcc9a5) },
+    uSnowMix: { value: 0.0 }
   };
 
   const terrainMat = new THREE.MeshStandardMaterial({
@@ -491,7 +505,7 @@ export function createThreeWorld(renderer, scene, sharedAssets = null) {
     metalness: 0.02,
     envMapIntensity: 0.72
   });
-  terrainMat.customProgramCacheKey = () => 'ra3a-plan-a-terrain-v1';
+  terrainMat.customProgramCacheKey = () => 'ra3a-plan-a-terrain-v2';
   terrainMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, terrainUniforms);
 
@@ -526,6 +540,12 @@ uniform sampler2D uFogTex;
 uniform float uNoFog;
 uniform float uTerrainSize;
 uniform float uWaterLevel;
+uniform vec3 uBiomeGrassLo;
+uniform vec3 uBiomeGrassHi;
+uniform vec3 uBiomeDirt;
+uniform vec3 uBiomeRock;
+uniform vec3 uBiomeSand;
+uniform float uSnowMix;
 
 float terrainHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float terrainNoise(vec2 p) {
@@ -534,6 +554,14 @@ float terrainNoise(vec2 p) {
              mix(terrainHash(i + vec2(0.0, 1.0)), terrainHash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 vec2 terrainRot(vec2 p) { return vec2(p.x * 0.7986 - p.y * 0.6018, p.x * 0.6018 + p.y * 0.7986); }
+float _terrainFogSmooth(vec2 uv) {
+  float d = 1.85 / 256.0;
+  return texture2D(uFogTex, uv).r * 0.36
+    + texture2D(uFogTex, clamp(uv + vec2(d, d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(-d, d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(d, -d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(-d, -d), vec2(0.002), vec2(0.998))).r * 0.16;
+}
 void sampleTerrainLayer(vec2 wp, float layer, out vec3 outAlb, out vec3 outNor, out float outRgh) {
   vec2 uvNear = wp * 0.28;
   vec2 uvFar = terrainRot(wp * 0.095) + vec2(3.7, 1.9);
@@ -561,9 +589,10 @@ void main() {
   sampleTerrainLayer(vTerrainWorldPos.xz, 3.0, albC, norC, rghC);
   sampleTerrainLayer(vTerrainWorldPos.xz, 4.0, albS, norS, rghS);
 
-  albG *= mix(vec3(0.42, 0.56, 0.28), vec3(0.70, 0.78, 0.46), macroN) * vec3(0.88, 0.94, 0.82);
-  albD *= mix(vec3(0.62, 0.55, 0.48), vec3(0.94, 0.87, 0.78), detailN);
-  albR *= vec3(0.74, 0.76, 0.79);
+  albG *= mix(uBiomeGrassLo, uBiomeGrassHi, macroN);
+  albD *= uBiomeDirt * mix(0.74, 1.06, detailN);
+  albR *= uBiomeRock;
+  albS *= uBiomeSand;
 
   float slope = 1.0 - clamp(vTerrainWorldNorm.y, 0.0, 1.0);
   float wConc = splat.r;
@@ -593,6 +622,17 @@ void main() {
   vec3 tNor = norG * bG + norD * bD + norR * bR + norC * bC + norS * bS;
   float tRough = rghG * bG + rghD * bD + rghR * bR + rghC * bC + rghS * bS;
 
+  if (uSnowMix > 0.01) {
+    float fineSnow = terrainNoise(vTerrainWorldPos.xz * 0.45);
+    float snowMask = smoothstep(0.36, 0.74, macroN * 0.48 + detailN * 0.30 + fineSnow * 0.22)
+      * (1.0 - smoothstep(0.22, 0.52, slope))
+      * (1.0 - bC * 0.85)
+      * smoothstep(uWaterLevel + 0.15, uWaterLevel + 0.65, vTerrainHeight);
+    vec3 texturedSnow = clamp(albR * 0.46 + vec3(0.28), vec3(0.25), vec3(0.58)) * vec3(0.88, 0.94, 1.04);
+    tAlbedo = mix(tAlbedo, texturedSnow, snowMask * uSnowMix);
+    tRough = mix(tRough, 0.64, snowMask * uSnowMix);
+  }
+
   float grime = smoothstep(0.05, 0.85, detailN);
   tAlbedo = mix(tAlbedo, tAlbedo * 0.74, bC * grime * 0.42);
   float shoreWet = 1.0 - smoothstep(uWaterLevel - 0.05, uWaterLevel + 0.36, vTerrainHeight);
@@ -608,12 +648,12 @@ void main() {
       )
       .replace(
         '#include <dithering_fragment>',
-        `float _tFogVis = mix(texture2D(uFogTex, splatUv).r, 1.0, uNoFog);
+        `float _tFogVis = mix(_terrainFogSmooth(splatUv), 1.0, uNoFog);
 float _tFogLuma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-vec3 _tExp = mix(vec3(_tFogLuma), gl_FragColor.rgb, 0.34) * vec3(0.36, 0.41, 0.52);
+vec3 _tExp = mix(vec3(_tFogLuma), gl_FragColor.rgb, 0.36) * vec3(0.38, 0.43, 0.54);
 vec3 _tUnexp = vec3(0.014, 0.018, 0.026);
-vec3 _tShroud = mix(_tUnexp, _tExp, smoothstep(0.05, 0.44, _tFogVis));
-gl_FragColor.rgb = mix(_tShroud, gl_FragColor.rgb, smoothstep(0.47, 0.90, _tFogVis));
+vec3 _tShroud = mix(_tUnexp, _tExp, smoothstep(0.06, 0.44, _tFogVis));
+gl_FragColor.rgb = mix(_tShroud, gl_FragColor.rgb, smoothstep(0.46, 0.91, _tFogVis));
 #include <dithering_fragment>`
       );
   };
@@ -633,6 +673,7 @@ gl_FragColor.rgb = mix(_tShroud, gl_FragColor.rgb, smoothstep(0.47, 0.90, _tFogV
   const waterNormalTex = createWaterNormalTexture();
   disposables.push(waterNormalTex);
   const waterTimeUniform = { value: 0 };
+  const waterShallowUniform = { value: new THREE.Color(0x143633) };
   const waterMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0x091e2a),
     roughness: 0.14,
@@ -644,9 +685,10 @@ gl_FragColor.rgb = mix(_tShroud, gl_FragColor.rgb, smoothstep(0.47, 0.90, _tFogV
     depthWrite: false,
     envMapIntensity: 1.5
   });
-  waterMat.customProgramCacheKey = () => 'ra3a-plan-a-water-v1';
+  waterMat.customProgramCacheKey = () => 'ra3a-plan-a-water-v2';
   waterMat.onBeforeCompile = (shader) => {
     shader.uniforms.uWaterTime = waterTimeUniform;
+    shader.uniforms.uWaterShallow = waterShallowUniform;
     shader.uniforms.uFogTex = gpuFog.fogTexUniform;
     shader.uniforms.uNoFog = gpuFog.noFogUniform;
 
@@ -675,6 +717,7 @@ vWaterWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
         `varying float vWaterDepth;
 varying vec3 vWaterWorldPos;
 uniform float uWaterTime;
+uniform vec3 uWaterShallow;
 uniform sampler2D uFogTex;
 uniform float uNoFog;
 float wHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -682,6 +725,14 @@ float wNoise(vec2 p) {
   vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), u.x),
              mix(wHash(i + vec2(0.0, 1.0)), wHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float _waterFogSmooth(vec2 uv) {
+  float d = 1.85 / 256.0;
+  return texture2D(uFogTex, uv).r * 0.36
+    + texture2D(uFogTex, clamp(uv + vec2(d, d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(-d, d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(d, -d), vec2(0.002), vec2(0.998))).r * 0.16
+    + texture2D(uFogTex, clamp(uv + vec2(-d, -d), vec2(0.002), vec2(0.998))).r * 0.16;
 }
 void main() {
   float shoreAlpha = smoothstep(-0.02, 0.22, vWaterDepth);
@@ -697,8 +748,7 @@ void main() {
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-vec3 shallowTint = vec3(0.08, 0.21, 0.20);
-diffuseColor.rgb = mix(shallowTint, diffuseColor.rgb, depthMix);
+diffuseColor.rgb = mix(uWaterShallow, diffuseColor.rgb, depthMix);
 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78, 0.87, 0.90), surfFoam * 0.72);
 diffuseColor.a *= clamp(shoreAlpha + surfFoam * 0.35, 0.0, 1.0);`
       )
@@ -710,10 +760,10 @@ roughnessFactor = mix(roughnessFactor, 0.72, surfFoam * 0.85);`
       .replace(
         '#include <dithering_fragment>',
         `vec2 _wFogUv = clamp(vWaterWorldPos.xz / ${WORLD_SIZE.toFixed(1)}, vec2(0.002), vec2(0.998));
-float _wVis = mix(texture2D(uFogTex, _wFogUv).r, 1.0, uNoFog);
+float _wVis = mix(_waterFogSmooth(_wFogUv), 1.0, uNoFog);
 vec3 _wExpl = gl_FragColor.rgb * 0.34;
-vec3 _wShroud = mix(vec3(0.012, 0.016, 0.024), _wExpl, smoothstep(0.05, 0.44, _wVis));
-gl_FragColor.rgb = mix(_wShroud, gl_FragColor.rgb, smoothstep(0.47, 0.90, _wVis));
+vec3 _wShroud = mix(vec3(0.012, 0.016, 0.024), _wExpl, smoothstep(0.06, 0.44, _wVis));
+gl_FragColor.rgb = mix(_wShroud, gl_FragColor.rgb, smoothstep(0.46, 0.91, _wVis));
 #include <dithering_fragment>`
       );
   };
@@ -932,7 +982,7 @@ transformed.z += cos(uPineTime * 1.15 + _iOff.z * 0.18) * 0.08 * _swayH;`
   function buildRoadMask(map) {
     roadMask.fill(0);
     if (!map || isGalleryMap(map)) return;
-    const paintDisk = (cx, cz, r) => {
+    const paintMaskDisk = (cx, cz, r, val) => {
       const r2 = r * r;
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -941,8 +991,8 @@ transformed.z += cos(uPineTime * 1.15 + _iOff.z * 0.18) * 0.08 * _swayH;`
           const z = cz + dz;
           if (x < 0 || x >= MAP_SIZE || z < 0 || z >= MAP_SIZE) continue;
           const idx = z * MAP_SIZE + x;
-          if (map.terrain[idx] === TERRAIN.LAND && map.oreType[idx] === 0) {
-            roadMask[idx] = 1;
+          if (map.terrain[idx] === TERRAIN.LAND && map.oreType[idx] === 0 && roadMask[idx] < val) {
+            roadMask[idx] = val;
           }
         }
       }
@@ -951,13 +1001,28 @@ transformed.z += cos(uPineTime * 1.15 + _iOff.z * 0.18) * 0.08 * _swayH;`
       const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) * 1.5));
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
-        paintDisk(Math.round(x0 + (x1 - x0) * t), Math.round(z0 + (z1 - z0) * t), 2);
+        paintMaskDisk(Math.round(x0 + (x1 - x0) * t), Math.round(z0 + (z1 - z0) * t), 2, 1);
+      }
+    };
+    const paintCompoundApron = (cx, cz) => {
+      for (let dz = -6; dz <= 6; dz++) {
+        for (let dx = -6; dx <= 6; dx++) {
+          if (Math.abs(dx) + Math.abs(dz) > 9) continue;
+          const x = cx + dx;
+          const z = cz + dz;
+          if (x < 0 || x >= MAP_SIZE || z < 0 || z >= MAP_SIZE) continue;
+          const idx = z * MAP_SIZE + x;
+          if (map.terrain[idx] === TERRAIN.LAND && map.oreType[idx] === 0) {
+            roadMask[idx] = 2;
+          }
+        }
       }
     };
     const spawns = map.spawns ?? [];
     const bridges = map.bridges ?? [];
     for (const sp of spawns) {
-      paintDisk(sp.gx, sp.gz, 5);
+      paintMaskDisk(sp.gx, sp.gz, 9, 1);
+      paintCompoundApron(sp.gx, sp.gz);
       if (bridges.length > 0) {
         let bestBr = bridges[0];
         let bestD = Infinity;
@@ -1261,6 +1326,7 @@ transformed.z += cos(uPineTime * 1.15 + _iOff.z * 0.18) * 0.08 * _swayH;`
         const i = row + gx;
         const dst = i * 4;
         const t = map.terrain[i];
+        const hasCompound = roadMask[i] === 2;
         const hasRoad = roadMask[i] === 1;
         const bldgHere = bldg[i] !== 0;
 
@@ -1275,8 +1341,8 @@ transformed.z += cos(uPineTime * 1.15 + _iOff.z * 0.18) * 0.08 * _swayH;`
 
         const inPlaza = gallery && gx >= 99 && gx <= 157 && gz >= 99 && gz <= 157;
         const plazaRim = gallery && !inPlaza && gx >= 95 && gx <= 161 && gz >= 95 && gz <= 161;
-        const wConc = inPlaza ? 215 : (bldgHere ? 255 : (bldgNb ? 175 : (hasRoad ? 90 : 0)));
-        const wDirt = plazaRim ? 150 : ((hasRoad && !bldgHere) ? 195 : (map.oreType[i] > 0 ? 150 : 0));
+        const wConc = inPlaza ? 215 : (bldgHere ? 255 : (bldgNb ? 185 : (hasCompound ? 148 : (hasRoad ? 70 : 0))));
+        const wDirt = plazaRim ? 150 : (hasCompound ? 115 : ((hasRoad && !bldgHere) ? 195 : (map.oreType[i] > 0 ? 150 : 0)));
         const wRock = t === TERRAIN.CLIFF ? 255 : 0;
 
         let wSand = (t === TERRAIN.SHALLOW || t === TERRAIN.SEA) ? 250 : 0;
@@ -1300,10 +1366,71 @@ transformed.z += cos(uPineTime * 1.15 + _iOff.z * 0.18) * 0.08 * _swayH;`
     }
   }
 
+  function applyMapBiomeTheme(map) {
+    const id = String(map?.blueprint?.id || map?.id || '').toLowerCase();
+    if (/frost|alpine|twin_bridges/.test(id)) {
+      terrainUniforms.uBiomeGrassLo.value.setHex(0x6c7c66);
+      terrainUniforms.uBiomeGrassHi.value.setHex(0xa8b4a4);
+      terrainUniforms.uBiomeDirt.value.setHex(0x888f96);
+      terrainUniforms.uBiomeRock.value.setHex(0xaab6c2);
+      terrainUniforms.uBiomeSand.value.setHex(0xc2cbd4);
+      terrainUniforms.uSnowMix.value = 0.78;
+      waterMat.color.setHex(0x092438);
+      waterShallowUniform.value.setHex(0x1f4b5e);
+      rockMat.color.setHex(0x74818e);
+      scene.fog.color.setHex(0xb3c7db);
+    } else if (/crater|volcan|eruption/.test(id)) {
+      terrainUniforms.uBiomeGrassLo.value.setHex(0x524c44);
+      terrainUniforms.uBiomeGrassHi.value.setHex(0x786752);
+      terrainUniforms.uBiomeDirt.value.setHex(0x7c5e4b);
+      terrainUniforms.uBiomeRock.value.setHex(0x7a7478);
+      terrainUniforms.uBiomeSand.value.setHex(0x6e5e52);
+      terrainUniforms.uSnowMix.value = 0.0;
+      waterMat.color.setHex(0x1a151c);
+      waterShallowUniform.value.setHex(0x3a2422);
+      rockMat.color.setHex(0x3e393d);
+      scene.fog.color.setHex(0x7e726b);
+    } else if (/mesa|basin|refinery/.test(id)) {
+      terrainUniforms.uBiomeGrassLo.value.setHex(0x8a7d52);
+      terrainUniforms.uBiomeGrassHi.value.setHex(0xb89c68);
+      terrainUniforms.uBiomeDirt.value.setHex(0xb58863);
+      terrainUniforms.uBiomeRock.value.setHex(0xc8a484);
+      terrainUniforms.uBiomeSand.value.setHex(0xdcb98a);
+      terrainUniforms.uSnowMix.value = 0.0;
+      waterMat.color.setHex(0x0c242e);
+      waterShallowUniform.value.setHex(0x285452);
+      rockMat.color.setHex(0x886c56);
+      scene.fog.color.setHex(0xb0a391);
+    } else if (/archipelago|island/.test(id)) {
+      terrainUniforms.uBiomeGrassLo.value.setHex(0x4c843c);
+      terrainUniforms.uBiomeGrassHi.value.setHex(0x82b458);
+      terrainUniforms.uBiomeDirt.value.setHex(0xa89278);
+      terrainUniforms.uBiomeRock.value.setHex(0xb8bcbf);
+      terrainUniforms.uBiomeSand.value.setHex(0xead6ac);
+      terrainUniforms.uSnowMix.value = 0.0;
+      waterMat.color.setHex(0x06293d);
+      waterShallowUniform.value.setHex(0x1b6668);
+      rockMat.color.setHex(0x72787d);
+      scene.fog.color.setHex(0x9bc2d4);
+    } else {
+      terrainUniforms.uBiomeGrassLo.value.setHex(0x4a6934);
+      terrainUniforms.uBiomeGrassHi.value.setHex(0x809950);
+      terrainUniforms.uBiomeDirt.value.setHex(0x8e7d6c);
+      terrainUniforms.uBiomeRock.value.setHex(0xaab0b6);
+      terrainUniforms.uBiomeSand.value.setHex(0xd6c29d);
+      terrainUniforms.uSnowMix.value = 0.0;
+      waterMat.color.setHex(0x091e2a);
+      waterShallowUniform.value.setHex(0x143633);
+      rockMat.color.setHex(0x62676b);
+      scene.fog.color.setHex(0x93a8be);
+    }
+  }
+
   function syncMap(map, tickCount = 0, force = false) {
     if (!map || disposed) return;
     const mapChanged = map.id !== boundMapId || (map.revision ?? 1) !== boundMapRev;
     if (mapChanged) {
+      applyMapBiomeTheme(map);
       buildRoadMask(map);
       rebuildHeightAndWater(map);
       rebuildBridges(map);

@@ -49,7 +49,7 @@ function createProceduralSteelTextures() {
   nCtx.fillStyle = 'rgb(128,128,255)';
   nCtx.fillRect(0, 0, size, size);
 
-  // Subtle brushed metal micro-speckle & welded panel seams
+  // Brushed metal micro-speckle
   for (let i = 0; i < 1600; i++) {
     const x = Math.floor(hash1(i * 3.1) * size);
     const y = Math.floor(hash1(i * 7.3) * size);
@@ -61,7 +61,9 @@ function createProceduralSteelTextures() {
     rCtx.fillStyle = `rgb(${rv},${rv},${rv})`;
     rCtx.fillRect(x, y, w, 1);
   }
-  dCtx.strokeStyle = 'rgba(52,58,64,0.42)';
+
+  // Welded 2x2 military armor panel seams + rivets + ventilation louvre accents
+  dCtx.strokeStyle = 'rgba(42,48,54,0.52)';
   dCtx.lineWidth = 2;
   dCtx.strokeRect(4, 4, size - 8, size - 8);
   dCtx.beginPath();
@@ -71,9 +73,20 @@ function createProceduralSteelTextures() {
   dCtx.lineTo(size * 0.5, size);
   dCtx.stroke();
 
-  nCtx.strokeStyle = 'rgb(108,108,248)';
+  dCtx.fillStyle = 'rgba(225,232,238,0.42)';
+  for (const [rx, ry] of [[14, 14], [114, 14], [142, 14], [242, 14], [14, 114], [114, 114], [142, 142], [242, 242]]) {
+    dCtx.fillRect(rx, ry, 3, 3);
+  }
+
+  nCtx.strokeStyle = 'rgb(104,104,246)';
   nCtx.lineWidth = 2;
   nCtx.strokeRect(4, 4, size - 8, size - 8);
+  nCtx.beginPath();
+  nCtx.moveTo(0, size * 0.5);
+  nCtx.lineTo(size, size * 0.5);
+  nCtx.moveTo(size * 0.5, 0);
+  nCtx.lineTo(size * 0.5, size);
+  nCtx.stroke();
 
   const mkTex = (canvas, srgb) => {
     const t = new THREE.CanvasTexture(canvas);
@@ -89,6 +102,72 @@ function createProceduralSteelTextures() {
     nor: mkTex(nCan, false),
     rough: mkTex(rCan, false)
   };
+}
+
+function createHazardStripeTexture() {
+  const s = 128;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d99e26';
+  ctx.fillRect(0, 0, s, s);
+  ctx.fillStyle = '#1f242a';
+  for (let i = -s; i < s * 2; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + 16, 0);
+    ctx.lineTo(i + 16 - s, s);
+    ctx.lineTo(i - s, s);
+    ctx.closePath();
+    ctx.fill();
+  }
+  for (let i = 0; i < 400; i++) {
+    ctx.fillStyle = hash1(i * 4.7) > 0.5 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.09)';
+    ctx.fillRect(Math.floor(hash1(i * 2.3) * s), Math.floor(hash1(i * 9.1) * s), 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createConcretePadTexture() {
+  const s = 256;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#8b9094';
+  ctx.fillRect(0, 0, s, s);
+  for (let i = 0; i < 2200; i++) {
+    const v = 126 + Math.floor((hash1(i * 5.7) - 0.5) * 34);
+    ctx.fillStyle = `rgb(${v},${v + 1},${v + 2})`;
+    ctx.fillRect(Math.floor(hash1(i * 3.3) * s), Math.floor(hash1(i * 7.9) * s), 2, 2);
+  }
+  ctx.strokeStyle = 'rgba(42,46,52,0.52)';
+  ctx.lineWidth = 2;
+  const step = s / 4;
+  for (let k = 0; k <= 4; k++) {
+    const p = k * step;
+    ctx.beginPath();
+    ctx.moveTo(p, 0); ctx.lineTo(p, s);
+    ctx.moveTo(0, p); ctx.lineTo(s, p);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(210,215,220,0.28)';
+  for (let gx = 0; gx < 4; gx++) {
+    for (let gy = 0; gy < 4; gy++) {
+      ctx.fillRect(gx * step + 5, gy * step + 5, 2, 2);
+      ctx.fillRect((gx + 1) * step - 7, (gy + 1) * step - 7, 2, 2);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 function getBoxInParentSpace(obj, parent) {
@@ -129,7 +208,9 @@ function countObjectVertices(root) {
 export function createThreeAssetLibrary(renderer, worldRef) {
   const disposables = [];
   const steelMaps = createProceduralSteelTextures();
-  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough);
+  const hazardTex = createHazardStripeTexture();
+  const concreteTex = createConcretePadTexture();
+  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough, hazardTex, concreteTex);
 
   let revision = 1;
   let disposed = false;
@@ -153,11 +234,66 @@ export function createThreeAssetLibrary(renderer, worldRef) {
 
   // Shared Geometries (reused heavily for minimal memory & GC pressure)
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
-  const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+  const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
+  const unitOct = new THREE.CylinderGeometry(0.46, 0.54, 1, 8);
   const unitHex = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
   const unitCone = new THREE.ConeGeometry(0.5, 1, 10);
   const unitSphere = new THREE.SphereGeometry(0.5, 12, 10);
   const unitTorus = new THREE.TorusGeometry(0.5, 0.14, 8, 18);
+
+  function buildCoolingTowerGeo() {
+    const pts = [
+      new THREE.Vector2(0.01, 0),
+      new THREE.Vector2(0.62, 0),
+      new THREE.Vector2(0.53, 0.45),
+      new THREE.Vector2(0.45, 0.95),
+      new THREE.Vector2(0.41, 1.45),
+      new THREE.Vector2(0.42, 1.85),
+      new THREE.Vector2(0.46, 2.20),
+      new THREE.Vector2(0.39, 2.20),
+      new THREE.Vector2(0.35, 1.85),
+      new THREE.Vector2(0.01, 1.85)
+    ];
+    const g = new THREE.LatheGeometry(pts, 18);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function buildRadarDishGeo() {
+    const pts = [];
+    for (let i = 0; i <= 6; i++) {
+      const r = (i / 6) * 1.05;
+      pts.push(new THREE.Vector2(r, 0.34 * r * r));
+    }
+    for (let i = 6; i >= 0; i--) {
+      const r = (i / 6) * 1.05;
+      pts.push(new THREE.Vector2(r, 0.34 * r * r - 0.08));
+    }
+    const g = new THREE.LatheGeometry(pts, 16);
+    g.rotateX(-Math.PI * 0.42);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function buildSlopedCabGeo() {
+    const s = new THREE.Shape();
+    s.moveTo(-0.5, -0.5);
+    s.lineTo(0.5, -0.5);
+    s.lineTo(0.24, 0.5);
+    s.lineTo(-0.5, 0.5);
+    s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, {
+      depth: 1.0,
+      bevelEnabled: true,
+      bevelThickness: 0.04,
+      bevelSize: 0.04,
+      bevelSegments: 2
+    });
+    g.center();
+    g.rotateY(-Math.PI * 0.5); // Slopes toward +Z
+    g.computeVertexNormals();
+    return g;
+  }
 
   function buildSweptWingGeo(halfSpan = 1.65, rootChord = 1.15, tipChord = 0.36, sweep = 0.78) {
     const s = new THREE.Shape();
@@ -200,17 +336,23 @@ export function createThreeAssetLibrary(renderer, worldRef) {
     return g;
   }
   const shipBowGeo = buildShipBowGeo(0.95, 1.55, 0.72);
-  disposables.push(unitBox, unitCyl, unitHex, unitCone, unitSphere, unitTorus, jetWingGeo, tailWingGeo, shipBowGeo);
+  const coolingTowerGeo = buildCoolingTowerGeo();
+  const radarDishGeo = buildRadarDishGeo();
+  const slopedCabGeo = buildSlopedCabGeo();
+  disposables.push(
+    unitBox, unitCyl, unitOct, unitHex, unitCone, unitSphere, unitTorus,
+    jetWingGeo, tailWingGeo, shipBowGeo, coolingTowerGeo, radarDishGeo, slopedCabGeo
+  );
 
   const fogHook = (mat, key) => (worldRef?.applyFogToMaterial ? worldRef.applyFogToMaterial(mat, key) : mat);
 
-  function makePbrArmorMat(hexCol, { roughness = 0.44, metalness = 0.68, edgeWear = 0.32, transparent = false, opacity = 1 } = {}, key = 'armor') {
+  function makePbrArmorMat(hexCol, { roughness = 0.44, metalness = 0.68, edgeWear = 0.32, transparent = false, opacity = 1, mapOverride = null } = {}, key = 'armor') {
     const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(hexCol),
-      map: steelMaps.diff,
-      normalMap: steelMaps.nor,
+      map: mapOverride || steelMaps.diff,
+      normalMap: mapOverride ? null : steelMaps.nor,
       normalScale: new THREE.Vector2(0.55, 0.55),
-      roughnessMap: steelMaps.rough,
+      roughnessMap: mapOverride ? null : steelMaps.rough,
       roughness,
       metalness,
       envMapIntensity: 1.12,
@@ -252,14 +394,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     const gunmetal = new THREE.Color(0x3a4046).lerp(teamColor, 0.08);
     const paintedArmor = new THREE.Color(0x4c545c).lerp(teamColor, 0.36);
     const brightTrim = new THREE.Color(0xd2d7dc).lerp(teamColor, 0.68);
-    const concreteCol = new THREE.Color(0x888b8d);
 
     const p = {
       team: makePbrArmorMat(paintedArmor.getHex(), { roughness: 0.46, metalness: 0.56, edgeWear: 0.36 }, `team-${ti}`),
       hull: makePbrArmorMat(gunmetal.getHex(), { roughness: 0.44, metalness: 0.78, edgeWear: 0.32 }, `hull-${ti}`),
       trim: makePbrArmorMat(brightTrim.getHex(), { roughness: 0.38, metalness: 0.44, edgeWear: 0.22 }, `trim-${ti}`),
       dark: makePbrArmorMat(0x21262b, { roughness: 0.62, metalness: 0.72, edgeWear: 0.18 }, `dark-${ti}`),
-      concrete: makePbrArmorMat(concreteCol.getHex(), { roughness: 0.88, metalness: 0.08, edgeWear: 0.10 }, `conc-${ti}`),
+      concrete: makePbrArmorMat(0xe6eaee, { roughness: 0.88, metalness: 0.06, edgeWear: 0.10, mapOverride: concreteTex }, `conc-${ti}`),
+      hazard: makePbrArmorMat(0xf5f5f5, { roughness: 0.48, metalness: 0.22, edgeWear: 0.14, mapOverride: hazardTex }, `haz-${ti}`),
       gold: makePbrArmorMat(0xd59f2a, { roughness: 0.42, metalness: 0.48, edgeWear: 0.22 }, `gold-${ti}`),
       copper: makePbrArmorMat(0xb66e41, { roughness: 0.34, metalness: 0.84, edgeWear: 0.25 }, `cop-${ti}`),
       glass: fogHook(new THREE.MeshPhysicalMaterial({ color: 0x162e42, roughness: 0.14, metalness: 0.2, clearcoat: 0.9 }), `glass-${ti}`),
@@ -322,6 +464,28 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     const m = new THREE.Mesh(unitSphere, mat);
     m.scale.set(r * 2 * sx, r * 2 * sy, r * 2 * sz);
     m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    parent.add(m);
+    return m;
+  }
+
+  function addOct(parent, radius, h, x, y, z, mat, ry = Math.PI / 8) {
+    const m = new THREE.Mesh(unitOct, mat);
+    m.scale.set(radius * 2, h, radius * 2);
+    m.position.set(x, y, z);
+    if (ry) m.rotation.y = ry;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    parent.add(m);
+    return m;
+  }
+
+  function addGeo(parent, geo, mat, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) {
+    const m = new THREE.Mesh(geo, mat);
+    m.scale.set(sx, sy, sz);
+    m.position.set(x, y, z);
+    if (rx || ry || rz) m.rotation.set(rx, ry, rz);
     m.castShadow = true;
     m.receiveShadow = true;
     parent.add(m);
@@ -491,15 +655,21 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       if (typeId === 'shadow') parts.cloakMeshes.push(armL, armR);
     }
 
-    // Role Weapons & Tactical Gear
+    // Role Weapons & Distinct Battlefield Silhouettes
     const wPivot = new THREE.Group();
     wPivot.position.set(0.24, 1.06, 0.16);
     root.add(wPivot);
     parts.weaponPivot = wPivot;
 
     if (typeId === 'gi' || typeId === 'conscript') {
-      addBox(wPivot, 0.08, 0.11, 0.76, 0, 0, 0.28, pal.dark);
-      if (typeId === 'gi') {
+      addBox(wPivot, 0.08, 0.12, 0.62, 0, 0.02, 0.22, pal.hull);
+      addCyl(wPivot, 0.028, 0.028, 0.36, 0, 0.04, 0.62, pal.dark, Math.PI * 0.5);
+      addBox(wPivot, 0.05, 0.16, 0.09, 0, -0.09, 0.30, pal.dark, 0.25);
+      if (typeId === 'conscript') {
+        addBox(root, 0.52, 0.14, 0.34, 0, 1.24, -0.02, pal.team);
+        addSphere(root, 0.21, 0, 1.56, 0, pal.hull, 1.05, 0.72, 1.08);
+      } else {
+        addBox(root, 0.30, 0.36, 0.18, 0, 1.08, -0.20, pal.hull);
         const sb = new THREE.Group();
         if (glbTemplates.sandbags) {
           clonePropInto('sandbags', sb, 0.46, 0, 0, 0.65, 0);
@@ -515,41 +685,63 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         parts.sandbags = sb;
       }
     } else if (typeId === 'flak_trooper') {
-      addCyl(wPivot, 0.11, 0.12, 0.95, 0.04, 0.18, 0.15, pal.dark, Math.PI * 0.45);
-      addBox(root, 0.36, 0.42, 0.24, 0, 1.06, -0.22, pal.hull);
+      addCyl(wPivot, 0.12, 0.14, 1.02, 0.05, 0.22, 0.18, pal.dark, Math.PI * 0.44);
+      addCyl(wPivot, 0.16, 0.12, 0.16, 0.05, 0.32, 0.68, pal.hull, Math.PI * 0.44);
+      addBox(root, 0.42, 0.46, 0.26, 0, 1.08, -0.22, pal.hull);
+      addCyl(root, 0.10, 0.10, 0.38, -0.11, 1.12, -0.26, pal.trim);
+      addCyl(root, 0.10, 0.10, 0.38, 0.11, 1.12, -0.26, pal.trim);
     } else if (typeId === 'engineer') {
-      addBox(wPivot, 0.14, 0.18, 0.26, 0, -0.15, 0.06, pal.gold);
+      addSphere(root, 0.21, 0, 1.56, 0, pal.gold, 1.08, 0.72, 1.10);
+      addBox(root, 0.40, 0.44, 0.24, 0, 1.04, -0.22, pal.hazard);
+      addBox(wPivot, 0.14, 0.18, 0.28, 0, -0.10, 0.10, pal.gold);
+      addCyl(wPivot, 0.03, 0.03, 0.26, 0, -0.08, 0.30, pal.glowCyan, Math.PI * 0.5);
     } else if (typeId === 'rocketeer') {
-      addBox(root, 0.46, 0.48, 0.26, 0, 1.08, -0.22, pal.hull);
-      addCyl(root, 0.09, 0.09, 0.46, -0.16, 1.02, -0.28, pal.dark, 0.18);
-      addCyl(root, 0.09, 0.09, 0.46, 0.16, 1.02, -0.28, pal.dark, 0.18);
-      addSphere(root, 0.08, -0.16, 0.72, -0.32, pal.glowCyan);
-      addSphere(root, 0.08, 0.16, 0.72, -0.32, pal.glowCyan);
-      addBox(wPivot, 0.10, 0.10, 0.64, 0, 0, 0.22, pal.dark);
+      addBox(root, 0.46, 0.48, 0.28, 0, 1.08, -0.22, pal.hull);
+      addGeo(root, tailWingGeo, pal.team, 0.65, 0.75, 0.55, 0, 1.16, -0.26, Math.PI * 0.45);
+      addCyl(root, 0.09, 0.10, 0.48, -0.16, 1.02, -0.28, pal.dark, 0.18);
+      addCyl(root, 0.09, 0.10, 0.48, 0.16, 1.02, -0.28, pal.dark, 0.18);
+      addSphere(root, 0.09, -0.16, 0.72, -0.32, pal.glowCyan);
+      addSphere(root, 0.09, 0.16, 0.72, -0.32, pal.glowCyan);
+      addBox(wPivot, 0.10, 0.11, 0.68, 0, 0, 0.24, pal.dark);
     } else if (typeId === 'tesla_trooper') {
-      addCyl(root, 0.12, 0.16, 0.62, -0.24, 1.38, -0.14, pal.copper);
-      addCyl(root, 0.12, 0.16, 0.62, 0.24, 1.38, -0.14, pal.copper);
-      addSphere(root, 0.09, -0.24, 1.72, -0.14, pal.glowCyan);
-      addSphere(root, 0.09, 0.24, 1.72, -0.14, pal.glowCyan);
-      addCyl(wPivot, 0.11, 0.11, 0.64, 0, 0, 0.24, pal.glowCyan, Math.PI * 0.5);
+      addBox(root, 0.68, 0.22, 0.34, 0, 1.32, 0, pal.hull);
+      addCyl(root, 0.12, 0.16, 0.68, -0.24, 1.42, -0.16, pal.copper);
+      addCyl(root, 0.12, 0.16, 0.68, 0.24, 1.42, -0.16, pal.copper);
+      addSphere(root, 0.10, -0.24, 1.80, -0.16, pal.glowCyan);
+      addSphere(root, 0.10, 0.24, 1.80, -0.16, pal.glowCyan);
+      addCyl(wPivot, 0.09, 0.11, 0.72, 0, 0, 0.28, pal.copper, Math.PI * 0.5);
+      addSphere(wPivot, 0.08, 0, 0, 0.66, pal.glowCyan);
     } else if (typeId === 'chrono') {
-      addCyl(root, 0.20, 0.20, 0.52, 0, 1.12, -0.24, pal.copper);
-      const cCore = addSphere(root, 0.14, 0, 1.12, -0.28, pal.glowCyan);
-      parts.rotor = cCore;
-      addBox(wPivot, 0.10, 0.12, 0.82, 0, 0, 0.28, pal.trim);
+      addCyl(root, 0.22, 0.22, 0.56, 0, 1.12, -0.24, pal.copper);
+      const cGyro = new THREE.Group();
+      cGyro.position.set(0, 1.14, -0.30);
+      const cRing = new THREE.Mesh(unitTorus, pal.glowCyan);
+      cRing.scale.setScalar(0.46);
+      const cCore = addSphere(cGyro, 0.13, 0, 0, 0, pal.glowCyan);
+      cGyro.add(cRing);
+      root.add(cGyro);
+      parts.rotor = cGyro;
+      parts.glowMesh = cCore;
+      addBox(wPivot, 0.12, 0.14, 0.86, 0, 0, 0.30, pal.trim);
+      addSphere(wPivot, 0.07, 0, 0, 0.76, pal.glowCyan);
     } else if (typeId === 'shadow') {
-      addBox(wPivot, 0.07, 0.09, 1.08, 0, 0.02, 0.42, pal.dark);
-      addBox(root, 0.42, 0.75, 0.10, 0, 1.0, -0.18, pal.hull);
+      addBox(wPivot, 0.07, 0.09, 1.22, 0, 0.02, 0.48, pal.dark);
+      addCyl(wPivot, 0.04, 0.04, 0.34, 0, 0.09, 0.36, pal.hull, Math.PI * 0.5);
+      const cloak = addBox(root, 0.48, 0.84, 0.12, 0, 1.02, -0.20, pal.hull, 0.12);
+      addSphere(root, 0.19, 0, 1.54, -0.02, pal.dark, 1.05, 0.9, 1.05);
+      parts.cloakMeshes.push(cloak);
     } else if (typeId === 'sledge') {
-      addBox(root, 0.68, 0.22, 0.32, 0, 1.36, 0, pal.team);
-      addCyl(root, 0.11, 0.11, 0.85, -0.34, 1.02, 0.34, pal.dark, Math.PI * 0.5);
-      addCyl(root, 0.11, 0.11, 0.85, 0.34, 1.02, 0.34, pal.dark, Math.PI * 0.5);
+      addBox(root, 0.78, 0.26, 0.38, 0, 1.40, 0, pal.team);
+      addBox(root, 0.24, 0.28, 0.40, -0.36, 1.44, 0, pal.hazard);
+      addBox(root, 0.24, 0.28, 0.40, 0.36, 1.44, 0, pal.hazard);
+      addCyl(root, 0.11, 0.11, 0.92, -0.36, 1.04, 0.36, pal.dark, Math.PI * 0.5);
+      addCyl(root, 0.11, 0.11, 0.92, 0.36, 1.04, 0.36, pal.dark, Math.PI * 0.5);
     }
 
     return { root, parts };
   }
 
-  // === 2. TANK / ARMOR / VEHICLE BUILDER (8 types, uses tank.glb for MBTs when ready) ===
+  // === 2. TANK / ARMOR / VEHICLE BUILDER (8 types, articulated MBT + Hero MCV) ===
   function buildVehicle(typeId, pal) {
     const root = new THREE.Group();
     const parts = { turret: null, barrel: null, v3Rocket: null, rollers: null, oreFill: null, rotor: null };
@@ -577,7 +769,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       const modelWrap = new THREE.Group();
       tankClone.position.set(-fullCtr.x, -fullBox.min.y, -fullCtr.z);
       modelWrap.add(tankClone);
-      modelWrap.rotation.y = Math.PI * 0.5; // tank.glb barrel points -X -> +Z
+      modelWrap.rotation.y = Math.PI * 0.5;
       modelWrap.scale.setScalar(s);
       root.add(modelWrap);
       root.updateMatrixWorld(true);
@@ -595,19 +787,33 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
 
         if (typeId === 'apocalypse') {
           const bY = tBox.max.y * 0.68;
-          addCyl(tPivot, 0.11, 0.12, 2.35, -0.34, bY, 1.45, pal.dark, Math.PI * 0.5);
-          addCyl(tPivot, 0.11, 0.12, 2.35, 0.34, bY, 1.45, pal.dark, Math.PI * 0.5);
-          addBox(tPivot, 1.15, 0.42, 0.72, 0, tBox.max.y + 0.18, -0.35, pal.team);
-          addBox(tPivot, 0.14, 0.14, 0.65, -0.38, tBox.max.y + 0.18, 0.05, pal.glowRed);
-          addBox(tPivot, 0.14, 0.14, 0.65, 0.38, tBox.max.y + 0.18, 0.05, pal.glowRed);
+          addCyl(tPivot, 0.11, 0.12, 2.45, -0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
+          addCyl(tPivot, 0.11, 0.12, 2.45, 0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
+          addBox(tPivot, 0.92, 0.28, 0.42, 0, bY, 0.58, pal.hull);
+          addBox(tPivot, 1.24, 0.44, 0.78, 0, tBox.max.y + 0.20, -0.38, pal.team);
+          addBox(tPivot, 0.16, 0.16, 0.68, -0.40, tBox.max.y + 0.20, 0.08, pal.glowRed);
+          addBox(tPivot, 0.16, 0.16, 0.68, 0.40, tBox.max.y + 0.20, 0.08, pal.glowRed);
         } else if (typeId === 'rhino') {
-          addBox(tPivot, 0.92, 0.24, 0.72, 0, tBox.max.y + 0.10, -0.22, pal.hull);
+          addBox(tPivot, 0.96, 0.26, 0.78, 0, tBox.max.y + 0.12, -0.24, pal.hull);
+          addBox(tPivot, 0.36, 0.18, 0.36, -0.24, tBox.max.y + 0.28, -0.18, pal.team);
+        } else {
+          addCyl(tPivot, 0.16, 0.18, 0.18, 0.24, tBox.max.y + 0.08, -0.16, pal.hull);
+          addCyl(tPivot, 0.02, 0.02, 0.72, -0.32, tBox.max.y + 0.34, -0.32, pal.trim);
         }
         parts.turret = tPivot;
       }
 
       if (typeId === 'apocalypse') {
-        addBox(root, 2.45, 0.36, 0.52, 0, 0.34, 1.85, pal.hull);
+        addBox(root, 2.55, 0.42, 0.54, 0, 0.34, 1.88, pal.hazard, 0.22);
+        addBox(root, 0.26, 0.54, 3.35, -1.24, 0.42, 0, pal.hull);
+        addBox(root, 0.26, 0.54, 3.35, 1.24, 0.42, 0, pal.hull);
+      } else if (typeId === 'rhino') {
+        addBox(root, 1.85, 0.26, 0.42, 0, 0.44, 1.62, pal.hazard, 0.30);
+        addCyl(root, 0.18, 0.18, 0.85, -0.52, 0.78, -1.52, pal.dark, 0, 0, Math.PI * 0.5);
+        addCyl(root, 0.18, 0.18, 0.85, 0.52, 0.78, -1.52, pal.dark, 0, 0, Math.PI * 0.5);
+      } else {
+        addBox(root, 0.18, 0.36, 2.55, -0.96, 0.38, 0, pal.team);
+        addBox(root, 0.18, 0.36, 2.55, 0.96, 0.38, 0, pal.team);
       }
       return { root, parts };
     }
@@ -633,11 +839,15 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'ifv') {
-      addBox(root, 1.45, 0.68, 2.35, 0, 0.58, 0, pal.team);
-      addBox(root, 1.32, 0.28, 0.68, 0, 0.82, 0.72, pal.glass, 0.35);
-      for (const z of [-0.78, 0, 0.78]) {
-        addCyl(root, 0.32, 0.32, 0.28, -0.78, 0.32, z, pal.dark, 0, 0, Math.PI * 0.5);
-        addCyl(root, 0.32, 0.32, 0.28, 0.78, 0.32, z, pal.dark, 0, 0, Math.PI * 0.5);
+      addBox(root, 1.48, 0.62, 2.38, 0, 0.56, -0.08, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, 1.42, 0.62, 0.72, 0, 0.60, 1.22);
+      addBox(root, 1.26, 0.24, 0.56, 0, 0.86, 0.88, pal.glass, 0.35);
+      addBox(root, 1.56, 0.16, 0.24, 0, 0.38, 1.52, pal.hazard);
+      for (const z of [-0.82, 0, 0.82]) {
+        for (const sx of [-1, 1]) {
+          addCyl(root, 0.34, 0.34, 0.28, sx * 0.82, 0.34, z, pal.dark, 0, 0, Math.PI * 0.5);
+          addCyl(root, 0.16, 0.16, 0.31, sx * 0.82, 0.34, z, pal.hull, 0, 0, Math.PI * 0.5);
+        }
       }
       const turret = new THREE.Group();
       turret.position.set(0, 1.02, -0.2);
@@ -647,15 +857,17 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'v3') {
-      addBox(root, 0.44, 0.50, 3.15, -0.82, 0.26, 0, pal.dark);
-      addBox(root, 0.44, 0.50, 3.15, 0.82, 0.26, 0, pal.dark);
-      addBox(root, 1.42, 0.58, 2.95, 0, 0.58, 0, pal.team);
-      addBox(root, 1.32, 0.54, 0.82, 0, 1.06, 0.92, pal.hull);
-      addBox(root, 1.18, 0.24, 0.22, 0, 1.14, 1.34, pal.glass);
+      addBox(root, 0.44, 0.50, 3.25, -0.84, 0.26, 0, pal.dark);
+      addBox(root, 0.44, 0.50, 3.25, 0.84, 0.26, 0, pal.dark);
+      addBox(root, 1.46, 0.54, 3.05, 0, 0.56, 0, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, 1.38, 0.58, 0.92, 0, 0.98, 1.02);
+      addBox(root, 1.18, 0.24, 0.22, 0, 1.12, 1.36, pal.glass);
+      addBox(root, 0.26, 0.52, 0.32, -0.96, 0.28, -1.35, pal.hazard);
+      addBox(root, 0.26, 0.52, 0.32, 0.96, 0.28, -1.35, pal.hazard);
       const rail = new THREE.Group();
       rail.position.set(0, 1.12, -0.35);
-      rail.rotation.x = -0.32;
-      addBox(rail, 0.65, 0.18, 2.25, 0, 0, 0.1, pal.dark);
+      rail.rotation.x = -0.34;
+      addBox(rail, 0.68, 0.18, 2.35, 0, 0, 0.1, pal.dark);
       const rocket = new THREE.Group();
       addCyl(rocket, 0.24, 0.24, 2.35, 0, 0.26, 0.2, pal.trim, Math.PI * 0.5);
       addCone(rocket, 0.25, 0.72, 0, 0.26, 1.62, pal.glowRed, Math.PI * 0.5);
@@ -664,44 +876,86 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       parts.turret = rail;
       parts.v3Rocket = rocket;
     } else if (typeId === 'prism') {
-      addBox(root, 0.44, 0.46, 2.45, -0.78, 0.25, 0, pal.dark);
-      addBox(root, 0.44, 0.46, 2.45, 0.78, 0.25, 0, pal.dark);
-      addBox(root, 1.38, 0.48, 2.25, 0, 0.52, 0, pal.team);
+      addBox(root, 0.44, 0.46, 2.55, -0.80, 0.25, 0, pal.dark);
+      addBox(root, 0.44, 0.46, 2.55, 0.80, 0.25, 0, pal.dark);
+      addBox(root, 1.42, 0.48, 2.35, 0, 0.52, 0, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, 1.36, 0.34, 0.56, 0, 0.58, 1.15);
       const turret = new THREE.Group();
       turret.position.set(0, 0.88, -0.05);
-      addCyl(turret, 0.48, 0.54, 0.42, 0, 0.21, 0, pal.hull);
-      addBox(turret, 0.22, 0.62, 0.42, 0, 0.68, -0.1, pal.trim, 0.25);
-      const orb = addSphere(turret, 0.28, 0, 0.98, 0.18, pal.glowCyan);
+      addOct(turret, 0.56, 0.42, 0, 0.21, 0, pal.hull);
+      addBox(turret, 0.24, 0.68, 0.46, 0, 0.72, -0.1, pal.trim, 0.24);
+      addCyl(turret, 0.30, 0.34, 0.22, 0, 0.94, 0.18, pal.copper, 0.35);
+      const orb = addSphere(turret, 0.28, 0, 1.05, 0.22, pal.glowCyan);
       parts.rotor = orb;
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'harvester') {
-      addBox(root, 0.48, 0.55, 2.65, -0.92, 0.28, -0.1, pal.dark);
-      addBox(root, 0.48, 0.55, 2.65, 0.92, 0.28, -0.1, pal.dark);
-      addBox(root, 1.65, 0.62, 2.45, 0, 0.64, -0.1, pal.team);
-      addBox(root, 1.38, 0.56, 0.82, 0, 1.15, 0.52, pal.gold);
-      addBox(root, 1.24, 0.22, 0.16, 0, 1.22, 0.94, pal.glass);
-      addBox(root, 1.48, 0.56, 1.42, 0, 1.05, -0.68, pal.hull);
-      const oreFill = addBox(root, 1.26, 0.35, 1.18, 0, 1.24, -0.68, pal.glowGold);
+      addBox(root, 0.50, 0.56, 2.75, -0.94, 0.28, -0.1, pal.dark);
+      addBox(root, 0.50, 0.56, 2.75, 0.94, 0.28, -0.1, pal.dark);
+      addBox(root, 1.68, 0.60, 2.52, 0, 0.62, -0.1, pal.team);
+      addGeo(root, slopedCabGeo, pal.gold, 1.42, 0.58, 0.88, 0, 1.14, 0.55);
+      addBox(root, 1.24, 0.22, 0.16, 0, 1.22, 0.96, pal.glass);
+      addBox(root, 1.72, 0.24, 0.22, 0, 0.44, 1.22, pal.hazard);
+      addBox(root, 1.52, 0.58, 1.48, 0, 1.05, -0.68, pal.hull);
+      const oreFill = addBox(root, 1.26, 0.36, 1.18, 0, 1.24, -0.68, pal.glowGold);
       oreFill.scale.y = 0.05;
       parts.oreFill = oreFill;
       const rollers = new THREE.Group();
-      rollers.position.set(0, 0.44, 1.38);
-      addCyl(rollers, 0.36, 0.36, 1.72, 0, 0, 0, pal.gold, 0, 0, Math.PI * 0.5);
-      addBox(rollers, 1.78, 0.56, 0.18, 0, 0, 0, pal.dark);
+      rollers.position.set(0, 0.44, 1.42);
+      addCyl(rollers, 0.38, 0.38, 1.78, 0, 0, 0, pal.hazard, 0, 0, Math.PI * 0.5);
+      addBox(rollers, 1.84, 0.60, 0.18, 0, 0, 0, pal.dark);
       root.add(rollers);
       parts.rollers = rollers;
     } else if (typeId === 'mcv') {
-      addBox(root, 1.95, 0.64, 3.25, 0, 0.64, 0, pal.team);
-      for (const z of [-1.15, -0.35, 0.45, 1.2]) {
-        addCyl(root, 0.42, 0.42, 0.32, -1.04, 0.42, z, pal.dark, 0, 0, Math.PI * 0.5);
-        addCyl(root, 0.42, 0.42, 0.32, 1.04, 0.42, z, pal.dark, 0, 0, Math.PI * 0.5);
+      // Heavy 8x8 Mobile Construction Vehicle — Armored Command Tractor + Stowed Outriggers + Trussed Crane
+      addBox(root, 1.88, 0.36, 4.18, 0, 0.42, -0.02, pal.dark);
+      addBox(root, 2.02, 0.28, 3.85, 0, 0.68, -0.02, pal.hull);
+      addBox(root, 2.08, 0.32, 0.32, 0, 0.46, 2.12, pal.hazard);
+      addBox(root, 1.98, 0.28, 0.26, 0, 0.50, -2.14, pal.hazard);
+
+      // 8 heavy off-road tires with recessed wheel hubs & upper fenders
+      for (const z of [-1.46, -0.52, 0.42, 1.38]) {
+        for (const sx of [-1, 1]) {
+          addCyl(root, 0.42, 0.42, 0.34, sx * 1.08, 0.42, z, pal.dark, 0, 0, Math.PI * 0.5);
+          addCyl(root, 0.21, 0.21, 0.38, sx * 1.08, 0.42, z, pal.hull, 0, 0, Math.PI * 0.5);
+          addBox(root, 0.34, 0.12, 0.72, sx * 1.08, 0.88, z, pal.hull);
+        }
       }
-      addBox(root, 1.56, 0.68, 0.92, 0, 1.25, 0.98, pal.hull);
-      addBox(root, 1.38, 0.24, 0.14, 0, 1.35, 1.45, pal.glass);
-      addBox(root, 1.65, 0.85, 1.75, 0, 1.35, -0.55, pal.trim);
-      addBox(root, 0.36, 0.34, 2.35, 0, 1.92, -0.25, pal.gold);
-      addSphere(root, 0.14, -0.55, 1.88, 1.0, pal.glowGold);
+
+      // 4 side-stowed hydraulic outrigger jack legs (echoing the deployed Conyard anchors)
+      for (const [ox, oz] of [[-1.16, 0.90], [1.16, 0.90], [-1.16, -0.98], [1.16, -0.98]]) {
+        addBox(root, 0.24, 0.48, 0.32, ox, 0.64, oz, pal.dark, 0, 0, ox < 0 ? 0.25 : -0.25);
+        addBox(root, 0.28, 0.14, 0.36, ox * 1.05, 0.44, oz, pal.hazard);
+      }
+
+      // Sloped armored forward Command Cab + panoramic windshield & twin warm headlights
+      addGeo(root, slopedCabGeo, pal.team, 1.82, 0.88, 1.24, 0, 1.18, 1.36);
+      addBox(root, 1.56, 0.28, 0.18, 0, 1.28, 1.94, pal.glass, -0.18);
+      addBox(root, 0.14, 0.34, 0.20, 0, 1.28, 1.96, pal.hull, -0.18);
+      addSphere(root, 0.11, -0.66, 0.68, 2.08, pal.glowGold);
+      addSphere(root, 0.11, 0.66, 0.68, 2.08, pal.glowGold);
+
+      // Dual chrome/dark vertical exhaust stacks behind cab
+      addCyl(root, 0.08, 0.10, 1.05, -0.78, 1.58, 0.62, pal.dark);
+      addCyl(root, 0.08, 0.10, 1.05, 0.78, 1.58, 0.62, pal.dark);
+
+      // Rear heavy fabrication module + armored side louver ribs + folded gantry crane boom
+      addBox(root, 1.88, 0.92, 2.38, 0, 1.24, -0.68, pal.team);
+      addBox(root, 1.96, 0.18, 2.15, 0, 1.48, -0.68, pal.hull);
+      addBox(root, 0.24, 0.56, 1.65, -0.98, 1.22, -0.68, pal.dark);
+      addBox(root, 0.24, 0.56, 1.65, 0.98, 1.22, -0.68, pal.dark);
+      addBox(root, 0.46, 0.34, 2.55, 0, 1.86, -0.45, pal.hazard);
+      addBox(root, 0.56, 0.38, 0.68, 0, 1.92, 0.65, pal.gold);
+      addBox(root, 0.68, 0.44, 0.72, 0, 1.94, -1.65, pal.dark);
+
+      // Spinning rooftop radar scanner + warm strobe beacon
+      const mcvRadar = new THREE.Group();
+      mcvRadar.position.set(0, 1.86, 1.18);
+      addCyl(mcvRadar, 0.10, 0.12, 0.24, 0, 0.10, 0, pal.hull);
+      addBox(mcvRadar, 0.85, 0.12, 0.18, 0, 0.26, 0, pal.trim);
+      root.add(mcvRadar);
+      parts.rotor = mcvRadar;
+      addSphere(root, 0.12, -0.62, 1.72, 1.18, pal.glowGold);
     }
 
     return { root, parts };
@@ -715,14 +969,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     if (typeId === 'nighthawk') {
       addCyl(root, 0.34, 0.44, 2.55, 0, 0.68, 0.05, pal.hull, Math.PI * 0.5);
       addSphere(root, 0.38, 0, 0.72, 1.15, pal.glass, 0.92, 0.78, 1.35);
+      addBox(root, 0.24, 0.22, 0.52, 0, 0.42, 1.25, pal.dark);
       addCyl(root, 0.12, 0.20, 1.85, 0, 0.80, -1.55, pal.dark, Math.PI * 0.5);
       addBox(root, 0.08, 0.58, 0.42, -0.35, 0.98, -2.35, pal.team, 0, 0, -0.2);
       addBox(root, 0.08, 0.58, 0.42, 0.35, 0.98, -2.35, pal.team, 0, 0, 0.2);
-      const stubW = new THREE.Mesh(tailWingGeo, pal.team);
-      stubW.position.set(0, 0.55, 0.15);
-      stubW.scale.set(1.25, 1.0, 0.85);
-      stubW.castShadow = true;
-      root.add(stubW);
+      addGeo(root, tailWingGeo, pal.team, 1.25, 1.0, 0.85, 0, 0.55, 0.15);
       const rotor = new THREE.Group();
       rotor.position.set(0, 1.14, 0.12);
       addCyl(rotor, 0.16, 0.18, 0.26, 0, -0.06, 0, pal.hull);
@@ -734,15 +985,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       addCyl(root, 0.22, 0.32, 2.75, 0, 0.46, 0, pal.hull, Math.PI * 0.5);
       addCone(root, 0.22, 0.85, 0, 0.46, 1.75, pal.team, Math.PI * 0.5);
       addSphere(root, 0.22, 0, 0.62, 0.65, pal.glass, 0.88, 0.72, 2.0);
-      const wing = new THREE.Mesh(jetWingGeo, pal.team);
-      wing.position.set(0, 0.44, 0.05);
-      wing.castShadow = true;
-      wing.receiveShadow = true;
-      root.add(wing);
-      const tail = new THREE.Mesh(tailWingGeo, pal.hull);
-      tail.position.set(0, 0.46, -1.15);
-      tail.castShadow = true;
-      root.add(tail);
+      addGeo(root, jetWingGeo, pal.team, 1.0, 1.0, 1.0, 0, 0.44, 0.05);
+      addGeo(root, tailWingGeo, pal.hull, 1.0, 1.0, 1.0, 0, 0.46, -1.15);
+      addCyl(root, 0.06, 0.06, 0.72, -0.85, 0.34, -0.15, pal.trim, Math.PI * 0.5);
+      addCyl(root, 0.06, 0.06, 0.72, 0.85, 0.34, -0.15, pal.trim, Math.PI * 0.5);
       addBox(root, 0.09, 0.54, 0.42, -0.44, 0.74, -1.18, pal.trim, 0, 0, -0.24);
       addBox(root, 0.09, 0.54, 0.42, 0.44, 0.74, -1.18, pal.trim, 0, 0, 0.24);
       addSphere(root, 0.15, -0.18, 0.44, -1.36, pal.glowCyan);
@@ -751,30 +997,27 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       addCyl(root, 0.25, 0.34, 2.95, 0, 0.48, 0, pal.hull, Math.PI * 0.5);
       addCone(root, 0.24, 0.92, 0, 0.48, 1.88, pal.team, Math.PI * 0.5);
       addSphere(root, 0.22, 0, 0.64, 0.72, pal.glass, 0.85, 0.72, 1.9);
-      const wing = new THREE.Mesh(jetWingGeo, pal.team);
-      wing.position.set(0, 0.46, 0.05);
-      wing.scale.set(1.08, 1.0, 1.12);
-      wing.castShadow = true;
-      wing.receiveShadow = true;
-      root.add(wing);
-      const tail = new THREE.Mesh(tailWingGeo, pal.trim);
-      tail.position.set(0, 0.48, -1.25);
-      tail.castShadow = true;
-      root.add(tail);
+      addGeo(root, jetWingGeo, pal.team, 1.08, 1.0, 1.12, 0, 0.46, 0.05);
+      addGeo(root, tailWingGeo, pal.trim, 1.0, 1.0, 1.0, 0, 0.48, -1.25);
+      addCyl(root, 0.07, 0.07, 0.78, -0.92, 0.36, -0.15, pal.dark, Math.PI * 0.5);
+      addCyl(root, 0.07, 0.07, 0.78, 0.92, 0.36, -0.15, pal.dark, Math.PI * 0.5);
       addBox(root, 0.09, 0.62, 0.46, -0.38, 0.78, -1.25, pal.team, 0, 0, -0.25);
       addBox(root, 0.09, 0.62, 0.46, 0.38, 0.78, -1.25, pal.team, 0, 0, 0.25);
       addSphere(root, 0.17, -0.20, 0.46, -1.46, pal.glowGold);
       addSphere(root, 0.17, 0.20, 0.46, -1.46, pal.glowGold);
     } else if (typeId === 'kirov') {
-      // Iconic Heavy Armored Airship
+      // Iconic Heavy Armored Airship with Hazard Prow & Slung Bomb Gondola
       addSphere(root, 1.55, 0, 2.38, 0, pal.team, 0.96, 0.96, 2.25);
       addSphere(root, 1.58, 0, 2.38, 0.35, pal.hull, 0.99, 0.99, 0.48);
-      addSphere(root, 1.48, 0, 2.38, 1.85, pal.dark, 0.85, 0.85, 0.55);
+      addSphere(root, 1.52, 0, 2.38, -0.95, pal.hull, 0.96, 0.96, 0.34);
+      addSphere(root, 1.48, 0, 2.38, 1.88, pal.hazard, 0.85, 0.85, 0.52);
+      addCone(root, 0.45, 0.65, 0, 2.38, 3.25, pal.dark, Math.PI * 0.5);
       addBox(root, 0.16, 1.95, 1.65, 0, 3.15, -2.55, pal.team);
       addBox(root, 0.16, 1.35, 1.25, 0, 1.55, -2.55, pal.hull);
       addBox(root, 2.65, 0.14, 1.55, 0, 2.38, -2.55, pal.team);
-      addBox(root, 0.82, 0.72, 2.75, 0, 0.65, 0.15, pal.hull);
-      addBox(root, 0.72, 0.28, 0.58, 0, 0.78, 1.42, pal.glass);
+      addBox(root, 0.84, 0.72, 2.85, 0, 0.65, 0.15, pal.hull);
+      addBox(root, 0.72, 0.28, 0.58, 0, 0.78, 1.46, pal.glass);
+      addBox(root, 0.58, 0.16, 1.35, 0, 0.28, 0.05, pal.hazard);
       addCyl(root, 0.24, 0.28, 0.85, -1.18, 0.88, -0.25, pal.dark, Math.PI * 0.5);
       addCyl(root, 0.24, 0.28, 0.85, 1.18, 0.88, -0.25, pal.dark, Math.PI * 0.5);
       const rL = addBox(root, 0.08, 1.05, 0.16, -1.18, 0.88, -0.72, pal.gold);
@@ -792,11 +1035,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     const parts = { turret: null, rotor: null, submarineHull: null };
 
     if (typeId === 'hover_transport') {
-      addBox(root, 2.75, 0.52, 4.15, 0, 0.28, 0, pal.dark);
+      addBox(root, 2.78, 0.52, 4.18, 0, 0.28, 0, pal.dark);
       addBox(root, 2.35, 0.24, 3.65, 0, 0.64, 0, pal.hull);
       addBox(root, 0.28, 0.44, 3.45, -1.12, 0.94, -0.1, pal.team);
       addBox(root, 0.28, 0.44, 3.45, 1.12, 0.94, -0.1, pal.team);
-      addBox(root, 1.85, 0.16, 0.65, 0, 0.72, 1.92, pal.trim, 0.28);
+      addBox(root, 1.85, 0.16, 0.65, 0, 0.72, 1.92, pal.hazard, 0.28);
       addCyl(root, 0.52, 0.52, 0.48, -0.78, 1.25, -1.45, pal.hull, Math.PI * 0.5);
       addCyl(root, 0.52, 0.52, 0.48, 0.78, 1.25, -1.45, pal.hull, Math.PI * 0.5);
     } else if (typeId === 'dolphin') {
@@ -810,6 +1053,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       addBox(root, 0.58, 0.55, 3.25, 0.68, 0.25, 0, pal.hull);
       addBox(root, 1.85, 0.36, 2.85, 0, 0.58, -0.08, pal.team);
       addBox(root, 0.95, 0.55, 0.98, 0, 0.96, -0.45, pal.hull);
+      addBox(root, 0.85, 0.22, 0.28, 0, 1.08, 0.04, pal.glass);
       const turret = new THREE.Group();
       turret.position.set(0, 0.92, 0.65);
       addBox(turret, 0.72, 0.42, 0.72, 0, 0.18, 0, pal.trim);
@@ -819,16 +1063,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       parts.turret = turret;
     } else if (typeId === 'aegis') {
       addBox(root, 1.92, 0.78, 4.35, 0, 0.36, -0.2, pal.hull);
-      const bow = new THREE.Mesh(shipBowGeo, pal.hull);
-      bow.position.set(0, -0.02, 1.96);
-      bow.castShadow = true;
-      bow.receiveShadow = true;
-      root.add(bow);
+      addGeo(root, shipBowGeo, pal.hull, 1, 1, 1, 0, -0.02, 1.96);
       addBox(root, 1.58, 0.20, 3.95, 0, 0.82, -0.18, pal.team);
       addBox(root, 1.24, 1.04, 1.52, 0, 1.40, 0.12, pal.trim);
       addBox(root, 1.32, 0.38, 0.62, 0, 1.65, 0.55, pal.glass);
       addBox(root, 0.96, 0.12, 1.12, 0, 0.94, -1.55, pal.dark);
       addBox(root, 0.26, 1.05, 0.26, 0, 2.35, 0.02, pal.hull);
+      addSphere(root, 0.32, 0, 2.75, 0.02, pal.trim);
       const turret = new THREE.Group();
       turret.position.set(0, 1.02, 1.48);
       addBox(turret, 0.92, 0.48, 0.92, 0, 0.22, 0, pal.team);
@@ -847,30 +1088,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       parts.submarineHull = sub;
     } else if (typeId === 'carrier') {
       addBox(root, 2.75, 0.92, 5.45, 0, 0.44, -0.1, pal.hull);
-      const cBow = new THREE.Mesh(shipBowGeo, pal.hull);
-      cBow.scale.set(1.42, 1.22, 1.15);
-      cBow.position.set(0, -0.02, 2.60);
-      cBow.castShadow = true;
-      root.add(cBow);
+      addGeo(root, shipBowGeo, pal.hull, 1.42, 1.22, 1.15, 0, -0.02, 2.60);
       addBox(root, 3.35, 0.24, 6.15, -0.15, 1.02, 0.05, pal.dark);
       addBox(root, 0.16, 0.04, 5.55, -0.25, 1.16, 0.05, pal.gold);
+      addBox(root, 1.95, 0.05, 0.24, -0.25, 1.16, 2.85, pal.hazard);
       addBox(root, 0.72, 1.38, 1.52, 1.12, 1.72, -0.35, pal.team);
       addBox(root, 0.44, 0.65, 0.62, 1.12, 2.58, -0.35, pal.hull);
-      // Parked swept-wing strike drones on flight deck
       for (const z of [-1.45, -0.2, 1.15]) {
-        const dWing = new THREE.Mesh(jetWingGeo, pal.trim);
-        dWing.scale.set(0.24, 0.65, 0.24);
-        dWing.position.set(-0.72, 1.22, z);
-        dWing.castShadow = true;
-        root.add(dWing);
+        addGeo(root, jetWingGeo, pal.trim, 0.24, 0.65, 0.24, -0.72, 1.22, z);
       }
     } else if (typeId === 'dreadnought') {
       addBox(root, 2.85, 0.96, 5.25, 0, 0.46, -0.25, pal.hull);
-      const dBow = new THREE.Mesh(shipBowGeo, pal.hull);
-      dBow.scale.set(1.46, 1.28, 1.18);
-      dBow.position.set(0, -0.02, 2.36);
-      dBow.castShadow = true;
-      root.add(dBow);
+      addGeo(root, shipBowGeo, pal.hull, 1.46, 1.28, 1.18, 0, -0.02, 2.36);
       addBox(root, 2.45, 0.32, 4.95, 0, 1.05, -0.1, pal.team);
       addBox(root, 1.65, 1.18, 1.72, 0, 1.68, -0.12, pal.hull);
       addBox(root, 1.52, 0.34, 0.72, 0, 1.92, 0.42, pal.glass);
@@ -927,51 +1156,98 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     // Grounded heavy chamfered concrete foundation plinth matching footprintW x footprintH meters
     if (typeId !== 'naval_yard') {
       addBox(root, w - 0.15, 0.42, h - 0.15, 0, 0.21, 0, pal.concrete);
-      addBox(root, w - 0.38, 0.12, h - 0.38, 0, 0.44, 0, pal.hull);
+      addBox(root, w - 0.40, 0.12, h - 0.40, 0, 0.44, 0, pal.hull);
     }
 
     if (typeId === 'conyard') {
-      addBox(root, w * 0.72, 1.45, h * 0.64, -0.35, 1.18, -0.45, pal.hull);
-      addBox(root, w * 0.48, 0.78, h * 0.44, -0.75, 2.28, -0.58, pal.team);
-      addBox(root, w * 0.36, 0.24, 0.14, -0.75, 2.32, -0.58 + h * 0.22, pal.glass);
-      addBox(root, w * 0.62, 0.16, h * 0.32, 0.35, 0.56, h * 0.24, pal.trim);
-      addBox(root, 1.45, 0.18, 0.22, 0.45, 0.66, h * 0.24, pal.gold);
-      if (glbTemplates.crate) clonePropInto('crate', root, 0.92, -w * 0.28, 0.48, h * 0.28, 0.35);
-      if (glbTemplates.fuel) clonePropInto('fuel', root, 1.35, w * 0.32, 0.48, -h * 0.26, 0);
+      // Unfolded Heavy Construction Yard — 4 Deployed Hydraulic Outriggers, Fabrication Hall, Bridge Tower, Assembly Pit & Slewing Lattice Crane
+      addBox(root, w * 0.42, 0.14, 0.72, 1.55, 0.18, h * 0.49, pal.concrete, 0.26);
+      addBox(root, w * 0.44, 0.14, 0.28, 1.55, 0.50, h * 0.42, pal.hazard);
+
+      // 4 Deployed Corner Hydraulic Outrigger Jacks gripping the pad
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const ox = cx * (w * 0.45);
+        const oz = cz * (h * 0.45);
+        addBox(root, 0.96, 0.24, 0.96, ox, 0.12, oz, pal.hazard);
+        addBox(root, 0.72, 0.18, 0.72, ox, 0.28, oz, pal.hull);
+        addBox(root, 0.34, 0.85, 0.34, ox * 0.86, 0.58, oz * 0.86, pal.dark, cz * 0.42, 0, -cx * 0.42);
+      }
+
+      // Main Heavy Fabrication Hall (rear-left)
+      addBox(root, w * 0.56, 1.55, h * 0.58, -1.25, 1.24, -1.02, pal.hull);
+      addGeo(root, slopedCabGeo, pal.team, w * 0.52, 0.58, h * 0.50, -1.25, 2.28, -1.12);
+      addBox(root, 2.45, 1.22, 0.28, -1.25, 1.12, 1.28, pal.dark);
+      addBox(root, 2.72, 0.22, 0.34, -1.25, 1.80, 1.32, pal.hazard);
+      addBox(root, 2.15, 0.10, 0.14, -1.25, 1.58, 1.36, pal.glowGold);
+      addCyl(root, 0.18, 0.20, 1.95, -3.58, 1.48, -0.45, pal.dark);
+      addCyl(root, 0.18, 0.20, 1.95, -3.58, 1.48, -1.45, pal.dark);
+
+      // Cantilevered Command Bridge Tower (upper rear-left)
+      addBox(root, 2.65, 0.92, 2.35, -2.05, 2.75, -1.55, pal.team);
+      addBox(root, 2.74, 0.28, 2.42, -2.05, 2.82, -1.55, pal.glass);
+      addBox(root, 2.82, 0.14, 2.52, -2.05, 3.24, -1.55, pal.hull);
+      addBox(root, 2.82, 0.14, 2.52, -2.05, 2.44, -1.55, pal.hull);
+      addCyl(root, 0.04, 0.05, 1.25, -2.75, 3.85, -2.15, pal.trim);
+      const bcn = addCyl(root, 0.14, 0.16, 0.38, -2.05, 3.48, -1.55, pal.glowCyan);
+      parts.beacon = bcn;
+
+      // Active Assembly Pit (front-right) with hazard frame & in-progress hull jig
+      addBox(root, 3.05, 0.14, 3.05, 1.65, 0.52, 1.15, pal.dark);
+      addBox(root, 3.25, 0.16, 0.22, 1.65, 0.56, 2.68, pal.hazard);
+      addBox(root, 0.22, 0.16, 3.25, 3.18, 0.56, 1.15, pal.hazard);
+      addBox(root, 1.45, 0.34, 1.95, 1.65, 0.72, 1.15, pal.hull);
+      addBox(root, 1.12, 0.24, 0.42, 1.65, 0.98, 1.15, pal.team);
+
+      // Slewing Trussed Gantry Crane servicing the pit
       const crane = new THREE.Group();
-      crane.position.set(1.25, 2.05, -0.45);
-      addCyl(crane, 0.34, 0.44, 0.95, 0, 0.35, 0, pal.hull);
-      addBox(crane, 0.32, 0.34, 3.65, 0, 1.15, 1.22, pal.gold, -0.34);
-      addBox(crane, 0.52, 0.14, 1.85, 0, 1.05, 0.45, pal.dark, -0.34);
-      addCyl(crane, 0.05, 0.05, 1.25, 0, 0.65, 2.75, pal.dark);
-      addBox(crane, 0.58, 0.32, 0.58, 0, -0.05, 2.75, pal.team);
+      crane.position.set(1.55, 1.55, -1.05);
+      addCyl(crane, 0.42, 0.52, 1.25, 0, 0.25, 0, pal.hull);
+      addBox(crane, 1.12, 0.68, 1.35, 0, 0.95, -0.35, pal.team);
+      addBox(crane, 0.46, 0.38, 3.85, 0, 1.65, 1.35, pal.hazard, -0.34);
+      addBox(crane, 0.62, 0.18, 2.45, 0, 1.52, 0.65, pal.dark, -0.34);
+      addCyl(crane, 0.05, 0.05, 1.35, 0, 0.95, 2.92, pal.dark);
+      addBox(crane, 0.65, 0.32, 0.65, 0, 0.22, 2.92, pal.gold);
       root.add(crane);
       parts.rotor = crane;
-      const bcn = addCyl(root, 0.14, 0.14, 0.38, -0.75, 2.82, -0.58, pal.glowCyan);
-      parts.beacon = bcn;
+
+      if (glbTemplates.crate) clonePropInto('crate', root, 0.92, -2.55, 0.48, 2.75, 0.25);
+      if (glbTemplates.fuel) clonePropInto('fuel', root, 1.45, 2.75, 0.48, -2.55, 0);
     } else if (typeId === 'power_plant') {
       if (glbTemplates.generator) {
-        clonePropInto('generator', root, 1.42, 0, 0.48, 0.72, 0);
+        clonePropInto('generator', root, 1.44, 0, 0.48, 0.88, 0);
       } else {
-        addBox(root, w * 0.72, 1.05, h * 0.38, 0, 0.98, 0.68, pal.gold);
+        addBox(root, w * 0.72, 1.05, h * 0.38, 0, 0.98, 0.82, pal.gold);
       }
-      addBox(root, w * 0.64, 0.28, 0.42, 0, 0.72, -0.15, pal.dark);
-      for (const sx of [-0.92, 0.92]) {
-        addCyl(root, 0.46, 0.62, 2.15, sx, 1.52, -0.82, pal.hull);
-        addCyl(root, 0.52, 0.54, 0.22, sx, 2.42, -0.82, pal.dark);
-        const cap = addCyl(root, 0.38, 0.40, 0.14, sx, 2.62, -0.82, pal.glowCyan);
+      addBox(root, w * 0.76, 0.16, 0.26, 0, 0.54, h * 0.42, pal.hazard);
+      addBox(root, w * 0.68, 0.32, 0.42, 0, 0.72, -0.10, pal.dark);
+      addBox(root, 1.65, 0.16, 0.35, 0, 1.52, -0.88, pal.dark);
+      for (const sx of [-0.94, 0.94]) {
+        addGeo(root, coolingTowerGeo, pal.hull, 0.88, 1.0, 0.88, sx, 0.48, -0.88);
+        addCyl(root, 0.56, 0.58, 0.20, sx, 1.12, -0.88, pal.hazard);
+        const cap = addCyl(root, 0.36, 0.38, 0.14, sx, 2.48, -0.88, pal.glowCyan);
         parts.glowMesh = cap;
       }
     } else if (typeId === 'nuclear_reactor') {
-      addBox(root, w * 0.82, 1.55, h * 0.78, 0, 1.22, 0, pal.hull);
-      addSphere(root, 1.45, 0, 2.15, 0, pal.team, 1.0, 0.92, 1.0);
-      const core = addCyl(root, 0.92, 1.02, 0.45, 0, 3.15, 0, pal.glowGreen);
+      addOct(root, w * 0.42, 1.55, 0, 1.22, 0, pal.hull);
+      for (let k = 0; k < 6; k++) {
+        const ang = (k / 6) * Math.PI * 2;
+        addBox(root, 0.42, 1.55, 0.85, Math.cos(ang) * 2.1, 1.22, Math.sin(ang) * 2.1, pal.concrete, 0, -ang);
+      }
+      addSphere(root, 1.48, 0, 2.15, 0, pal.team, 1.0, 0.92, 1.0);
+      const core = addCyl(root, 0.96, 1.06, 0.46, 0, 3.15, 0, pal.glowGreen);
       parts.glowMesh = core;
-      addCyl(root, 0.42, 0.64, 3.65, -1.65, 2.25, -1.45, pal.concrete);
-      addCyl(root, 0.42, 0.64, 3.65, 1.65, 2.25, -1.45, pal.concrete);
+      for (const sx of [-1.72, 1.72]) {
+        addGeo(root, coolingTowerGeo, pal.concrete, 0.95, 1.65, 0.95, sx, 0.48, -1.45);
+        addCyl(root, 0.52, 0.54, 0.24, sx, 3.25, -1.45, pal.hazard);
+      }
     } else if (typeId === 'refinery') {
-      addBox(root, w * 0.80, 2.15, h * 0.54, 0, 1.52, -0.75, pal.team);
-      addBox(root, w * 0.46, 0.28, h * 0.45, 0, 0.56, 1.25, pal.gold);
+      addBox(root, w * 0.80, 2.15, h * 0.52, 0, 1.52, -0.78, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, w * 0.72, 0.52, h * 0.42, 0, 2.75, -0.85);
+      addBox(root, w * 0.62, 0.24, h * 0.42, 0, 0.56, 1.18, pal.hazard);
+      addBox(root, w * 0.46, 0.16, h * 0.34, 0, 0.64, 1.18, pal.dark);
+      addBox(root, 0.82, 0.36, 1.65, 0, 1.15, 0.35, pal.hull, 0.35);
+      addSphere(root, 0.14, -1.25, 0.85, 2.05, pal.glowGold);
+      addSphere(root, 0.14, 1.25, 0.85, 2.05, pal.glowGold);
       if (glbTemplates.fuel) {
         clonePropInto('fuel', root, 2.05, -1.65, 0.48, -1.1, 0);
         clonePropInto('fuel', root, 2.05, 1.65, 0.48, -1.1, 0.4);
@@ -979,19 +1255,26 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         addCyl(root, 0.72, 0.72, 2.55, -1.55, 1.72, -0.95, pal.hull);
         addCyl(root, 0.72, 0.72, 2.55, 1.55, 1.72, -0.95, pal.hull);
       }
-      addCyl(root, 0.34, 0.42, 3.35, 1.45, 2.15, -1.55, pal.dark);
+      addCyl(root, 0.34, 0.44, 3.45, 1.45, 2.20, -1.55, pal.dark);
+      addCyl(root, 0.38, 0.38, 0.28, 1.45, 3.45, -1.55, pal.hazard);
     } else if (typeId === 'barracks') {
-      addBox(root, w * 0.82, 1.65, h * 0.65, 0, 1.28, -0.35, pal.team);
-      addBox(root, w * 0.88, 0.32, h * 0.68, 0, 2.18, -0.35, pal.hull);
-      addBox(root, 1.45, 1.25, 0.55, 0, 1.08, h * 0.25, pal.dark);
+      addBox(root, w * 0.82, 1.65, h * 0.64, 0, 1.28, -0.35, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, w * 0.86, 0.42, h * 0.66, 0, 2.28, -0.35);
+      addBox(root, 1.68, 1.32, 0.62, 0, 1.12, h * 0.24, pal.hull);
+      addBox(root, 1.28, 0.96, 0.18, 0, 1.02, h * 0.36, pal.dark);
+      addBox(root, 1.68, 0.22, 0.26, 0, 1.68, h * 0.34, pal.hazard);
+      addBox(root, 0.38, 0.28, 0.32, -1.45, 1.55, h * 0.14, pal.glass);
+      addBox(root, 0.38, 0.28, 0.32, 1.45, 1.55, h * 0.14, pal.glass);
+      addCyl(root, 0.05, 0.08, 1.25, 1.15, 2.95, -0.85, pal.trim);
       if (glbTemplates.sandbags) {
-        clonePropInto('sandbags', root, 0.55, -1.15, 0.48, h * 0.38, 0.2);
-        clonePropInto('sandbags', root, 0.55, 1.15, 0.48, h * 0.38, -0.2);
+        clonePropInto('sandbags', root, 0.58, -1.35, 0.48, h * 0.38, 0.2);
+        clonePropInto('sandbags', root, 0.58, 1.35, 0.48, h * 0.38, -0.2);
       }
     } else if (typeId === 'war_factory') {
-      // Opaque dark backing hull prevents skylight gaps behind recessed garage doors & windows
       addBox(root, w * 0.78, 2.45, h * 0.70, 0, 1.65, -0.1, pal.dark);
-      addBox(root, w * 0.82, 0.28, h * 0.74, 0, 2.95, -0.1, pal.hull);
+      addGeo(root, slopedCabGeo, pal.hull, w * 0.82, 0.42, h * 0.74, 0, 3.05, -0.1);
+      addCyl(root, 0.24, 0.28, 1.15, -1.65, 3.25, -1.65, pal.dark);
+      addCyl(root, 0.24, 0.28, 1.15, 1.65, 3.25, -1.65, pal.dark);
       if (glbTemplates.factory) {
         const fs = glbTemplates.factory;
         const gWall = extractNamedSubnode(fs, 'wall_door_garage_double_01', 2.45);
@@ -1015,49 +1298,51 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       if (glbTemplates.barrier) clonePropInto('barrier', root, 0.68, -w * 0.38, 0.48, h * 0.4, 0);
       if (glbTemplates.crate) clonePropInto('crate', root, 1.05, w * 0.36, 0.48, h * 0.36, 0.3);
       if (glbTemplates.fuel) clonePropInto('fuel', root, 1.45, -w * 0.42, 0.48, -h * 0.28, 0.2);
-      addBox(root, 0.34, 2.65, 0.34, -w * 0.36, 1.75, h * 0.25, pal.gold);
-      addBox(root, 0.34, 2.65, 0.34, w * 0.36, 1.75, h * 0.25, pal.gold);
-      addBox(root, w * 0.78, 0.34, 0.42, 0, 3.05, h * 0.25, pal.gold);
+      addBox(root, 0.36, 2.72, 0.36, -w * 0.36, 1.78, h * 0.26, pal.hazard);
+      addBox(root, 0.36, 2.72, 0.36, w * 0.36, 1.78, h * 0.26, pal.hazard);
+      addBox(root, w * 0.78, 0.36, 0.44, 0, 3.12, h * 0.26, pal.hazard);
     } else if (typeId === 'naval_yard') {
-      // Floating sea drydock slipway at y=0
-      addBox(root, 1.45, 1.45, h * 0.88, -w * 0.36, 0.75, 0, pal.hull);
-      addBox(root, 1.45, 1.45, h * 0.88, w * 0.36, 0.75, 0, pal.hull);
-      addBox(root, w * 0.82, 0.55, 1.55, 0, 0.45, -h * 0.34, pal.team);
-      addBox(root, w * 0.85, 0.36, 0.55, 0, 3.25, 0, pal.gold);
+      addBox(root, 1.48, 1.48, h * 0.88, -w * 0.36, 0.75, 0, pal.hull);
+      addBox(root, 1.48, 1.48, h * 0.88, w * 0.36, 0.75, 0, pal.hull);
+      addBox(root, w * 0.82, 0.56, 1.55, 0, 0.45, -h * 0.34, pal.team);
+      addBox(root, w * 0.86, 0.38, 0.56, 0, 3.25, 0, pal.hazard);
       addBox(root, 0.42, 2.55, 0.42, -w * 0.36, 2.05, 0, pal.gold);
       addBox(root, 0.42, 2.55, 0.42, w * 0.36, 2.05, 0, pal.gold);
       addSphere(root, 0.22, -w * 0.36, 3.58, 0, pal.glowCyan);
       addSphere(root, 0.22, w * 0.36, 3.58, 0, pal.glowCyan);
     } else if (typeId === 'airforce_radar') {
       addBox(root, w * 0.78, 1.85, h * 0.78, 0, 1.38, 0, pal.hull);
-      addBox(root, w * 0.72, 0.22, h * 0.65, 0, 2.38, 0, pal.trim);
+      addBox(root, w * 0.74, 0.22, h * 0.68, 0, 2.38, 0, pal.team);
+      addBox(root, 1.65, 0.08, 1.65, 1.25, 2.52, 0.95, pal.hazard);
       const dish = new THREE.Group();
-      dish.position.set(0, 2.75, -0.45);
+      dish.position.set(-0.65, 2.75, -0.55);
       addCyl(dish, 0.22, 0.26, 0.75, 0, 0.2, 0, pal.dark);
-      addCone(dish, 1.15, 0.55, 0, 0.82, 0.22, pal.team, -Math.PI * 0.42);
-      addSphere(dish, 0.16, 0, 0.86, 0.62, pal.glowCyan);
+      addGeo(dish, radarDishGeo, pal.trim, 1.0, 1.0, 1.0, 0, 0.85, 0.12);
+      addSphere(dish, 0.15, 0, 0.88, 0.68, pal.glowCyan);
       root.add(dish);
       parts.rotor = dish;
     } else if (typeId === 'service_depot') {
-      addBox(root, w * 0.75, 0.28, h * 0.75, 0, 0.56, 0, pal.gold);
-      addBox(root, w * 0.52, 0.32, h * 0.52, 0, 0.78, 0, pal.dark);
+      addBox(root, w * 0.78, 0.28, h * 0.78, 0, 0.56, 0, pal.hazard);
+      addBox(root, w * 0.54, 0.32, h * 0.54, 0, 0.76, 0, pal.dark);
+      addBox(root, 1.15, 1.12, 1.25, -w * 0.28, 1.02, -h * 0.28, pal.team);
       const crane = new THREE.Group();
-      crane.position.set(-w * 0.32, 0.65, -h * 0.32);
-      addCyl(crane, 0.32, 0.36, 1.85, 0, 0.9, 0, pal.gold);
-      addBox(crane, 0.36, 0.32, 2.85, 0.85, 2.05, 0.85, pal.team, 0.15, Math.PI * 0.25);
+      crane.position.set(-w * 0.28, 1.55, -h * 0.28);
+      addCyl(crane, 0.28, 0.34, 1.35, 0, 0.45, 0, pal.gold);
+      addBox(crane, 0.34, 0.32, 2.95, 0.85, 1.45, 0.85, pal.hazard, 0.15, Math.PI * 0.25);
       root.add(crane);
       parts.rotor = crane;
     } else if (typeId === 'battle_lab') {
-      addBox(root, w * 0.82, 1.65, h * 0.82, 0, 1.28, 0, pal.hull);
-      addBox(root, w * 0.54, 1.35, h * 0.54, 0, 2.55, 0, pal.team);
-      const core = addSphere(root, 0.85, 0, 3.85, 0, pal.glowCyan);
+      addOct(root, w * 0.44, 1.65, 0, 1.28, 0, pal.hull);
+      addOct(root, w * 0.32, 1.35, 0, 2.55, 0, pal.team);
+      addOct(root, w * 0.34, 0.34, 0, 2.55, 0, pal.glass);
+      const core = addSphere(root, 0.86, 0, 3.85, 0, pal.glowCyan);
       parts.glowMesh = core;
-      for (const [rx, rz] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) {
-        addCyl(root, 0.12, 0.16, 2.85, rx, 2.25, rz, pal.trim);
+      for (const [rx, rz] of [[-1.65, -1.65], [1.65, -1.65], [-1.65, 1.65], [1.65, 1.65]]) {
+        addCyl(root, 0.14, 0.18, 2.95, rx, 2.25, rz, pal.trim);
       }
     } else if (typeId === 'pillbox') {
-      addCyl(root, 0.78, 0.92, 0.88, 0, 0.75, 0, pal.concrete);
-      addBox(root, 0.95, 0.24, 0.95, 0, 1.24, 0, pal.hull);
+      addOct(root, 0.96, 0.88, 0, 0.75, 0, pal.concrete);
+      addOct(root, 0.76, 0.24, 0, 1.24, 0, pal.hull);
       const turret = new THREE.Group();
       turret.position.set(0, 0.92, 0);
       addCyl(turret, 0.08, 0.08, 0.95, -0.18, 0, 0.72, pal.dark, Math.PI * 0.5);
@@ -1065,10 +1350,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'aa_turret') {
-      addCyl(root, 0.65, 0.78, 0.78, 0, 0.68, 0, pal.hull);
+      addOct(root, 0.84, 0.82, 0, 0.68, 0, pal.hull);
       const turret = new THREE.Group();
       turret.position.set(0, 1.15, 0);
-      addBox(turret, 0.96, 0.56, 0.82, 0, 0.25, 0, pal.team);
+      addBox(turret, 0.98, 0.58, 0.84, 0, 0.25, 0, pal.team);
       for (const sx of [-0.28, 0.28]) {
         for (const sy of [0.15, 0.42]) {
           addCyl(turret, 0.10, 0.10, 1.15, sx, sy, 0.35, pal.dark, Math.PI * 0.32);
@@ -1077,12 +1362,16 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'prism_tower') {
-      addCyl(root, 0.52, 0.82, 2.25, 0, 1.45, 0, pal.hull);
-      addCyl(root, 0.38, 0.52, 1.45, 0, 3.05, 0, pal.team);
-      const orb = addSphere(root, 0.44, 0, 4.18, 0, pal.glowCyan);
+      addOct(root, 0.86, 2.25, 0, 1.45, 0, pal.hull);
+      addOct(root, 0.56, 1.45, 0, 3.05, 0, pal.team);
+      for (let k = 0; k < 3; k++) {
+        const ang = (k / 3) * Math.PI * 2;
+        addBox(root, 0.14, 1.35, 0.38, Math.cos(ang) * 0.54, 3.75, Math.sin(ang) * 0.54, pal.trim, 0, -ang);
+      }
+      const orb = addSphere(root, 0.44, 0, 4.22, 0, pal.glowCyan);
       parts.glowMesh = orb;
     } else if (typeId === 'tesla_coil') {
-      addCyl(root, 0.62, 0.84, 1.35, 0, 1.02, 0, pal.hull);
+      addOct(root, 0.88, 1.35, 0, 1.02, 0, pal.hull);
       addCyl(root, 0.24, 0.34, 2.55, 0, 2.65, 0, pal.copper);
       const t1 = new THREE.Mesh(unitTorus, pal.copper);
       t1.scale.set(1.15, 1.15, 1.15);
@@ -1097,7 +1386,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       const tip = addSphere(root, 0.38, 0, 4.18, 0, pal.glowCyan);
       parts.glowMesh = tip;
     } else if (typeId === 'chrono_sphere') {
-      addBox(root, w * 0.82, 1.15, h * 0.82, 0, 0.98, 0, pal.hull);
+      addOct(root, w * 0.44, 1.15, 0, 0.98, 0, pal.hull);
       const gyro = new THREE.Group();
       gyro.position.set(0, 2.75, 0);
       const r1 = new THREE.Mesh(unitTorus, pal.copper);
@@ -1111,13 +1400,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       parts.glowMesh = orb;
       root.add(gyro);
     } else if (typeId === 'iron_curtain') {
-      addBox(root, w * 0.84, 1.05, h * 0.84, 0, 0.92, 0, pal.dark);
-      addBox(root, 1.1, 3.65, 1.1, -1.65, 2.4, 0, pal.team);
-      addBox(root, 1.1, 3.65, 1.1, 1.65, 2.4, 0, pal.team);
+      addOct(root, w * 0.45, 1.05, 0, 0.92, 0, pal.dark);
+      addBox(root, 1.12, 3.65, 1.12, -1.65, 2.4, 0, pal.team);
+      addBox(root, 1.12, 3.65, 1.12, 1.65, 2.4, 0, pal.team);
+      addBox(root, 4.2, 0.42, 0.65, 0, 4.25, 0, pal.hull);
       const orb = addSphere(root, 0.82, 0, 3.05, 0, pal.glowRed);
       parts.glowMesh = orb;
     } else if (typeId === 'weather_control') {
-      addBox(root, w * 0.76, 1.25, h * 0.76, 0, 1.02, 0, pal.hull);
+      addOct(root, w * 0.42, 1.25, 0, 1.02, 0, pal.hull);
       addCyl(root, 0.42, 0.92, 4.15, 0, 3.25, 0, pal.team);
       const halo = new THREE.Mesh(unitTorus, pal.glowCyan);
       halo.scale.set(2.4, 2.4, 2.4);
@@ -1127,20 +1417,22 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       parts.rotor = halo;
       parts.glowMesh = addSphere(root, 0.55, 0, 5.45, 0, pal.glowCyan);
     } else if (typeId === 'nuclear_silo') {
-      addBox(root, w * 0.85, 1.25, h * 0.85, 0, 1.02, 0, pal.concrete);
-      addCyl(root, 1.55, 1.65, 0.65, 0, 1.55, 0, pal.dark);
-      addCyl(root, 0.52, 0.65, 2.95, 0, 2.35, 0, pal.trim);
-      addCone(root, 0.54, 1.15, 0, 4.25, 0, pal.glowRed);
+      addOct(root, w * 0.45, 1.25, 0, 1.02, 0, pal.concrete);
+      addCyl(root, 1.68, 1.75, 0.24, 0, 1.62, 0, pal.hazard);
+      addCyl(root, 1.48, 1.56, 0.45, 0, 1.85, 0, pal.dark);
+      addCyl(root, 0.52, 0.65, 2.95, 0, 2.45, 0, pal.trim);
+      addCone(root, 0.54, 1.15, 0, 4.35, 0, pal.glowRed);
     } else if (typeId === 'oil_derrick') {
       addCyl(root, 0.42, 0.98, 4.15, 0, 2.45, 0, pal.dark);
       if (glbTemplates.fuel) clonePropInto('fuel', root, 1.55, -1.15, 0.48, 0.95, 0);
       const pump = new THREE.Group();
       pump.position.set(0.35, 3.25, 0);
-      addBox(pump, 0.32, 0.34, 2.55, 0, 0, 0, pal.gold);
+      addBox(pump, 0.34, 0.36, 2.55, 0, 0, 0, pal.hazard);
       root.add(pump);
       parts.pump = pump;
     } else if (typeId === 'tech_airport') {
       addBox(root, w * 0.86, 0.35, h * 0.86, 0, 0.58, 0, pal.dark);
+      addBox(root, w * 0.72, 0.08, 0.45, 0.6, 0.78, 0.8, pal.hazard);
       addBox(root, 1.65, 2.45, 1.65, -1.45, 1.68, -1.45, pal.concrete);
       addBox(root, 1.95, 0.72, 1.95, -1.45, 3.05, -1.45, pal.glass);
       const dish = addBox(root, 1.45, 0.22, 0.28, -1.45, 3.72, -1.45, pal.glowGold);
@@ -1190,7 +1482,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       for (const m of list) {
         m.updateMatrix();
         const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-        if (g.attributes.tangent) g.deleteAttribute('tangent');
+        for (const attr of Object.keys(g.attributes)) {
+          if (attr !== 'position' && attr !== 'normal' && attr !== 'uv') {
+            g.deleteAttribute(attr);
+          }
+        }
+        if (!g.attributes.normal) g.computeVertexNormals();
         if (!g.attributes.uv && g.attributes.position) {
           g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
         }

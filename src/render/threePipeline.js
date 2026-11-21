@@ -140,10 +140,10 @@ function createShockRingTexture() {
   const s = 128;
   const c = makeCanvas(s, s);
   const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(64, 64, 34, 64, 64, 62);
+  const g = ctx.createRadialGradient(64, 64, 48, 64, 64, 62);
   g.addColorStop(0.0, 'rgba(255,255,255,0)');
-  g.addColorStop(0.45, 'rgba(255,255,255,0.28)');
-  g.addColorStop(0.75, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.18)');
+  g.addColorStop(0.68, 'rgba(255,255,255,0.92)');
   g.addColorStop(1.0, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
@@ -1097,7 +1097,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
           writeFire(fx.x + Math.cos(ang) * rad * 0.45, 2.2, fx.z + Math.sin(ang) * rad * 0.45, 4.2, 0.28, 0.85, 0.18);
         }
       } else if (fx.kind === 'satellite') {
-        writeRingFx(fx.x, 2.05, fx.z, rad, 0.24, 0.88, 1.0);
+        writeRingFx(fx.x, 2.05, fx.z, rad, 0.07, 0.30, 0.42);
       } else if (fx.kind === 'lightning_storm') {
         writeSmoke(fx.x, 12.5, fx.z, 15.0, 0.25);
         writeFire(fx.x + Math.sin(elapsedSec * 17) * 3.5, 11.8, fx.z + Math.cos(elapsedSec * 14) * 3.5, 5.5, 0.45, 0.75, 1.0);
