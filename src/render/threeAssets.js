@@ -170,6 +170,42 @@ function createConcretePadTexture() {
   return tex;
 }
 
+function createHoloDomeTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 256, 128);
+  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0.0, 'rgba(130, 240, 255, 0.58)');
+  grad.addColorStop(0.6, 'rgba(42, 196, 244, 0.34)');
+  grad.addColorStop(1.0, 'rgba(18, 130, 210, 0.16)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 128);
+  // Latitude rings & glowing longitude meridians
+  ctx.strokeStyle = 'rgba(175, 248, 255, 0.85)';
+  ctx.lineWidth = 1.5;
+  for (let y = 16; y < 128; y += 22) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(256, y);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(135, 232, 255, 0.55)';
+  for (let x = 0; x < 256; x += 24) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 128);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function getBoxInParentSpace(obj, parent) {
   obj.updateWorldMatrix(true, true);
   parent.updateWorldMatrix(true, false);
@@ -210,7 +246,8 @@ export function createThreeAssetLibrary(renderer, worldRef) {
   const steelMaps = createProceduralSteelTextures();
   const hazardTex = createHazardStripeTexture();
   const concreteTex = createConcretePadTexture();
-  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough, hazardTex, concreteTex);
+  const holoTex = createHoloDomeTexture();
+  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough, hazardTex, concreteTex, holoTex);
 
   let revision = 1;
   let disposed = false;
@@ -335,13 +372,37 @@ export function createThreeAssetLibrary(renderer, worldRef) {
     g.computeVertexNormals();
     return g;
   }
+  function buildHangarArchGeo() {
+    const s = new THREE.Shape();
+    s.moveTo(-0.50, 0.00);
+    s.lineTo(-0.50, 0.50);
+    s.lineTo(-0.30, 0.92);
+    s.lineTo(-0.16, 1.00);
+    s.lineTo(0.16, 1.00);
+    s.lineTo(0.30, 0.92);
+    s.lineTo(0.50, 0.50);
+    s.lineTo(0.50, 0.00);
+    s.lineTo(0.35, 0.00);
+    s.lineTo(0.35, 0.44);
+    s.lineTo(0.20, 0.78);
+    s.lineTo(-0.20, 0.78);
+    s.lineTo(-0.35, 0.44);
+    s.lineTo(-0.35, 0.00);
+    s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, { depth: 1, bevelEnabled: false, steps: 1 });
+    g.translate(0, 0, -0.5);
+    g.computeVertexNormals();
+    return g;
+  }
+
   const shipBowGeo = buildShipBowGeo(0.95, 1.55, 0.72);
   const coolingTowerGeo = buildCoolingTowerGeo();
   const radarDishGeo = buildRadarDishGeo();
   const slopedCabGeo = buildSlopedCabGeo();
+  const hangarArchGeo = buildHangarArchGeo();
   disposables.push(
     unitBox, unitCyl, unitOct, unitHex, unitCone, unitSphere, unitTorus,
-    jetWingGeo, tailWingGeo, shipBowGeo, coolingTowerGeo, radarDishGeo, slopedCabGeo
+    jetWingGeo, tailWingGeo, shipBowGeo, coolingTowerGeo, radarDishGeo, slopedCabGeo, hangarArchGeo
   );
 
   const fogHook = (mat, key) => (worldRef?.applyFogToMaterial ? worldRef.applyFogToMaterial(mat, key) : mat);
@@ -414,9 +475,21 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       cloak: fogHook(new THREE.MeshStandardMaterial({ color: paintedArmor, roughness: 0.28, metalness: 0.75, transparent: true, opacity: 0.38 }), `cloak-${ti}`),
       sandbag: fogHook(new THREE.MeshStandardMaterial({ color: 0x9b8e73, roughness: 0.92, metalness: 0.04 }), `sbag-${ti}`),
       whiteMed: makePbrArmorMat(0xdce1e6, { roughness: 0.48, metalness: 0.2, edgeWear: 0.12 }, `med-${ti}`),
-      medCross: fogHook(new THREE.MeshStandardMaterial({ color: 0xd92828, emissive: 0x550808, emissiveIntensity: 0.35, roughness: 0.45 }), `medc-${ti}`)
+      medCross: fogHook(new THREE.MeshStandardMaterial({ color: 0xd92828, emissive: 0x550808, emissiveIntensity: 0.35, roughness: 0.45 }), `medc-${ti}`),
+      holoDome: fogHook(new THREE.MeshStandardMaterial({
+        color: 0x62e8ff,
+        emissive: 0x22ccff,
+        emissiveIntensity: 1.35,
+        map: holoTex,
+        emissiveMap: holoTex,
+        transparent: true,
+        opacity: 0.64,
+        depthWrite: false,
+        roughness: 0.14,
+        side: THREE.DoubleSide
+      }), `holo-${ti}`)
     };
-    disposables.push(p.glass, p.glowCyan, p.glowRed, p.glowGreen, p.glowGold, p.glowViolet, p.cloak, p.sandbag, p.medCross);
+    disposables.push(p.glass, p.glowCyan, p.glowRed, p.glowGreen, p.glowGold, p.glowViolet, p.cloak, p.sandbag, p.medCross, p.holoDome);
     return p;
   });
 
@@ -490,6 +563,39 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     m.receiveShadow = true;
     parent.add(m);
     return m;
+  }
+
+  function addTrussBoom(parent, length, width, height, x, y, z, rx, ry, rz, chordMat, braceMat) {
+    const boom = new THREE.Group();
+    boom.position.set(x, y, z);
+    if (rx || ry || rz) boom.rotation.set(rx, ry, rz);
+    const hw = width * 0.5;
+    const hh = height * 0.5;
+    const barT = Math.max(0.045, Math.min(width, height) * 0.14);
+    for (const cx of [-hw, hw]) {
+      for (const cy of [-hh, hh]) {
+        addBox(boom, barT, barT, length, cx, cy, length * 0.5, chordMat);
+      }
+    }
+    const segs = Math.max(4, Math.round(length / 0.55));
+    const dz = length / segs;
+    const diagLen = Math.hypot(dz, height);
+    const diagPitch = Math.atan2(height, dz);
+    for (let i = 0; i <= segs; i++) {
+      const sz = i * dz;
+      addBox(boom, width + barT, barT * 0.85, barT * 0.85, 0, hh, sz, braceMat);
+      addBox(boom, width + barT, barT * 0.85, barT * 0.85, 0, -hh, sz, braceMat);
+      addBox(boom, barT * 0.85, height, barT * 0.85, -hw, 0, sz, braceMat);
+      addBox(boom, barT * 0.85, height, barT * 0.85, hw, 0, sz, braceMat);
+      if (i < segs) {
+        const cz = sz + dz * 0.5;
+        const flip = (i % 2 === 0) ? 1 : -1;
+        addBox(boom, barT * 0.72, barT * 0.72, diagLen, -hw, 0, cz, braceMat, flip * diagPitch, 0, 0);
+        addBox(boom, barT * 0.72, barT * 0.72, diagLen, hw, 0, cz, braceMat, -flip * diagPitch, 0, 0);
+      }
+    }
+    parent.add(boom);
+    return boom;
   }
 
   const fogClonedMats = new WeakMap();
@@ -1160,58 +1266,77 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     }
 
     if (typeId === 'conyard') {
-      // Unfolded Heavy Construction Yard — 4 Deployed Hydraulic Outriggers, Fabrication Hall, Bridge Tower, Assembly Pit & Slewing Lattice Crane
-      addBox(root, w * 0.42, 0.14, 0.72, 1.55, 0.18, h * 0.49, pal.concrete, 0.26);
-      addBox(root, w * 0.44, 0.14, 0.28, 1.55, 0.50, h * 0.42, pal.hazard);
+      // 1:1 Prototype Construction Yard — 3-Tier Octagonal Citadel, Blue Vertical Ribs, 4 Corner Hydraulic Outriggers, Holo Dome, Twin Lattice Cranes & Beacon
+      const octR = Math.min(w, h) * 0.34;
 
-      // 4 Deployed Corner Hydraulic Outrigger Jacks gripping the pad
+      // 4 Heavy Deployed Corner Hydraulic Outrigger Legs gripping the pad
       for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        const ox = cx * (w * 0.45);
-        const oz = cz * (h * 0.45);
-        addBox(root, 0.96, 0.24, 0.96, ox, 0.12, oz, pal.hazard);
-        addBox(root, 0.72, 0.18, 0.72, ox, 0.28, oz, pal.hull);
-        addBox(root, 0.34, 0.85, 0.34, ox * 0.86, 0.58, oz * 0.86, pal.dark, cz * 0.42, 0, -cx * 0.42);
+        const ox = cx * (w * 0.43);
+        const oz = cz * (h * 0.43);
+        addBox(root, 0.96, 0.24, 0.96, ox, 0.50, oz, pal.hull);
+        addBox(root, 0.72, 0.14, 0.72, ox, 0.66, oz, pal.hazard);
+        const legRotX = cz * 0.54;
+        const legRotZ = -cx * 0.54;
+        addBox(root, 0.38, 1.38, 0.38, ox * 0.76, 1.04, oz * 0.76, pal.dark, legRotX, 0, legRotZ);
+        addBox(root, 0.22, 1.15, 0.22, ox * 0.80, 1.00, oz * 0.80, pal.trim, legRotX, 0, legRotZ);
+        addBox(root, 0.48, 0.36, 0.48, ox * 0.62, 1.48, oz * 0.62, pal.team);
       }
 
-      // Main Heavy Fabrication Hall (rear-left)
-      addBox(root, w * 0.56, 1.55, h * 0.58, -1.25, 1.24, -1.02, pal.hull);
-      addGeo(root, slopedCabGeo, pal.team, w * 0.52, 0.58, h * 0.50, -1.25, 2.28, -1.12);
-      addBox(root, 2.45, 1.22, 0.28, -1.25, 1.12, 1.28, pal.dark);
-      addBox(root, 2.72, 0.22, 0.34, -1.25, 1.80, 1.32, pal.hazard);
-      addBox(root, 2.15, 0.10, 0.14, -1.25, 1.58, 1.36, pal.glowGold);
-      addCyl(root, 0.18, 0.20, 1.95, -3.58, 1.48, -0.45, pal.dark);
-      addCyl(root, 0.18, 0.20, 1.95, -3.58, 1.48, -1.45, pal.dark);
+      // 3-Tiered Octagonal Armored Citadel
+      addOct(root, octR, 1.38, 0, 1.16, 0, pal.hull);
+      addOct(root, octR * 1.03, 0.16, 0, 1.82, 0, pal.dark);
+      for (let k = 0; k < 8; k++) {
+        const ang = (k / 8) * Math.PI * 2 + Math.PI / 8;
+        const rx = Math.cos(ang) * (octR * 0.96);
+        const rz = Math.sin(ang) * (octR * 0.96);
+        addBox(root, 0.34, 1.36, 0.48, rx, 1.18, rz, pal.team, 0, -ang);
+      }
+      // Front armored fabrication gate & warm bay indicator
+      addBox(root, 2.05, 1.08, 0.36, 0, 1.04, octR * 0.96, pal.dark);
+      addBox(root, 2.34, 0.22, 0.42, 0, 1.62, octR * 0.98, pal.team);
+      addBox(root, 1.72, 0.10, 0.14, 0, 1.42, octR * 1.03, pal.glowGold);
+      addBox(root, 2.25, 0.14, 0.72, 0, 0.38, octR * 1.15, pal.concrete, 0.22);
 
-      // Cantilevered Command Bridge Tower (upper rear-left)
-      addBox(root, 2.65, 0.92, 2.35, -2.05, 2.75, -1.55, pal.team);
-      addBox(root, 2.74, 0.28, 2.42, -2.05, 2.82, -1.55, pal.glass);
-      addBox(root, 2.82, 0.14, 2.52, -2.05, 3.24, -1.55, pal.hull);
-      addBox(root, 2.82, 0.14, 2.52, -2.05, 2.44, -1.55, pal.hull);
-      addCyl(root, 0.04, 0.05, 1.25, -2.75, 3.85, -2.15, pal.trim);
-      const bcn = addCyl(root, 0.14, 0.16, 0.38, -2.05, 3.48, -1.55, pal.glowCyan);
+      // Mid Octagonal Command Tier w/ wraparound viewport & blue armor ribs
+      addOct(root, octR * 0.74, 0.96, 0, 2.28, 0, pal.team);
+      addOct(root, octR * 0.76, 0.24, 0, 2.42, 0, pal.glass);
+      addOct(root, octR * 0.78, 0.16, 0, 2.74, 0, pal.hull);
+
+      // Upper Emitter Collar & Translucent Glowing Cyan Holographic Dome
+      addOct(root, octR * 0.54, 0.34, 0, 2.98, 0, pal.hull);
+      addOct(root, octR * 0.48, 0.12, 0, 3.16, 0, pal.glowCyan);
+      addCyl(root, 0.48, 0.56, 0.55, 0, 3.38, 0, pal.glowCyan);
+      const holoDome = addSphere(root, octR * 0.46, 0, 3.16, 0, pal.holoDome, 1.0, 0.86, 1.0);
+      holoDome.castShadow = false;
+      holoDome.receiveShadow = false;
+
+      // Twin Open-Lattice Industrial Tower Cranes (left stationary, right slewing rotor)
+      const buildLatticeCrane = (cx, cz, yaw, boomLen) => {
+        const cr = new THREE.Group();
+        cr.position.set(cx, 0.50, cz);
+        cr.rotation.y = yaw;
+        addCyl(cr, 0.42, 0.50, 0.45, 0, 0.22, 0, pal.hull);
+        addTrussBoom(cr, 2.35, 0.44, 0.44, 0, 0.42, 0, -Math.PI * 0.5, 0, 0, pal.team, pal.dark);
+        addBox(cr, 0.88, 0.56, 1.05, 0, 2.86, -0.24, pal.team);
+        addBox(cr, 0.78, 0.44, 0.52, 0, 2.80, -0.82, pal.hull);
+        const pitch = -0.34;
+        addTrussBoom(cr, boomLen, 0.36, 0.36, 0, 3.04, 0.18, pitch, 0, 0, pal.gold, pal.dark);
+        const tipY = 3.04 + boomLen * Math.sin(-pitch);
+        const tipZ = 0.18 + boomLen * Math.cos(-pitch);
+        const cableLen = 1.65;
+        addCyl(cr, 0.035, 0.035, cableLen, 0, tipY - cableLen * 0.5, tipZ, pal.dark);
+        addBox(cr, 0.36, 0.28, 0.36, 0, tipY - cableLen - 0.14, tipZ, pal.gold);
+        root.add(cr);
+        return cr;
+      };
+      buildLatticeCrane(-w * 0.28, -h * 0.16, 0.55, 3.55);
+      parts.rotor = buildLatticeCrane(w * 0.28, -h * 0.16, -0.55, 3.80);
+
+      // Small Front-Left Blue-Tipped Signal Beacon
+      addBox(root, 0.42, 0.28, 0.42, -w * 0.34, 0.62, h * 0.34, pal.hull);
+      addCyl(root, 0.06, 0.09, 0.95, -w * 0.34, 1.18, h * 0.34, pal.trim);
+      const bcn = addSphere(root, 0.17, -w * 0.34, 1.72, h * 0.34, pal.glowCyan);
       parts.beacon = bcn;
-
-      // Active Assembly Pit (front-right) with hazard frame & in-progress hull jig
-      addBox(root, 3.05, 0.14, 3.05, 1.65, 0.52, 1.15, pal.dark);
-      addBox(root, 3.25, 0.16, 0.22, 1.65, 0.56, 2.68, pal.hazard);
-      addBox(root, 0.22, 0.16, 3.25, 3.18, 0.56, 1.15, pal.hazard);
-      addBox(root, 1.45, 0.34, 1.95, 1.65, 0.72, 1.15, pal.hull);
-      addBox(root, 1.12, 0.24, 0.42, 1.65, 0.98, 1.15, pal.team);
-
-      // Slewing Trussed Gantry Crane servicing the pit
-      const crane = new THREE.Group();
-      crane.position.set(1.55, 1.55, -1.05);
-      addCyl(crane, 0.42, 0.52, 1.25, 0, 0.25, 0, pal.hull);
-      addBox(crane, 1.12, 0.68, 1.35, 0, 0.95, -0.35, pal.team);
-      addBox(crane, 0.46, 0.38, 3.85, 0, 1.65, 1.35, pal.hazard, -0.34);
-      addBox(crane, 0.62, 0.18, 2.45, 0, 1.52, 0.65, pal.dark, -0.34);
-      addCyl(crane, 0.05, 0.05, 1.35, 0, 0.95, 2.92, pal.dark);
-      addBox(crane, 0.65, 0.32, 0.65, 0, 0.22, 2.92, pal.gold);
-      root.add(crane);
-      parts.rotor = crane;
-
-      if (glbTemplates.crate) clonePropInto('crate', root, 0.92, -2.55, 0.48, 2.75, 0.25);
-      if (glbTemplates.fuel) clonePropInto('fuel', root, 1.45, 2.75, 0.48, -2.55, 0);
     } else if (typeId === 'power_plant') {
       if (glbTemplates.generator) {
         clonePropInto('generator', root, 1.44, 0, 0.48, 0.88, 0);
@@ -1228,79 +1353,146 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         parts.glowMesh = cap;
       }
     } else if (typeId === 'nuclear_reactor') {
-      addOct(root, w * 0.42, 1.55, 0, 1.22, 0, pal.hull);
+      // 1:1 Prototype Nuclear Reactor — Central Hyperboloid Concrete Cooling Tower, 6 Exterior Buttress Ribs, Upper Compression Ring & Green Throat Glow
+      addGeo(root, coolingTowerGeo, pal.concrete, 2.25, 2.05, 2.25, 0, 0.48, 0);
+
+      // Lower foundation ring & upper compression ring collar wrapping cooling tower
+      const lowRing = new THREE.Mesh(unitTorus, pal.hull);
+      lowRing.scale.set(2.86, 2.86, 1.45);
+      lowRing.rotation.x = Math.PI * 0.5;
+      lowRing.position.set(0, 0.64, 0);
+      lowRing.castShadow = true;
+      lowRing.receiveShadow = true;
+      root.add(lowRing);
+
+      const topRing = new THREE.Mesh(unitTorus, pal.hull);
+      topRing.scale.set(2.14, 2.14, 1.35);
+      topRing.rotation.x = Math.PI * 0.5;
+      topRing.position.set(0, 4.78, 0);
+      topRing.castShadow = true;
+      topRing.receiveShadow = true;
+      root.add(topRing);
+
+      // 6 Heavy Radial Exterior Faction-Colored Buttress Ribs gripping the tower
       for (let k = 0; k < 6; k++) {
-        const ang = (k / 6) * Math.PI * 2;
-        addBox(root, 0.42, 1.55, 0.85, Math.cos(ang) * 2.1, 1.22, Math.sin(ang) * 2.1, pal.concrete, 0, -ang);
+        const ang = (k / 6) * Math.PI * 2 + Math.PI / 6;
+        const cosA = Math.cos(ang);
+        const sinA = Math.sin(ang);
+        addBox(root, 0.88, 0.38, 0.52, cosA * 1.56, 0.66, sinA * 1.56, pal.hull, 0, -ang);
+        addBox(root, 0.72, 4.05, 0.34, cosA * 1.24, 2.62, sinA * 1.24, pal.team, 0, -ang);
+        addBox(root, 0.58, 0.34, 0.42, cosA * 1.08, 4.46, sinA * 1.08, pal.hull, 0, -ang);
       }
-      addSphere(root, 1.48, 0, 2.15, 0, pal.team, 1.0, 0.92, 1.0);
-      const core = addCyl(root, 0.96, 1.06, 0.46, 0, 3.15, 0, pal.glowGreen);
+
+      // Front reactor control vestibule & coolant manifold pipes
+      addBox(root, 1.75, 0.86, 0.92, 0, 0.92, 1.42, pal.hull);
+      addBox(root, 1.25, 0.16, 0.16, 0, 1.12, 1.88, pal.glowGreen);
+      addCyl(root, 0.22, 0.22, 1.85, -1.55, 1.22, 0, pal.dark, 0, 0, Math.PI * 0.28);
+      addCyl(root, 0.22, 0.22, 1.85, 1.55, 1.22, 0, pal.dark, 0, 0, -Math.PI * 0.28);
+
+      // Green Reactor Throat Glow radiating from the top mouth
+      const core = addCyl(root, 0.78, 0.76, 0.36, 0, 4.42, 0, pal.glowGreen);
+      addSphere(root, 0.58, 0, 4.56, 0, pal.glowGreen, 1.15, 0.45, 1.15);
       parts.glowMesh = core;
-      for (const sx of [-1.72, 1.72]) {
-        addGeo(root, coolingTowerGeo, pal.concrete, 0.95, 1.65, 0.95, sx, 0.48, -1.45);
-        addCyl(root, 0.52, 0.54, 0.24, sx, 3.25, -1.45, pal.hazard);
-      }
     } else if (typeId === 'refinery') {
-      addBox(root, w * 0.80, 2.15, h * 0.52, 0, 1.52, -0.78, pal.team);
-      addGeo(root, slopedCabGeo, pal.hull, w * 0.72, 0.52, h * 0.42, 0, 2.75, -0.85);
-      addBox(root, w * 0.62, 0.24, h * 0.42, 0, 0.56, 1.18, pal.hazard);
-      addBox(root, w * 0.46, 0.16, h * 0.34, 0, 0.64, 1.18, pal.dark);
-      addBox(root, 0.82, 0.36, 1.65, 0, 1.15, 0.35, pal.hull, 0.35);
-      addSphere(root, 0.14, -1.25, 0.85, 2.05, pal.glowGold);
-      addSphere(root, 0.14, 1.25, 0.85, 2.05, pal.glowGold);
-      if (glbTemplates.fuel) {
-        clonePropInto('fuel', root, 2.05, -1.65, 0.48, -1.1, 0);
-        clonePropInto('fuel', root, 2.05, 1.65, 0.48, -1.1, 0.4);
-      } else {
-        addCyl(root, 0.72, 0.72, 2.55, -1.55, 1.72, -0.95, pal.hull);
-        addCyl(root, 0.72, 0.72, 2.55, 1.55, 1.72, -0.95, pal.hull);
+      // 1:1 Prototype Ore Refinery — Front Smelter Intake Hall, Sloped Ribbed Ore Conveyor Ramp, Twin Domed Storage Silos w/ Transfer Pipes & Twin Rear Smokestacks
+      // Front Smelter Intake Hall
+      addBox(root, w * 0.82, 1.88, h * 0.44, 0, 1.42, 0.12, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, w * 0.84, 0.52, h * 0.46, 0, 2.58, 0.12);
+      addBox(root, w * 0.48, 1.12, 0.32, -w * 0.12, 1.06, h * 0.28, pal.dark);
+      addBox(root, w * 0.54, 0.18, 0.36, -w * 0.12, 1.68, h * 0.30, pal.hazard);
+      addBox(root, w * 0.36, 0.16, 0.14, -w * 0.12, 1.38, h * 0.34, pal.glowGold);
+
+      // Sloped Ribbed Ore Conveyor Ramp leading into the smelter intake
+      addBox(root, 1.48, 0.18, 1.85, w * 0.20, 0.56, h * 0.32, pal.hazard);
+      addBox(root, 1.18, 0.22, 2.25, w * 0.20, 1.18, h * 0.24, pal.dark, 0.46);
+      addBox(root, 0.14, 0.34, 2.28, w * 0.20 - 0.58, 1.24, h * 0.24, pal.hull, 0.46);
+      addBox(root, 0.14, 0.34, 2.28, w * 0.20 + 0.58, 1.24, h * 0.24, pal.hull, 0.46);
+      for (let r = 0; r < 6; r++) {
+        const t = (r - 2.5) * 0.32;
+        addBox(root, 1.04, 0.10, 0.10, w * 0.20, 1.28 - t * 0.44, h * 0.24 + t * 0.88, pal.hazard, 0.46);
       }
-      addCyl(root, 0.34, 0.44, 3.45, 1.45, 2.20, -1.55, pal.dark);
-      addCyl(root, 0.38, 0.38, 0.28, 1.45, 3.45, -1.55, pal.hazard);
+
+      // Twin Tall Domed Industrial Storage Silos w/ Transfer Pipes
+      for (const sx of [-w * 0.24, w * 0.24]) {
+        addCyl(root, 0.84, 0.88, 2.68, sx, 1.82, -h * 0.18, pal.hull);
+        addCyl(root, 0.88, 0.88, 0.24, sx, 1.12, -h * 0.18, pal.team);
+        addCyl(root, 0.88, 0.88, 0.20, sx, 2.65, -h * 0.18, pal.hazard);
+        addSphere(root, 0.84, sx, 3.16, -h * 0.18, pal.trim, 1.0, 0.72, 1.0);
+        // Transfer feed pipe connecting silo forward into smelter hall
+        addCyl(root, 0.16, 0.16, 1.45, sx, 2.28, -h * 0.02, pal.copper, Math.PI * 0.5);
+      }
+      // Cross-over overhead transfer pipe joining twin silos
+      addCyl(root, 0.18, 0.18, w * 0.48, 0, 2.86, -h * 0.18, pal.copper, 0, 0, Math.PI * 0.5);
+
+      // Twin Tall Rear Smokestacks
+      for (const sx of [-w * 0.30, w * 0.30]) {
+        addCyl(root, 0.26, 0.36, 4.05, sx, 2.50, -h * 0.37, pal.dark);
+        addCyl(root, 0.31, 0.33, 0.30, sx, 4.18, -h * 0.37, pal.hazard);
+        addCyl(root, 0.27, 0.27, 0.10, sx, 4.52, -h * 0.37, pal.glowGold);
+      }
     } else if (typeId === 'barracks') {
-      addBox(root, w * 0.82, 1.65, h * 0.64, 0, 1.28, -0.35, pal.team);
-      addGeo(root, slopedCabGeo, pal.hull, w * 0.86, 0.42, h * 0.66, 0, 2.28, -0.35);
-      addBox(root, 1.68, 1.32, 0.62, 0, 1.12, h * 0.24, pal.hull);
-      addBox(root, 1.28, 0.96, 0.18, 0, 1.02, h * 0.36, pal.dark);
-      addBox(root, 1.68, 0.22, 0.26, 0, 1.68, h * 0.34, pal.hazard);
-      addBox(root, 0.38, 0.28, 0.32, -1.45, 1.55, h * 0.14, pal.glass);
-      addBox(root, 0.38, 0.28, 0.32, 1.45, 1.55, h * 0.14, pal.glass);
-      addCyl(root, 0.05, 0.08, 1.25, 1.15, 2.95, -0.85, pal.trim);
-      if (glbTemplates.sandbags) {
-        clonePropInto('sandbags', root, 0.58, -1.35, 0.48, h * 0.38, 0.2);
-        clonePropInto('sandbags', root, 0.58, 1.35, 0.48, h * 0.38, -0.2);
+      // 1:1 Prototype Barracks — Sloped Armored Bunker w/ Corner Ribs, Wide Warm-Amber Visor Slit, Armored Entrance Arch & Rooftop Comms Mast w/ Radar Dish & Red Beacon
+      addBox(root, w * 0.82, 1.48, h * 0.68, 0, 1.22, -0.18, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, w * 0.86, 0.62, h * 0.70, 0, 2.24, -0.18);
+
+      // 4 Heavy Corner Armor Ribs
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        addBox(root, 0.42, 1.65, 0.48, cx * (w * 0.40), 1.30, -0.18 + cz * (h * 0.32), pal.hull, cz * -0.12, 0, cx * 0.12);
       }
+
+      // Wide Warm-Amber Horizontal Visor Slit beneath Armored Visor Hood
+      addBox(root, w * 0.66, 0.24, 0.22, 0, 1.72, h * 0.15, pal.dark);
+      addBox(root, w * 0.58, 0.12, 0.18, 0, 1.72, h * 0.18, pal.glowGold);
+      addBox(root, w * 0.70, 0.14, 0.34, 0, 1.90, h * 0.18, pal.hull);
+
+      // Armored Entrance Arch (front center)
+      addBox(root, 1.76, 1.32, 0.72, 0, 1.12, h * 0.26, pal.hull);
+      addBox(root, 1.48, 1.12, 0.22, 0, 1.04, h * 0.36, pal.team);
+      addBox(root, 1.12, 0.88, 0.22, 0, 0.94, h * 0.38, pal.dark);
+      addBox(root, 1.66, 0.16, 0.26, 0, 1.62, h * 0.34, pal.hazard);
+      addBox(root, 1.85, 0.14, 0.56, 0, 0.36, h * 0.44, pal.concrete, 0.22);
+
+      // Rooftop Comms Mast w/ Parabolic Radar Dish & Tiny Red Beacon
+      addBox(root, 0.95, 0.36, 0.95, 0.95, 2.66, -0.62, pal.hull);
+      addCyl(root, 0.055, 0.075, 1.35, 1.05, 3.45, -0.62, pal.trim);
+      addGeo(root, radarDishGeo, pal.trim, 0.62, 0.62, 0.62, 0.82, 3.22, -0.45, 0, -0.35, 0);
+      const bcn = addSphere(root, 0.12, 1.05, 4.18, -0.62, pal.glowRed);
+      parts.beacon = bcn;
     } else if (typeId === 'war_factory') {
-      addBox(root, w * 0.78, 2.45, h * 0.70, 0, 1.65, -0.1, pal.dark);
-      addGeo(root, slopedCabGeo, pal.hull, w * 0.82, 0.42, h * 0.74, 0, 3.05, -0.1);
-      addCyl(root, 0.24, 0.28, 1.15, -1.65, 3.25, -1.65, pal.dark);
-      addCyl(root, 0.24, 0.28, 1.15, 1.65, 3.25, -1.65, pal.dark);
-      if (glbTemplates.factory) {
-        const fs = glbTemplates.factory;
-        const gWall = extractNamedSubnode(fs, 'wall_door_garage_double_01', 2.45);
-        const gDoor = extractNamedSubnode(fs, 'door_garage_double_01', 1.95);
-        const sWallL = extractNamedSubnode(fs, 'wall_tall_large_01', 2.45);
-        const sWinL = extractNamedSubnode(fs, 'window_tall_large_01', 1.45);
-        const sWallR = extractNamedSubnode(fs, 'wall_tall_large_01', 2.45);
-        const sWinR = extractNamedSubnode(fs, 'window_tall_large_01', 1.45);
-        const roofTrim = extractNamedSubnode(fs, 'cornice01_standard_standard_01', 0.42);
-        if (gWall) { gWall.position.set(0, 0.48, h * 0.34); root.add(gWall); }
-        if (gDoor) { gDoor.position.set(0, 0.48, h * 0.35); root.add(gDoor); }
-        if (sWallL) { sWallL.rotation.y = -Math.PI * 0.5; sWallL.position.set(-w * 0.39, 0.48, -0.1); root.add(sWallL); }
-        if (sWinL) { sWinL.rotation.y = -Math.PI * 0.5; sWinL.position.set(-w * 0.40, 0.95, -0.1); root.add(sWinL); }
-        if (sWallR) { sWallR.rotation.y = Math.PI * 0.5; sWallR.position.set(w * 0.39, 0.48, -0.1); root.add(sWallR); }
-        if (sWinR) { sWinR.rotation.y = Math.PI * 0.5; sWinR.position.set(w * 0.40, 0.95, -0.1); root.add(sWinR); }
-        if (roofTrim) { roofTrim.position.set(0, 2.72, h * 0.34); root.add(roofTrim); }
-      } else {
-        addBox(root, w * 0.85, 2.45, h * 0.78, 0, 1.65, 0, pal.team);
-        addBox(root, 3.45, 1.75, 0.45, 0, 1.32, h * 0.38, pal.dark);
+      // 1:1 Prototype War Factory — Chamfered Arched Armored Hangar, 4 Protruding Faction Structural Arch Ribs, Deep Warm-Lit Interior w/ Exit Ramp & 4 External Gold Gantry Cranes
+      // Outer Chamfered Arched Hangar Shell + 4 Protruding Faction Structural Arch Ribs
+      addGeo(root, hangarArchGeo, pal.hull, w * 0.78, 3.15, h * 0.82, 0, 0.48, -0.04);
+      for (const rz of [-h * 0.36, -h * 0.12, h * 0.12, h * 0.35]) {
+        addGeo(root, hangarArchGeo, pal.team, w * 0.84, 3.36, 0.34, 0, 0.46, rz);
       }
-      if (glbTemplates.barrier) clonePropInto('barrier', root, 0.68, -w * 0.38, 0.48, h * 0.4, 0);
-      if (glbTemplates.crate) clonePropInto('crate', root, 1.05, w * 0.36, 0.48, h * 0.36, 0.3);
-      if (glbTemplates.fuel) clonePropInto('fuel', root, 1.45, -w * 0.42, 0.48, -h * 0.28, 0.2);
-      addBox(root, 0.36, 2.72, 0.36, -w * 0.36, 1.78, h * 0.26, pal.hazard);
-      addBox(root, 0.36, 2.72, 0.36, w * 0.36, 1.78, h * 0.26, pal.hazard);
-      addBox(root, w * 0.78, 0.36, 0.44, 0, 3.12, h * 0.26, pal.hazard);
+
+      // Deep Recessed Warm-Lit Garage Interior & Exit Floor Ramp
+      addBox(root, w * 0.52, 2.28, 0.26, 0, 1.62, -h * 0.42, pal.dark);
+      addBox(root, w * 0.54, 0.10, h * 0.74, 0, 0.50, -0.02, pal.dark);
+      addBox(root, w * 0.36, 0.14, h * 0.62, 0, 2.34, -0.04, pal.glowGold);
+      addBox(root, w * 0.44, 0.14, 0.22, 0, 2.22, h * 0.20, pal.gold);
+      addBox(root, w * 0.56, 0.14, 0.32, 0, 0.52, h * 0.38, pal.hazard);
+      addBox(root, w * 0.56, 0.18, 0.96, 0, 0.36, h * 0.47, pal.concrete, 0.22);
+
+      // 4 External Orange-Gold Overhead Open-Lattice Gantry Cranes (2 left, 2 right)
+      for (const side of [-1, 1]) {
+        for (const gz of [-h * 0.20, h * 0.18]) {
+          const baseX = side * (w * 0.42);
+          addBox(root, 0.42, 0.26, 0.42, baseX, 0.58, gz, pal.hull);
+          addTrussBoom(root, 3.10, 0.30, 0.30, baseX, 0.62, gz, -Math.PI * 0.5, 0, 0, pal.gold, pal.dark);
+          // Cantilevered horizontal lattice gantry jib extending inward over the roof/bay
+          const boomDirY = side > 0 ? -Math.PI * 0.5 : Math.PI * 0.5;
+          addTrussBoom(root, 2.15, 0.28, 0.28, baseX, 3.72, gz, -0.14, boomDirY, 0, pal.gold, pal.dark);
+          const hookX = baseX - side * 1.92;
+          const hookY = 3.72 + 2.15 * Math.sin(0.14);
+          addCyl(root, 0.03, 0.03, 0.85, hookX, hookY - 0.42, gz, pal.dark);
+          addBox(root, 0.26, 0.20, 0.26, hookX, hookY - 0.90, gz, pal.gold);
+        }
+      }
+
+      // Rear rooftop exhaust vents
+      addCyl(root, 0.20, 0.24, 0.72, -1.25, 3.85, -h * 0.26, pal.dark);
+      addCyl(root, 0.20, 0.24, 0.72, 1.25, 3.85, -h * 0.26, pal.dark);
     } else if (typeId === 'naval_yard') {
       addBox(root, 1.48, 1.48, h * 0.88, -w * 0.36, 0.75, 0, pal.hull);
       addBox(root, 1.48, 1.48, h * 0.88, w * 0.36, 0.75, 0, pal.hull);
@@ -1332,14 +1524,60 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(crane);
       parts.rotor = crane;
     } else if (typeId === 'battle_lab') {
-      addOct(root, w * 0.44, 1.65, 0, 1.28, 0, pal.hull);
-      addOct(root, w * 0.32, 1.35, 0, 2.55, 0, pal.team);
-      addOct(root, w * 0.34, 0.34, 0, 2.55, 0, pal.glass);
-      const core = addSphere(root, 0.86, 0, 3.85, 0, pal.glowCyan);
-      parts.glowMesh = core;
-      for (const [rx, rz] of [[-1.65, -1.65], [1.65, -1.65], [-1.65, 1.65], [1.65, 1.65]]) {
-        addCyl(root, 0.14, 0.18, 2.95, rx, 2.25, rz, pal.trim);
+      // 1:1 Prototype Battle Lab — Sleek White-Silver Multi-Tier Sci-Fi Dome, Recessed Cyan Channels, Cyan Front Portal, Left Rotating Parabolic Dish & Right Levitating 4-Crystal Cluster
+      const labR = Math.min(w, h) * 0.36;
+
+      // Multi-Tier White-Silver Sci-Fi Rotunda w/ Recessed Glowing Cyan Channels
+      addOct(root, labR, 0.88, 0, 0.92, 0, pal.whiteMed);
+      addOct(root, labR * 1.015, 0.14, 0, 1.32, 0, pal.glowCyan);
+      addCyl(root, labR * 0.78, labR * 0.86, 0.96, 0, 1.86, 0, pal.whiteMed);
+      addCyl(root, labR * 0.80, labR * 0.80, 0.12, 0, 2.28, 0, pal.glowCyan);
+
+      // Sleek Sci-Fi Dome & Vertical Meridian Fins
+      addSphere(root, labR * 0.74, 0, 2.32, 0, pal.whiteMed, 1.0, 0.84, 1.0);
+      addCyl(root, 0.34, 0.44, 0.24, 0, 3.68, 0, pal.team);
+      addSphere(root, 0.24, 0, 3.84, 0, pal.glowCyan);
+      for (const ang of [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75]) {
+        const fx = Math.cos(ang) * (labR * 0.82);
+        const fz = Math.sin(ang) * (labR * 0.82);
+        addBox(root, 0.22, 1.65, 0.38, fx, 1.62, fz, pal.team, 0, -ang + Math.PI * 0.5);
+        addBox(root, 0.08, 1.45, 0.12, fx * 1.05, 1.62, fz * 1.05, pal.glowCyan, 0, -ang + Math.PI * 0.5);
       }
+
+      // Cyan Front Portal
+      addBox(root, 1.56, 1.18, 0.56, 0, 1.06, labR * 0.94, pal.whiteMed);
+      addBox(root, 1.26, 0.96, 0.18, 0, 1.00, labR * 1.04, pal.trim);
+      addBox(root, 0.94, 0.82, 0.14, 0, 0.94, labR * 1.08, pal.glowCyan);
+      addBox(root, 1.68, 0.14, 0.52, 0, 0.36, labR * 1.18, pal.concrete, 0.22);
+
+      // Left Rotating Parabolic Radar Dish
+      addBox(root, 1.05, 0.86, 1.05, -w * 0.34, 0.90, 0.05, pal.whiteMed);
+      addCyl(root, 0.36, 0.42, 0.18, -w * 0.34, 1.38, 0.05, pal.glowCyan);
+      const dish = new THREE.Group();
+      dish.position.set(-w * 0.34, 1.46, 0.05);
+      addCyl(dish, 0.16, 0.20, 0.78, 0, 0.36, 0, pal.trim);
+      addGeo(dish, radarDishGeo, pal.whiteMed, 0.92, 0.92, 0.92, 0, 0.98, 0.10);
+      addSphere(dish, 0.14, 0, 1.02, 0.62, pal.glowCyan);
+      root.add(dish);
+      parts.rotor = dish;
+
+      // Right Levitating Cluster of 4 Cyan Crystals
+      addBox(root, 1.05, 0.56, 1.05, w * 0.34, 0.76, 0.05, pal.whiteMed);
+      addCyl(root, 0.44, 0.48, 0.14, w * 0.34, 1.08, 0.05, pal.glowCyan);
+      const crystalCluster = new THREE.Group();
+      crystalCluster.position.set(w * 0.34, 1.88, 0.05);
+      const shardSpecs = [
+        { x: 0.00, y: 0.24, z: 0.00, r: 0.24, h: 1.15, rx: 0.06, rz: -0.04 },
+        { x: -0.30, y: -0.06, z: 0.16, r: 0.16, h: 0.82, rx: 0.22, rz: 0.26 },
+        { x: 0.30, y: 0.02, z: 0.18, r: 0.17, h: 0.88, rx: 0.20, rz: -0.24 },
+        { x: 0.04, y: -0.08, z: -0.30, r: 0.16, h: 0.78, rx: -0.26, rz: 0.08 }
+      ];
+      for (const cs of shardSpecs) {
+        addOct(crystalCluster, cs.r, cs.h * 0.55, cs.x, cs.y, cs.z, pal.glowCyan);
+        addCone(crystalCluster, cs.r, cs.h * 0.45, cs.x, cs.y + cs.h * 0.48, cs.z, pal.glowCyan, cs.rx, 0, cs.rz);
+      }
+      root.add(crystalCluster);
+      parts.glowMesh = crystalCluster;
     } else if (typeId === 'pillbox') {
       addOct(root, 0.96, 0.88, 0, 0.75, 0, pal.concrete);
       addOct(root, 0.76, 0.24, 0, 1.24, 0, pal.hull);
@@ -1464,7 +1702,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     for (const child of root.children) {
       if (!child.isMesh || !child.geometry || child.isSkinnedMesh || protectedSet.has(child)) continue;
       const mat = child.material;
-      if (!mat || Array.isArray(mat)) continue;
+      if (!mat || Array.isArray(mat) || mat.transparent) continue;
       let list = groups.get(mat);
       if (!list) {
         list = [];
