@@ -104,6 +104,328 @@ function createProceduralSteelTextures() {
   };
 }
 
+function createRivetedArmorTextures() {
+  const size = 512;
+  const dCan = makeCanvas(size, size);
+  const nCan = makeCanvas(size, size);
+  const rCan = makeCanvas(size, size);
+  const dCtx = dCan.getContext('2d');
+  const nCtx = nCan.getContext('2d');
+  const rCtx = rCan.getContext('2d');
+
+  // Rolled military steel plate base
+  dCtx.fillStyle = '#b4bbc2';
+  dCtx.fillRect(0, 0, size, size);
+  rCtx.fillStyle = '#7e7e7e';
+  rCtx.fillRect(0, 0, size, size);
+  nCtx.fillStyle = 'rgb(128,128,255)';
+  nCtx.fillRect(0, 0, size, size);
+
+  // Micro brushed grain & subtle battle scratches
+  for (let i = 0; i < 2400; i++) {
+    const x = Math.floor(hash1(i * 3.17) * size);
+    const y = Math.floor(hash1(i * 7.31) * size);
+    const w = 2 + Math.floor(hash1(i * 11.7) * 9);
+    const g = 154 + Math.floor((hash1(i * 17.1) - 0.5) * 44);
+    dCtx.fillStyle = `rgb(${g},${g + 2},${g + 5})`;
+    dCtx.fillRect(x, y, w, 1);
+    const rv = 104 + Math.floor((hash1(i * 23.9) - 0.5) * 56);
+    rCtx.fillStyle = `rgb(${rv},${rv},${rv})`;
+    rCtx.fillRect(x, y, w, 1);
+  }
+  for (let s = 0; s < 36; s++) {
+    const sx = hash1(s * 19.3) * size;
+    const sy = hash1(s * 29.1) * size;
+    const len = 12 + hash1(s * 5.7) * 32;
+    const ang = (hash1(s * 13.7) - 0.5) * 0.9;
+    dCtx.strokeStyle = s % 3 === 0 ? 'rgba(232,238,244,0.42)' : 'rgba(54,60,68,0.34)';
+    dCtx.lineWidth = 1.2;
+    dCtx.beginPath();
+    dCtx.moveTo(sx, sy);
+    dCtx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len);
+    dCtx.stroke();
+    rCtx.strokeStyle = 'rgb(52,52,52)';
+    rCtx.lineWidth = 1.4;
+    rCtx.beginPath();
+    rCtx.moveTo(sx, sy);
+    rCtx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len);
+    rCtx.stroke();
+  }
+
+  // 2x2 welded armor panel seams + beveled highlights
+  const half = size * 0.5;
+  dCtx.strokeStyle = 'rgba(34,39,46,0.72)';
+  dCtx.lineWidth = 4;
+  dCtx.strokeRect(3, 3, size - 6, size - 6);
+  dCtx.beginPath();
+  dCtx.moveTo(0, half); dCtx.lineTo(size, half);
+  dCtx.moveTo(half, 0); dCtx.lineTo(half, size);
+  dCtx.stroke();
+
+  dCtx.strokeStyle = 'rgba(232,238,246,0.28)';
+  dCtx.lineWidth = 2;
+  dCtx.beginPath();
+  dCtx.moveTo(0, half + 3); dCtx.lineTo(size, half + 3);
+  dCtx.moveTo(half + 3, 0); dCtx.lineTo(half + 3, size);
+  dCtx.stroke();
+
+  nCtx.strokeStyle = 'rgb(88,88,242)';
+  nCtx.lineWidth = 4;
+  nCtx.strokeRect(3, 3, size - 6, size - 6);
+  nCtx.beginPath();
+  nCtx.moveTo(0, half); nCtx.lineTo(size, half);
+  nCtx.moveTo(half, 0); nCtx.lineTo(half, size);
+  nCtx.stroke();
+
+  rCtx.strokeStyle = 'rgb(198,198,198)';
+  rCtx.lineWidth = 5;
+  rCtx.beginPath();
+  rCtx.moveTo(0, half); rCtx.lineTo(size, half);
+  rCtx.moveTo(half, 0); rCtx.lineTo(half, size);
+  rCtx.stroke();
+
+  // Raised corner & perimeter rivets with radial normal slopes
+  const rivetCenters = [];
+  for (const qx of [0, half]) {
+    for (const qy of [0, half]) {
+      for (const ox of [22, 128, half - 22]) {
+        rivetCenters.push([qx + ox, qy + 20], [qx + ox, qy + half - 20]);
+      }
+      rivetCenters.push([qx + 20, qy + 128], [qx + half - 20, qy + 128]);
+    }
+  }
+  for (const [rx, ry] of rivetCenters) {
+    dCtx.fillStyle = 'rgba(28,33,38,0.68)';
+    dCtx.beginPath();
+    dCtx.arc(rx + 1, ry + 1.5, 4.4, 0, Math.PI * 2);
+    dCtx.fill();
+    dCtx.fillStyle = 'rgba(222,228,236,0.85)';
+    dCtx.beginPath();
+    dCtx.arc(rx, ry, 3.6, 0, Math.PI * 2);
+    dCtx.fill();
+
+    // Raised dome normal cue (upper-left bright, lower-right shadow slope)
+    nCtx.fillStyle = 'rgb(96,162,248)';
+    nCtx.beginPath();
+    nCtx.arc(rx - 0.8, ry - 0.8, 3.8, 0, Math.PI * 2);
+    nCtx.fill();
+    nCtx.fillStyle = 'rgb(160,96,248)';
+    nCtx.beginPath();
+    nCtx.arc(rx + 0.8, ry + 0.8, 2.8, 0, Math.PI * 2);
+    nCtx.fill();
+
+    rCtx.fillStyle = 'rgb(64,64,64)';
+    rCtx.beginPath();
+    rCtx.arc(rx, ry, 3.8, 0, Math.PI * 2);
+    rCtx.fill();
+  }
+
+  const mkTex = (canvas, srgb) => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(2, 2);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return {
+    diff: mkTex(dCan, true),
+    nor: mkTex(nCan, false),
+    rough: mkTex(rCan, false)
+  };
+}
+
+function createClothCanvasTextures() {
+  const size = 256;
+  const dCan = makeCanvas(size, size);
+  const nCan = makeCanvas(size, size);
+  const rCan = makeCanvas(size, size);
+  const dCtx = dCan.getContext('2d');
+  const nCtx = nCan.getContext('2d');
+  const rCtx = rCan.getContext('2d');
+
+  // Matte woven ripstop canvas base (neutral white-tint multiplier so uniform palette hue dominates)
+  dCtx.fillStyle = '#cfcfcc';
+  dCtx.fillRect(0, 0, size, size);
+  nCtx.fillStyle = 'rgb(128,128,255)';
+  nCtx.fillRect(0, 0, size, size);
+  rCtx.fillStyle = '#dcdcdc'; // High roughness (~0.86) matte fabric
+  rCtx.fillRect(0, 0, size, size);
+
+  // Ripstop warp/weft cross-hatch micro-weave
+  for (let y = 0; y < size; y += 4) {
+    const shade = (y % 8 === 0) ? 'rgba(255,255,255,0.08)' : 'rgba(32,34,30,0.09)';
+    dCtx.fillStyle = shade;
+    dCtx.fillRect(0, y, size, 2);
+    nCtx.fillStyle = (y % 8 === 0) ? 'rgb(128,142,252)' : 'rgb(128,114,252)';
+    nCtx.fillRect(0, y, size, 2);
+  }
+  for (let x = 0; x < size; x += 4) {
+    const shade = (x % 8 === 0) ? 'rgba(255,255,255,0.06)' : 'rgba(26,28,24,0.08)';
+    dCtx.fillStyle = shade;
+    dCtx.fillRect(x, 0, 2, size);
+    nCtx.fillStyle = (x % 8 === 0) ? 'rgb(140,128,252)' : 'rgb(116,128,252)';
+    nCtx.fillRect(x, 0, 2, size);
+  }
+  // Subtle fabric fold / seam stitching & grain
+  for (let i = 0; i < 1800; i++) {
+    const x = Math.floor(hash1(i * 4.3) * size);
+    const y = Math.floor(hash1(i * 9.7) * size);
+    const v = 188 + Math.floor((hash1(i * 6.1) - 0.5) * 34);
+    dCtx.fillStyle = `rgba(${v},${v},${v},0.35)`;
+    dCtx.fillRect(x, y, 2, 2);
+    const rv = 212 + Math.floor((hash1(i * 15.3) - 0.5) * 32);
+    rCtx.fillStyle = `rgb(${rv},${rv},${rv})`;
+    rCtx.fillRect(x, y, 2, 2);
+  }
+
+  const mkTex = (canvas, srgb) => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 3);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return {
+    diff: mkTex(dCan, true),
+    nor: mkTex(nCan, false),
+    rough: mkTex(rCan, false)
+  };
+}
+
+function createTankTrackTextures(repeatY = 4) {
+  const size = 256;
+  const dCan = makeCanvas(size, size);
+  const nCan = makeCanvas(size, size);
+  const rCan = makeCanvas(size, size);
+  const dCtx = dCan.getContext('2d');
+  const nCtx = nCan.getContext('2d');
+  const rCtx = rCan.getContext('2d');
+
+  // Muddy recessed track bed
+  dCtx.fillStyle = '#34322f';
+  dCtx.fillRect(0, 0, size, size);
+  nCtx.fillStyle = 'rgb(128,128,255)';
+  nCtx.fillRect(0, 0, size, size);
+  rCtx.fillStyle = '#c8c8c8';
+  rCtx.fillRect(0, 0, size, size);
+
+  // Horizontal heavy steel tread cleats (8 links per tile)
+  const links = 8;
+  const step = size / links;
+  for (let i = 0; i < links; i++) {
+    const y0 = i * step + 4;
+    const h = step - 10;
+    dCtx.fillStyle = '#7c8288';
+    dCtx.fillRect(10, y0, size - 20, h);
+    dCtx.fillStyle = '#a4acb4';
+    dCtx.fillRect(14, y0 + 2, size - 28, 5);
+    dCtx.fillStyle = '#4f555c';
+    dCtx.fillRect(12, y0 + h - 4, size - 24, 4);
+    // Center guide teeth
+    dCtx.fillStyle = '#5c626a';
+    dCtx.fillRect(size * 0.5 - 12, y0 + 4, 24, h - 8);
+
+    // Crisp normal ridge for each steel cleat
+    nCtx.fillStyle = 'rgb(128,186,245)';
+    nCtx.fillRect(10, y0, size - 20, 6);
+    nCtx.fillStyle = 'rgb(128,70,245)';
+    nCtx.fillRect(10, y0 + h - 6, size - 20, 6);
+
+    // Polished cleat tops vs muddy grooves
+    rCtx.fillStyle = '#626262';
+    rCtx.fillRect(12, y0 + 2, size - 24, h - 4);
+  }
+  for (let i = 0; i < 600; i++) {
+    const x = Math.floor(hash1(i * 3.7) * size);
+    const y = Math.floor(hash1(i * 8.9) * size);
+    dCtx.fillStyle = hash1(i * 11.3) > 0.5 ? 'rgba(92,78,62,0.22)' : 'rgba(20,22,25,0.25)';
+    dCtx.fillRect(x, y, 3, 2);
+  }
+
+  const mkTex = (canvas, srgb) => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, repeatY);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return {
+    diff: mkTex(dCan, true),
+    nor: mkTex(nCan, false),
+    rough: mkTex(rCan, false)
+  };
+}
+
+function createIndustrialGrateTextures() {
+  const size = 256;
+  const dCan = makeCanvas(size, size);
+  const nCan = makeCanvas(size, size);
+  const rCan = makeCanvas(size, size);
+  const dCtx = dCan.getContext('2d');
+  const nCtx = nCan.getContext('2d');
+  const rCtx = rCan.getContext('2d');
+
+  // Deep shadow slot bed
+  dCtx.fillStyle = '#383e45';
+  dCtx.fillRect(0, 0, size, size);
+  nCtx.fillStyle = 'rgb(128,128,255)';
+  nCtx.fillRect(0, 0, size, size);
+  rCtx.fillStyle = '#bcbcbc';
+  rCtx.fillRect(0, 0, size, size);
+
+  // Brushed industrial deck cross-beams
+  const cell = 32;
+  dCtx.strokeStyle = '#9aa3ac';
+  dCtx.lineWidth = 5;
+  rCtx.strokeStyle = '#585858';
+  rCtx.lineWidth = 5;
+  for (let i = -size; i < size * 2; i += cell) {
+    dCtx.beginPath();
+    dCtx.moveTo(i, 0); dCtx.lineTo(i + size, size);
+    dCtx.moveTo(i + size, 0); dCtx.lineTo(i, size);
+    dCtx.stroke();
+
+    rCtx.beginPath();
+    rCtx.moveTo(i, 0); rCtx.lineTo(i + size, size);
+    rCtx.moveTo(i + size, 0); rCtx.lineTo(i, size);
+    rCtx.stroke();
+  }
+  // Highlighted diamond anti-slip studs + normal bevels
+  for (let y = 0; y < size; y += cell) {
+    for (let x = 0; x < size; x += cell) {
+      dCtx.fillStyle = '#cad2da';
+      dCtx.fillRect(x + 13, y + 13, 6, 6);
+      nCtx.fillStyle = 'rgb(96,158,248)';
+      nCtx.fillRect(x + 12, y + 12, 4, 4);
+      nCtx.fillStyle = 'rgb(160,98,248)';
+      nCtx.fillRect(x + 15, y + 15, 4, 4);
+      rCtx.fillStyle = '#3e3e3e';
+      rCtx.fillRect(x + 13, y + 13, 6, 6);
+    }
+  }
+
+  const mkTex = (canvas, srgb) => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 3);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return {
+    diff: mkTex(dCan, true),
+    nor: mkTex(nCan, false),
+    rough: mkTex(rCan, false)
+  };
+}
+
 function createHazardStripeTexture() {
   const s = 128;
   const c = makeCanvas(s, s);
@@ -244,10 +566,23 @@ function countObjectVertices(root) {
 export function createThreeAssetLibrary(renderer, worldRef) {
   const disposables = [];
   const steelMaps = createProceduralSteelTextures();
+  const rivetedMaps = createRivetedArmorTextures();
+  const clothMaps = createClothCanvasTextures();
+  const trackMapsIdle = createTankTrackTextures(4);
+  const trackMapsMoving = createTankTrackTextures(4);
+  const grateMaps = createIndustrialGrateTextures();
   const hazardTex = createHazardStripeTexture();
   const concreteTex = createConcretePadTexture();
   const holoTex = createHoloDomeTexture();
-  disposables.push(steelMaps.diff, steelMaps.nor, steelMaps.rough, hazardTex, concreteTex, holoTex);
+  disposables.push(
+    steelMaps.diff, steelMaps.nor, steelMaps.rough,
+    rivetedMaps.diff, rivetedMaps.nor, rivetedMaps.rough,
+    clothMaps.diff, clothMaps.nor, clothMaps.rough,
+    trackMapsIdle.diff, trackMapsIdle.nor, trackMapsIdle.rough,
+    trackMapsMoving.diff, trackMapsMoving.nor, trackMapsMoving.rough,
+    grateMaps.diff, grateMaps.nor, grateMaps.rough,
+    hazardTex, concreteTex, holoTex
+  );
 
   let revision = 1;
   let disposed = false;
@@ -395,6 +730,70 @@ export function createThreeAssetLibrary(renderer, worldRef) {
     return g;
   }
 
+  function buildBeveledBoxGeo() {
+    const hw = 0.425;
+    const s = new THREE.Shape();
+    s.moveTo(-hw, -hw);
+    s.lineTo(hw, -hw);
+    s.lineTo(hw, hw);
+    s.lineTo(-hw, hw);
+    s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, {
+      depth: 0.85,
+      bevelEnabled: true,
+      bevelThickness: 0.075,
+      bevelSize: 0.075,
+      bevelSegments: 2
+    });
+    g.center();
+    g.computeBoundingBox();
+    const sz = new THREE.Vector3();
+    g.boundingBox.getSize(sz);
+    g.scale(1 / Math.max(0.01, sz.x), 1 / Math.max(0.01, sz.y), 1 / Math.max(0.01, sz.z));
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function buildArmorDomeGeo() {
+    const pts = [new THREE.Vector2(0.01, 0), new THREE.Vector2(0.50, 0), new THREE.Vector2(0.50, 0.22)];
+    for (let i = 1; i <= 7; i++) {
+      const a = (i / 7) * (Math.PI * 0.5);
+      pts.push(new THREE.Vector2(Math.max(0.01, Math.cos(a) * 0.48), 0.22 + Math.sin(a) * 0.78));
+    }
+    const g = new THREE.LatheGeometry(pts, 16);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function buildTurretHullGeo() {
+    const s = new THREE.Shape();
+    s.moveTo(-0.32, 0.46);
+    s.lineTo(0.32, 0.46);
+    s.lineTo(0.46, 0.14);
+    s.lineTo(0.42, -0.42);
+    s.lineTo(-0.42, -0.42);
+    s.lineTo(-0.46, 0.14);
+    s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, {
+      depth: 0.72,
+      bevelEnabled: true,
+      bevelThickness: 0.12,
+      bevelSize: 0.08,
+      bevelSegments: 2
+    });
+    g.rotateX(-Math.PI * 0.5);
+    g.center();
+    g.computeBoundingBox();
+    const sz = new THREE.Vector3();
+    g.boundingBox.getSize(sz);
+    g.scale(1 / Math.max(0.01, sz.x), 1 / Math.max(0.01, sz.y), 1 / Math.max(0.01, sz.z));
+    g.computeVertexNormals();
+    return g;
+  }
+
+  const unitBevelBox = buildBeveledBoxGeo();
+  const unitDomeLathe = buildArmorDomeGeo();
+  const unitTurretHull = buildTurretHullGeo();
   const shipBowGeo = buildShipBowGeo(0.95, 1.55, 0.72);
   const coolingTowerGeo = buildCoolingTowerGeo();
   const radarDishGeo = buildRadarDishGeo();
@@ -402,39 +801,59 @@ export function createThreeAssetLibrary(renderer, worldRef) {
   const hangarArchGeo = buildHangarArchGeo();
   disposables.push(
     unitBox, unitCyl, unitOct, unitHex, unitCone, unitSphere, unitTorus,
+    unitBevelBox, unitDomeLathe, unitTurretHull,
     jetWingGeo, tailWingGeo, shipBowGeo, coolingTowerGeo, radarDishGeo, slopedCabGeo, hangarArchGeo
   );
 
   const fogHook = (mat, key) => (worldRef?.applyFogToMaterial ? worldRef.applyFogToMaterial(mat, key) : mat);
 
-  function makePbrArmorMat(hexCol, { roughness = 0.44, metalness = 0.68, edgeWear = 0.32, transparent = false, opacity = 1, mapOverride = null } = {}, key = 'armor') {
+  function makePbrArmorMat(
+    hexCol,
+    {
+      roughness = 0.44,
+      metalness = 0.68,
+      edgeWear = 0.32,
+      transparent = false,
+      opacity = 1,
+      mapOverride = null,
+      mapsOverride = null,
+      normalScale = 0.62,
+      rimStrength = 0.22,
+      rimColor = 0x8eb8dc
+    } = {},
+    key = 'armor'
+  ) {
+    const activeMaps = mapsOverride || (mapOverride ? null : rivetedMaps);
     const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(hexCol),
-      map: mapOverride || steelMaps.diff,
-      normalMap: mapOverride ? null : steelMaps.nor,
-      normalScale: new THREE.Vector2(0.55, 0.55),
-      roughnessMap: mapOverride ? null : steelMaps.rough,
+      map: mapOverride || activeMaps.diff,
+      normalMap: mapOverride ? null : activeMaps.nor,
+      normalScale: new THREE.Vector2(normalScale, normalScale),
+      roughnessMap: mapOverride ? null : activeMaps.rough,
       roughness,
       metalness,
       envMapIntensity: 1.12,
       transparent,
       opacity
     });
-    const prevKey = `ra3a-${key}-${Math.round(metalness * 10)}`;
+    const prevKey = `ra3a2-${key}-${Math.round(metalness * 10)}-${rimStrength > 0 ? 1 : 0}`;
     mat.customProgramCacheKey = () => prevKey;
     mat.onBeforeCompile = (shader) => {
       shader.uniforms.uEdgeWear = { value: edgeWear };
+      shader.uniforms.uRimStrength = { value: rimStrength };
+      shader.uniforms.uRimColor = { value: new THREE.Color(rimColor) };
       shader.vertexShader = shader.vertexShader
-        .replace('void main() {', 'varying vec3 vArmorWNorm;\nvarying float vArmorHeight;\nvoid main() {')
+        .replace('void main() {', 'varying vec3 vArmorWNorm;\nvarying vec3 vArmorWPos;\nvarying float vArmorHeight;\nvoid main() {')
         .replace(
           '#include <worldpos_vertex>',
           `#include <worldpos_vertex>
 vec4 _aWp = modelMatrix * vec4(transformed, 1.0);
+vArmorWPos = _aWp.xyz;
 vArmorWNorm = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
 vArmorHeight = clamp(_aWp.y - (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).y, 0.0, 2.0);`
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace('void main() {', 'varying vec3 vArmorWNorm;\nvarying float vArmorHeight;\nuniform float uEdgeWear;\nvoid main() {')
+        .replace('void main() {', 'varying vec3 vArmorWNorm;\nvarying vec3 vArmorWPos;\nvarying float vArmorHeight;\nuniform float uEdgeWear;\nuniform float uRimStrength;\nuniform vec3 uRimColor;\nvoid main() {')
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
@@ -442,6 +861,14 @@ float _edge = clamp(length(fwidth(normalize(vArmorWNorm))) * 3.8, 0.0, 1.0) * uE
 float _grime = smoothstep(0.0, 0.85, vArmorHeight);
 diffuseColor.rgb = mix(diffuseColor.rgb * 0.72, diffuseColor.rgb, _grime);
 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
+        )
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+vec3 _rimV = normalize(cameraPosition - vArmorWPos);
+float _rimNdotV = clamp(abs(dot(normalize(vArmorWNorm), _rimV)), 0.0, 1.0);
+float _rim = pow(1.0 - _rimNdotV, 2.75) * uRimStrength;
+totalEmissiveRadiance += uRimColor * _rim;`
         );
     };
     fogHook(mat, prevKey);
@@ -455,32 +882,37 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     const gunmetal = new THREE.Color(0x3a4046).lerp(teamColor, 0.08);
     const paintedArmor = new THREE.Color(0x4c545c).lerp(teamColor, 0.36);
     const brightTrim = new THREE.Color(0xd2d7dc).lerp(teamColor, 0.68);
+    const armorRimHex = new THREE.Color(0x8bb6da).lerp(teamColor, 0.32).getHex();
+    const clothRimHex = new THREE.Color(0x98b4d0).lerp(teamColor, 0.28).getHex();
 
     const p = {
-      team: makePbrArmorMat(paintedArmor.getHex(), { roughness: 0.46, metalness: 0.56, edgeWear: 0.36 }, `team-${ti}`),
-      hull: makePbrArmorMat(gunmetal.getHex(), { roughness: 0.44, metalness: 0.78, edgeWear: 0.32 }, `hull-${ti}`),
-      trim: makePbrArmorMat(brightTrim.getHex(), { roughness: 0.38, metalness: 0.44, edgeWear: 0.22 }, `trim-${ti}`),
-      dark: makePbrArmorMat(0x21262b, { roughness: 0.62, metalness: 0.72, edgeWear: 0.18 }, `dark-${ti}`),
-      concrete: makePbrArmorMat(0xe6eaee, { roughness: 0.88, metalness: 0.06, edgeWear: 0.10, mapOverride: concreteTex }, `conc-${ti}`),
-      hazard: makePbrArmorMat(0xf5f5f5, { roughness: 0.48, metalness: 0.22, edgeWear: 0.14, mapOverride: hazardTex }, `haz-${ti}`),
-      gold: makePbrArmorMat(0xd59f2a, { roughness: 0.42, metalness: 0.48, edgeWear: 0.22 }, `gold-${ti}`),
-      copper: makePbrArmorMat(0xb66e41, { roughness: 0.34, metalness: 0.84, edgeWear: 0.25 }, `cop-${ti}`),
-      skin: makePbrArmorMat(0xd6a584, { roughness: 0.78, metalness: 0.02, edgeWear: 0.04 }, `skin-${ti}`),
-      olive: makePbrArmorMat(0x5b6446, { roughness: 0.72, metalness: 0.14, edgeWear: 0.12 }, `olive-${ti}`),
-      leather: makePbrArmorMat(0x3d2a20, { roughness: 0.76, metalness: 0.08, edgeWear: 0.10 }, `leath-${ti}`),
-      silver: makePbrArmorMat(0xcfd8e2, { roughness: 0.30, metalness: 0.68, edgeWear: 0.18 }, `silv-${ti}`),
-      teamSuit: makePbrArmorMat(new THREE.Color(0x28323e).lerp(teamColor, 0.72).getHex(), { roughness: 0.64, metalness: 0.18, edgeWear: 0.05 }, `tsuit-${ti}`),
-      darkSuit: makePbrArmorMat(0x1b2026, { roughness: 0.68, metalness: 0.22, edgeWear: 0.04 }, `dsuit-${ti}`),
+      team: makePbrArmorMat(paintedArmor.getHex(), { roughness: 0.46, metalness: 0.56, edgeWear: 0.36, mapsOverride: rivetedMaps, rimStrength: 0.25, rimColor: armorRimHex }, `team-${ti}`),
+      hull: makePbrArmorMat(gunmetal.getHex(), { roughness: 0.44, metalness: 0.78, edgeWear: 0.32, mapsOverride: rivetedMaps, rimStrength: 0.24, rimColor: armorRimHex }, `hull-${ti}`),
+      trim: makePbrArmorMat(brightTrim.getHex(), { roughness: 0.38, metalness: 0.44, edgeWear: 0.22, mapsOverride: rivetedMaps, rimStrength: 0.26, rimColor: armorRimHex }, `trim-${ti}`),
+      dark: makePbrArmorMat(0x21262b, { roughness: 0.62, metalness: 0.72, edgeWear: 0.18, mapsOverride: rivetedMaps, rimStrength: 0.20, rimColor: armorRimHex }, `dark-${ti}`),
+      concrete: makePbrArmorMat(0xe6eaee, { roughness: 0.88, metalness: 0.06, edgeWear: 0.10, mapOverride: concreteTex, rimStrength: 0.07 }, `conc-${ti}`),
+      hazard: makePbrArmorMat(0xf5f5f5, { roughness: 0.48, metalness: 0.22, edgeWear: 0.14, mapOverride: hazardTex, rimStrength: 0.14 }, `haz-${ti}`),
+      gold: makePbrArmorMat(0xd59f2a, { roughness: 0.42, metalness: 0.48, edgeWear: 0.22, mapsOverride: rivetedMaps, rimStrength: 0.22, rimColor: 0xf4cf76 }, `gold-${ti}`),
+      copper: makePbrArmorMat(0xb66e41, { roughness: 0.34, metalness: 0.84, edgeWear: 0.25, mapsOverride: rivetedMaps, rimStrength: 0.22, rimColor: 0xf0aa78 }, `cop-${ti}`),
+      skin: makePbrArmorMat(0xd6a584, { roughness: 0.80, metalness: 0.02, edgeWear: 0.04, mapsOverride: clothMaps, normalScale: 0.18, rimStrength: 0.08, rimColor: 0xf2ccb0 }, `skin-${ti}`),
+      olive: makePbrArmorMat(0x5b6446, { roughness: 0.82, metalness: 0.08, edgeWear: 0.06, mapsOverride: clothMaps, normalScale: 0.58, rimStrength: 0.20, rimColor: clothRimHex }, `olive-${ti}`),
+      leather: makePbrArmorMat(0x3d2a20, { roughness: 0.76, metalness: 0.08, edgeWear: 0.10, mapsOverride: clothMaps, normalScale: 0.42, rimStrength: 0.14 }, `leath-${ti}`),
+      silver: makePbrArmorMat(0xcfd8e2, { roughness: 0.30, metalness: 0.68, edgeWear: 0.18, mapsOverride: rivetedMaps, rimStrength: 0.28, rimColor: 0xd8ecff }, `silv-${ti}`),
+      teamSuit: makePbrArmorMat(new THREE.Color(0x28323e).lerp(teamColor, 0.72).getHex(), { roughness: 0.80, metalness: 0.10, edgeWear: 0.05, mapsOverride: clothMaps, normalScale: 0.62, rimStrength: 0.22, rimColor: clothRimHex }, `tsuit-${ti}`),
+      darkSuit: makePbrArmorMat(0x1b2026, { roughness: 0.84, metalness: 0.12, edgeWear: 0.04, mapsOverride: clothMaps, normalScale: 0.56, rimStrength: 0.18, rimColor: clothRimHex }, `dsuit-${ti}`),
+      grate: makePbrArmorMat(0x525a62, { roughness: 0.42, metalness: 0.78, edgeWear: 0.22, mapsOverride: grateMaps, normalScale: 0.78, rimStrength: 0.18, rimColor: armorRimHex }, `grate-${ti}`),
+      track: makePbrArmorMat(0x2d3238, { roughness: 0.72, metalness: 0.52, edgeWear: 0.12, mapsOverride: trackMapsIdle, normalScale: 0.85, rimStrength: 0.12 }, `track-${ti}`),
+      trackMoving: makePbrArmorMat(0x2d3238, { roughness: 0.72, metalness: 0.52, edgeWear: 0.12, mapsOverride: trackMapsMoving, normalScale: 0.85, rimStrength: 0.12 }, `trackm-${ti}`),
       glass: fogHook(new THREE.MeshPhysicalMaterial({ color: 0x162e42, roughness: 0.14, metalness: 0.2, clearcoat: 0.9 }), `glass-${ti}`),
       glowCyan: fogHook(new THREE.MeshStandardMaterial({ color: 0x3bc2f2, emissive: 0x1694d4, emissiveIntensity: 1.08, roughness: 0.22 }), `glowc-${ti}`),
       glowRed: fogHook(new THREE.MeshStandardMaterial({ color: 0xf24a38, emissive: 0xd82012, emissiveIntensity: 1.15, roughness: 0.24 }), `glowr-${ti}`),
       glowGreen: fogHook(new THREE.MeshStandardMaterial({ color: 0x42df74, emissive: 0x18ba4e, emissiveIntensity: 1.10, roughness: 0.24 }), `glowg-${ti}`),
       glowGold: fogHook(new THREE.MeshStandardMaterial({ color: 0xf0be48, emissive: 0xd98614, emissiveIntensity: 1.12, roughness: 0.24 }), `glowy-${ti}`),
       glowViolet: fogHook(new THREE.MeshStandardMaterial({ color: 0xb054ff, emissive: 0x8d24f2, emissiveIntensity: 1.25, roughness: 0.20 }), `glowv-${ti}`),
-      chitin: makePbrArmorMat(0x281e36, { roughness: 0.38, metalness: 0.64, edgeWear: 0.32 }, `chitin-${ti}`),
+      chitin: makePbrArmorMat(0x281e36, { roughness: 0.38, metalness: 0.64, edgeWear: 0.32, mapsOverride: rivetedMaps, rimStrength: 0.24 }, `chitin-${ti}`),
       cloak: fogHook(new THREE.MeshStandardMaterial({ color: paintedArmor, roughness: 0.28, metalness: 0.75, transparent: true, opacity: 0.38 }), `cloak-${ti}`),
-      sandbag: fogHook(new THREE.MeshStandardMaterial({ color: 0x9b8e73, roughness: 0.92, metalness: 0.04 }), `sbag-${ti}`),
-      whiteMed: makePbrArmorMat(0xdce1e6, { roughness: 0.48, metalness: 0.2, edgeWear: 0.12 }, `med-${ti}`),
+      sandbag: makePbrArmorMat(0x9b8e73, { roughness: 0.90, metalness: 0.03, edgeWear: 0.05, mapsOverride: clothMaps, normalScale: 0.68, rimStrength: 0.10 }, `sbag-${ti}`),
+      whiteMed: makePbrArmorMat(0xdce1e6, { roughness: 0.48, metalness: 0.2, edgeWear: 0.12, mapsOverride: rivetedMaps, rimStrength: 0.16 }, `med-${ti}`),
       medCross: fogHook(new THREE.MeshStandardMaterial({ color: 0xd92828, emissive: 0x550808, emissiveIntensity: 0.35, roughness: 0.45 }), `medc-${ti}`),
       holoDome: fogHook(new THREE.MeshStandardMaterial({
         color: 0x62e8ff,
@@ -495,7 +927,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         side: THREE.DoubleSide
       }), `holo-${ti}`)
     };
-    disposables.push(p.glass, p.glowCyan, p.glowRed, p.glowGreen, p.glowGold, p.glowViolet, p.cloak, p.sandbag, p.medCross, p.holoDome);
+    disposables.push(p.glass, p.glowCyan, p.glowRed, p.glowGreen, p.glowGold, p.glowViolet, p.cloak, p.medCross, p.holoDome);
     return p;
   });
 
@@ -568,6 +1000,28 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     m.castShadow = true;
     m.receiveShadow = true;
     parent.add(m);
+    return m;
+  }
+
+  function addBevelBox(parent, sx, sy, sz, x, y, z, mat, rx = 0, ry = 0, rz = 0) {
+    return addGeo(parent, unitBevelBox, mat, sx, sy, sz, x, y, z, rx, ry, rz);
+  }
+
+  function addDome(parent, r, h, x, y, z, mat) {
+    return addGeo(parent, unitDomeLathe, mat, r * 2, h, r * 2, x, y, z);
+  }
+
+  function addPipeTube(parent, points, radius, mat, tubularSegments = 14, radialSegments = 6, ownerRoot = null) {
+    const vecs = points.map((p) => (p.isVector3 ? p : new THREE.Vector3(p[0], p[1], p[2])));
+    const curve = new THREE.CatmullRomCurve3(vecs);
+    const geo = new THREE.TubeGeometry(curve, tubularSegments, radius, radialSegments, false);
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    parent.add(m);
+    const owner = ownerRoot || parent;
+    owner.userData.ownedGeos = owner.userData.ownedGeos || [];
+    owner.userData.ownedGeos.push(geo);
     return m;
   }
 
@@ -701,7 +1155,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
   // === 1. INFANTRY BUILDER (9 bespoke 1:1 prototype-accurate anatomical rigs) ===
   function buildInfantry(typeId, pal, teamId) {
     const root = new THREE.Group();
-    const parts = { mixer: null, actions: null, sandbags: null, weaponPivot: null, legL: null, legR: null, cloakMeshes: [] };
+    const parts = { mixer: null, actions: null, sandbags: null, weaponPivot: null, legL: null, legR: null, cloakMeshes: [], bodyRig: null };
 
     const track = (m) => {
       if (typeId === 'shadow' && m?.isMesh) parts.cloakMeshes.push(m);
@@ -732,6 +1186,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     const b = typeId === 'sledge' ? 1.34 : (typeId === 'tesla_trooper' ? 1.26 : (typeId === 'flak_trooper' ? 1.08 : (typeId === 'shadow' ? 0.94 : 1.0)));
 
     function buildBipedBase(cfg) {
+      const tgt = cfg.parent || root;
       const lw = cfg.limbScale ?? 1.0;
       const tw = cfg.torsoScale ?? 1.0;
       const hipX = 0.125 * b * tw * s;
@@ -748,39 +1203,39 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         }
         pBox(leg, 0.145 * b * lw * s, 0.125 * s, 0.25 * s, 0, -0.73 * s, 0.045 * s, cfg.bootMat);
         pSph(leg, 0.072 * b * lw * s, 0, -0.72 * s, 0.12 * s, cfg.bootMat, 1.0, 0.72, 1.0);
-        root.add(leg);
+        tgt.add(leg);
         if (side < 0) parts.legL = leg;
         else parts.legR = leg;
       }
 
       // Sculpted Pelvis & Utility Belt + Front Pouches
-      const torsoCore = pCyl(root, 0.155 * b * tw * s, 0.155 * b * tw * s, 0.20 * s, 0, 0.86 * s, 0, cfg.pelvisMat);
+      const torsoCore = pCyl(tgt, 0.155 * b * tw * s, 0.155 * b * tw * s, 0.20 * s, 0, 0.86 * s, 0, cfg.pelvisMat);
       torsoCore.scale.x *= 1.16;
       torsoCore.scale.z *= 0.82;
-      const beltMesh = pCyl(root, 0.165 * b * tw * s, 0.165 * b * tw * s, 0.075 * s, 0, 0.91 * s, 0, cfg.beltMat);
+      const beltMesh = pCyl(tgt, 0.165 * b * tw * s, 0.165 * b * tw * s, 0.075 * s, 0, 0.91 * s, 0, cfg.beltMat);
       beltMesh.scale.x *= 1.18;
       beltMesh.scale.z *= 0.84;
       for (const px of [-0.11, 0, 0.11]) {
-        pBox(root, 0.075 * s, 0.085 * s, 0.065 * s, px * b * tw * s, 0.90 * s, 0.145 * b * tw * s, cfg.pouchMat);
+        pBox(tgt, 0.075 * s, 0.085 * s, 0.065 * s, px * b * tw * s, 0.90 * s, 0.145 * b * tw * s, cfg.pouchMat);
       }
 
       // Sculpted Ribcage / Chest Cuirass
-      const chest = pCyl(root, 0.185 * b * tw * s, 0.185 * b * tw * s, 0.42 * s, 0, 1.14 * s, 0, cfg.torsoMat);
+      const chest = pCyl(tgt, 0.185 * b * tw * s, 0.185 * b * tw * s, 0.42 * s, 0, 1.14 * s, 0, cfg.torsoMat);
       chest.scale.x *= 1.24;
       chest.scale.z *= 0.76;
       if (cfg.chestPlateMat) {
-        pBox(root, 0.34 * b * tw * s, 0.28 * s, 0.12 * b * tw * s, 0, 1.18 * s, 0.105 * b * tw * s, cfg.chestPlateMat);
-        pBox(root, 0.30 * b * tw * s, 0.22 * s, 0.10 * b * tw * s, 0, 1.18 * s, -0.105 * b * tw * s, cfg.chestPlateMat);
+        pBox(tgt, 0.34 * b * tw * s, 0.28 * s, 0.12 * b * tw * s, 0, 1.18 * s, 0.105 * b * tw * s, cfg.chestPlateMat);
+        pBox(tgt, 0.30 * b * tw * s, 0.22 * s, 0.10 * b * tw * s, 0, 1.18 * s, -0.105 * b * tw * s, cfg.chestPlateMat);
       }
 
       // Collar / Neck & Sculpted Head
-      pCyl(root, 0.075 * s, 0.095 * s, 0.10 * s, 0, 1.38 * s, 0, cfg.collarMat || cfg.torsoMat);
+      pCyl(tgt, 0.075 * s, 0.095 * s, 0.10 * s, 0, 1.38 * s, 0, cfg.collarMat || cfg.torsoMat);
       if (cfg.openFace) {
-        pSph(root, 0.122 * s, 0, 1.49 * s, 0.015 * s, pal.skin, 0.92, 1.12, 0.98);
-        pBox(root, 0.14 * s, 0.032 * s, 0.04 * s, 0, 1.515 * s, 0.115 * s, pal.darkSuit);
-        pBox(root, 0.035 * s, 0.045 * s, 0.035 * s, 0, 1.48 * s, 0.125 * s, pal.skin);
+        pSph(tgt, 0.122 * s, 0, 1.49 * s, 0.015 * s, pal.skin, 0.92, 1.12, 0.98);
+        pBox(tgt, 0.14 * s, 0.032 * s, 0.04 * s, 0, 1.515 * s, 0.115 * s, pal.darkSuit);
+        pBox(tgt, 0.035 * s, 0.045 * s, 0.035 * s, 0, 1.48 * s, 0.125 * s, pal.skin);
       } else {
-        pSph(root, 0.132 * s, 0, 1.49 * s, 0.01 * s, cfg.headMat, 0.95, 1.10, 1.02);
+        pSph(tgt, 0.132 * s, 0, 1.49 * s, 0.01 * s, cfg.headMat, 0.95, 1.10, 1.02);
       }
 
       // Shoulders & Arms (posed symmetrically or per-role)
@@ -791,10 +1246,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         const isLeft = side > 0;
         const rx = isLeft ? armAngles.lRx : armAngles.rRx;
         const rz = isLeft ? armAngles.lRz : armAngles.rRz;
-        pSph(root, 0.092 * b * lw * s, side * shX, shY, 0, cfg.pauldronMat, 1.08, 0.95, 1.05);
+        pSph(tgt, 0.092 * b * lw * s, side * shX, shY, 0, cfg.pauldronMat, 1.08, 0.95, 1.05);
         if (cfg.heavyPauldron) {
-          pSph(root, 0.135 * b * s, side * (shX + 0.035 * b * s), shY + 0.035 * s, 0, cfg.pauldronMat, 1.12, 0.96, 1.24);
-          pSph(root, 0.115 * b * s, side * (shX + 0.045 * b * s), shY - 0.02 * s, 0, pal.hull, 1.10, 0.55, 1.26);
+          pSph(tgt, 0.135 * b * s, side * (shX + 0.035 * b * s), shY + 0.035 * s, 0, cfg.pauldronMat, 1.12, 0.96, 1.24);
+          pSph(tgt, 0.115 * b * s, side * (shX + 0.045 * b * s), shY - 0.02 * s, 0, pal.hull, 1.10, 0.55, 1.26);
         }
         const arm = new THREE.Group();
         arm.position.set(side * shX, shY - 0.02 * s, 0);
@@ -806,7 +1261,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
           pBox(arm, 0.105 * b * lw * s, 0.16 * s, 0.075 * b * lw * s, 0, -0.38 * s, 0.07 * s, cfg.bracerMat, -0.35);
         }
         pSph(arm, 0.054 * lw * s, 0, -0.49 * s, 0.075 * s, cfg.gloveMat);
-        root.add(arm);
+        tgt.add(arm);
       }
     }
 
@@ -824,12 +1279,22 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     } else {
       wPivot.position.set(-0.20 * s, 1.04 * s, 0.20 * s);
     }
-    root.add(wPivot);
+    wPivot.userData.restZ = wPivot.position.z;
+    wPivot.userData.restY = wPivot.position.y;
+    const giRig = typeId === 'gi' ? new THREE.Group() : null;
+    if (giRig) {
+      root.add(giRig);
+      parts.bodyRig = giRig;
+      giRig.add(wPivot);
+    } else {
+      root.add(wPivot);
+    }
     parts.weaponPivot = wPivot;
 
     if (typeId === 'gi') {
       // 1:1 Allied GI (infantry_classes.jpg TL): Rich blue M1 helmet & uniform + shoulder gold star + leather webbing + M60 LMG w/ olive ammo box & bipod + deployed staggered sandbags
       buildBipedBase({
+        parent: giRig,
         legMat: pal.teamSuit, kneeMat: pal.darkSuit, shinMat: pal.teamSuit, bootMat: pal.leather,
         pelvisMat: pal.teamSuit, beltMat: pal.leather, pouchMat: pal.leather,
         torsoMat: pal.teamSuit, chestPlateMat: pal.hull, pauldronMat: pal.teamSuit,
@@ -837,14 +1302,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         armAngles: { lRx: -1.05, lRz: -0.38, rRx: -1.05, rRz: 0.12 }
       });
       // M1 Helmet dome + rim + twin shoulder rank stars
-      pSph(root, 0.155 * s, 0, 1.565 * s, -0.005 * s, pal.teamSuit, 1.04, 0.78, 1.08);
-      pCyl(root, 0.168 * s, 0.168 * s, 0.042 * s, 0, 1.525 * s, 0.005 * s, pal.teamSuit);
-      pBox(root, 0.045, 0.065, 0.055, -0.33, 1.24, 0, pal.gold);
-      pBox(root, 0.045, 0.065, 0.055, 0.33, 1.24, 0, pal.gold);
+      pSph(giRig, 0.155 * s, 0, 1.565 * s, -0.005 * s, pal.teamSuit, 1.04, 0.78, 1.08);
+      pCyl(giRig, 0.168 * s, 0.168 * s, 0.042 * s, 0, 1.525 * s, 0.005 * s, pal.teamSuit);
+      pBox(giRig, 0.045, 0.065, 0.055, -0.33, 1.24, 0, pal.gold);
+      pBox(giRig, 0.045, 0.065, 0.055, 0.33, 1.24, 0, pal.gold);
       // Leather chest Y-webbing & tactical backpack
-      pBox(root, 0.055, 0.34, 0.26, -0.10, 1.15, 0.01, pal.leather);
-      pBox(root, 0.055, 0.34, 0.26, 0.10, 1.15, 0.01, pal.leather);
-      pBox(root, 0.30, 0.34, 0.18, 0, 1.14, -0.20, pal.hull);
+      pBox(giRig, 0.055, 0.34, 0.26, -0.10, 1.15, 0.01, pal.leather);
+      pBox(giRig, 0.055, 0.34, 0.26, 0.10, 1.15, 0.01, pal.leather);
+      pBox(giRig, 0.30, 0.34, 0.18, 0, 1.14, -0.20, pal.hull);
       // Heavy M60 LMG with olive belt box & folded bipod
       pBox(wPivot, 0.09, 0.13, 0.56, 0.10, 0, 0.24, pal.hull, 0, 0.24, 0);
       pBox(wPivot, 0.12, 0.14, 0.16, -0.02, -0.04, 0.26, pal.olive, 0, 0.24, 0);
@@ -1098,7 +1563,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
   // === 2. TANK / ARMOR / VEHICLE BUILDER (8 types, articulated MBT + Hero MCV) ===
   function buildVehicle(typeId, pal) {
     const root = new THREE.Group();
-    const parts = { turret: null, barrel: null, v3Rocket: null, rollers: null, oreFill: null, rotor: null };
+    const parts = { turret: null, barrel: null, v3Rocket: null, rollers: null, oreFill: null, rotor: null, trackMeshes: [] };
 
     if ((typeId === 'grizzly' || typeId === 'rhino' || typeId === 'apocalypse') && glbTemplates.tank) {
       const tankClone = SkeletonUtils.clone(glbTemplates.tank);
@@ -1110,9 +1575,16 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         o.castShadow = true;
         o.receiveShadow = true;
         const n = (o.name || '').toLowerCase();
-        if (n.includes('track') || n.includes('gun')) o.material = pal.dark;
-        else if (n.includes('turret')) o.material = pal.team;
-        else o.material = pal.hull;
+        if (n.includes('track')) {
+          o.material = pal.track;
+          parts.trackMeshes.push(o);
+        } else if (n.includes('gun')) {
+          o.material = pal.dark;
+        } else if (n.includes('turret')) {
+          o.material = pal.team;
+        } else {
+          o.material = pal.hull;
+        }
       });
 
       tankClone.updateMatrixWorld(true);
@@ -1137,12 +1609,16 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
         root.add(tPivot);
         root.updateMatrixWorld(true);
         tPivot.attach(rawTurret);
-        if (rawGun) tPivot.attach(rawGun);
+
+        const barrelGroup = new THREE.Group();
+        tPivot.add(barrelGroup);
+        tPivot.updateMatrixWorld(true);
+        if (rawGun) barrelGroup.attach(rawGun);
 
         if (typeId === 'apocalypse') {
           const bY = tBox.max.y * 0.68;
-          addCyl(tPivot, 0.11, 0.12, 2.45, -0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
-          addCyl(tPivot, 0.11, 0.12, 2.45, 0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
+          addCyl(barrelGroup, 0.11, 0.12, 2.45, -0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
+          addCyl(barrelGroup, 0.11, 0.12, 2.45, 0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
           addBox(tPivot, 0.92, 0.28, 0.42, 0, bY, 0.58, pal.hull);
           addBox(tPivot, 1.24, 0.44, 0.78, 0, tBox.max.y + 0.20, -0.38, pal.team);
           addBox(tPivot, 0.16, 0.16, 0.68, -0.40, tBox.max.y + 0.20, 0.08, pal.glowRed);
@@ -1154,6 +1630,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
           addCyl(tPivot, 0.16, 0.18, 0.18, 0.24, tBox.max.y + 0.08, -0.16, pal.hull);
           addCyl(tPivot, 0.02, 0.02, 0.72, -0.32, tBox.max.y + 0.34, -0.32, pal.trim);
         }
+        barrelGroup.userData.restZ = barrelGroup.position.z;
+        parts.barrel = barrelGroup;
         parts.turret = tPivot;
       }
 
@@ -1174,26 +1652,32 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
 
     if (typeId === 'grizzly' || typeId === 'rhino' || typeId === 'apocalypse') {
       const sc = typeId === 'apocalypse' ? 1.32 : (typeId === 'rhino' ? 1.12 : 1.0);
-      addBox(root, 0.52 * sc, 0.56 * sc, 2.75 * sc, -0.88 * sc, 0.28 * sc, 0, pal.dark);
-      addBox(root, 0.52 * sc, 0.56 * sc, 2.75 * sc, 0.88 * sc, 0.28 * sc, 0, pal.dark);
-      addBox(root, 1.48 * sc, 0.52 * sc, 2.48 * sc, 0, 0.58 * sc, 0, pal.team);
-      addBox(root, 1.44 * sc, 0.34 * sc, 0.56 * sc, 0, 0.64 * sc, 1.12 * sc, pal.hull, 0.34);
+      parts.trackMeshes.push(
+        addBevelBox(root, 0.52 * sc, 0.56 * sc, 2.75 * sc, -0.88 * sc, 0.28 * sc, 0, pal.track),
+        addBevelBox(root, 0.52 * sc, 0.56 * sc, 2.75 * sc, 0.88 * sc, 0.28 * sc, 0, pal.track)
+      );
+      addBevelBox(root, 1.48 * sc, 0.52 * sc, 2.48 * sc, 0, 0.58 * sc, 0, pal.team);
+      addBevelBox(root, 1.44 * sc, 0.34 * sc, 0.56 * sc, 0, 0.64 * sc, 1.12 * sc, pal.hull, 0.34);
 
       const turret = new THREE.Group();
       turret.position.set(0, 0.92 * sc, -0.1 * sc);
-      addBox(turret, 1.18 * sc, 0.44 * sc, 1.34 * sc, 0, 0.22 * sc, -0.05 * sc, pal.team);
-      addBox(turret, 0.85 * sc, 0.16 * sc, 0.88 * sc, 0, 0.46 * sc, -0.1 * sc, pal.trim);
+      addGeo(turret, unitTurretHull, pal.team, 1.18 * sc, 0.44 * sc, 1.34 * sc, 0, 0.22 * sc, -0.05 * sc);
+      addBevelBox(turret, 0.85 * sc, 0.16 * sc, 0.88 * sc, 0, 0.46 * sc, -0.1 * sc, pal.trim);
+      const barrelGroup = new THREE.Group();
       if (typeId === 'apocalypse') {
-        addCyl(turret, 0.10 * sc, 0.11 * sc, 2.05 * sc, -0.26 * sc, 0.24 * sc, 1.28 * sc, pal.dark, Math.PI * 0.5);
-        addCyl(turret, 0.10 * sc, 0.11 * sc, 2.05 * sc, 0.26 * sc, 0.24 * sc, 1.28 * sc, pal.dark, Math.PI * 0.5);
+        addCyl(barrelGroup, 0.10 * sc, 0.11 * sc, 2.05 * sc, -0.26 * sc, 0.24 * sc, 1.28 * sc, pal.dark, Math.PI * 0.5);
+        addCyl(barrelGroup, 0.10 * sc, 0.11 * sc, 2.05 * sc, 0.26 * sc, 0.24 * sc, 1.28 * sc, pal.dark, Math.PI * 0.5);
         addBox(turret, 1.05 * sc, 0.34 * sc, 0.55 * sc, 0, 0.62 * sc, -0.45 * sc, pal.dark);
       } else {
-        addCyl(turret, 0.09 * sc, 0.10 * sc, 1.85 * sc, 0, 0.24 * sc, 1.18 * sc, pal.dark, Math.PI * 0.5);
+        addCyl(barrelGroup, 0.09 * sc, 0.10 * sc, 1.85 * sc, 0, 0.24 * sc, 1.18 * sc, pal.dark, Math.PI * 0.5);
       }
+      barrelGroup.userData.restZ = 0;
+      turret.add(barrelGroup);
+      parts.barrel = barrelGroup;
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'ifv') {
-      addBox(root, 1.48, 0.62, 2.38, 0, 0.56, -0.08, pal.team);
+      addBevelBox(root, 1.48, 0.62, 2.38, 0, 0.56, -0.08, pal.team);
       addGeo(root, slopedCabGeo, pal.hull, 1.42, 0.62, 0.72, 0, 0.60, 1.22);
       addBox(root, 1.26, 0.24, 0.56, 0, 0.86, 0.88, pal.glass, 0.35);
       addBox(root, 1.56, 0.16, 0.24, 0, 0.38, 1.52, pal.hazard);
@@ -1211,9 +1695,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'v3') {
-      addBox(root, 0.44, 0.50, 3.25, -0.84, 0.26, 0, pal.dark);
-      addBox(root, 0.44, 0.50, 3.25, 0.84, 0.26, 0, pal.dark);
-      addBox(root, 1.46, 0.54, 3.05, 0, 0.56, 0, pal.team);
+      parts.trackMeshes.push(
+        addBevelBox(root, 0.44, 0.50, 3.25, -0.84, 0.26, 0, pal.track),
+        addBevelBox(root, 0.44, 0.50, 3.25, 0.84, 0.26, 0, pal.track)
+      );
+      addBevelBox(root, 1.46, 0.54, 3.05, 0, 0.56, 0, pal.team);
       addGeo(root, slopedCabGeo, pal.hull, 1.38, 0.58, 0.92, 0, 0.98, 1.02);
       addBox(root, 1.18, 0.24, 0.22, 0, 1.12, 1.36, pal.glass);
       addBox(root, 0.26, 0.52, 0.32, -0.96, 0.28, -1.35, pal.hazard);
@@ -1230,9 +1716,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       parts.turret = rail;
       parts.v3Rocket = rocket;
     } else if (typeId === 'prism') {
-      addBox(root, 0.44, 0.46, 2.55, -0.80, 0.25, 0, pal.dark);
-      addBox(root, 0.44, 0.46, 2.55, 0.80, 0.25, 0, pal.dark);
-      addBox(root, 1.42, 0.48, 2.35, 0, 0.52, 0, pal.team);
+      parts.trackMeshes.push(
+        addBevelBox(root, 0.44, 0.46, 2.55, -0.80, 0.25, 0, pal.track),
+        addBevelBox(root, 0.44, 0.46, 2.55, 0.80, 0.25, 0, pal.track)
+      );
+      addBevelBox(root, 1.42, 0.48, 2.35, 0, 0.52, 0, pal.team);
       addGeo(root, slopedCabGeo, pal.hull, 1.36, 0.34, 0.56, 0, 0.58, 1.15);
       const turret = new THREE.Group();
       turret.position.set(0, 0.88, -0.05);
@@ -1244,13 +1732,16 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'harvester') {
-      addBox(root, 0.50, 0.56, 2.75, -0.94, 0.28, -0.1, pal.dark);
-      addBox(root, 0.50, 0.56, 2.75, 0.94, 0.28, -0.1, pal.dark);
-      addBox(root, 1.68, 0.60, 2.52, 0, 0.62, -0.1, pal.team);
+      parts.trackMeshes.push(
+        addBevelBox(root, 0.50, 0.56, 2.75, -0.94, 0.28, -0.1, pal.track),
+        addBevelBox(root, 0.50, 0.56, 2.75, 0.94, 0.28, -0.1, pal.track)
+      );
+      addBevelBox(root, 1.68, 0.60, 2.52, 0, 0.62, -0.1, pal.team);
       addGeo(root, slopedCabGeo, pal.gold, 1.42, 0.58, 0.88, 0, 1.14, 0.55);
       addBox(root, 1.24, 0.22, 0.16, 0, 1.22, 0.96, pal.glass);
       addBox(root, 1.72, 0.24, 0.22, 0, 0.44, 1.22, pal.hazard);
-      addBox(root, 1.52, 0.58, 1.48, 0, 1.05, -0.68, pal.hull);
+      addBevelBox(root, 1.52, 0.58, 1.48, 0, 1.05, -0.68, pal.hull);
+      addBox(root, 1.42, 0.06, 1.38, 0, 1.35, -0.68, pal.grate);
       const oreFill = addBox(root, 1.26, 0.36, 1.18, 0, 1.24, -0.68, pal.glowGold);
       oreFill.scale.y = 0.05;
       parts.oreFill = oreFill;
@@ -1651,8 +2142,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       addBox(root, w * 0.36, 0.16, 0.14, -w * 0.12, 1.38, h * 0.34, pal.glowGold);
 
       // Sloped Ribbed Ore Conveyor Ramp leading into the smelter intake
-      addBox(root, 1.48, 0.18, 1.85, w * 0.20, 0.56, h * 0.32, pal.hazard);
-      addBox(root, 1.18, 0.22, 2.25, w * 0.20, 1.18, h * 0.24, pal.dark, 0.46);
+      addBevelBox(root, 1.48, 0.18, 1.85, w * 0.20, 0.56, h * 0.32, pal.hazard);
+      addBevelBox(root, 1.18, 0.22, 2.25, w * 0.20, 1.18, h * 0.24, pal.grate, 0.46);
       addBox(root, 0.14, 0.34, 2.28, w * 0.20 - 0.58, 1.24, h * 0.24, pal.hull, 0.46);
       addBox(root, 0.14, 0.34, 2.28, w * 0.20 + 0.58, 1.24, h * 0.24, pal.hull, 0.46);
       for (let r = 0; r < 6; r++) {
@@ -1716,11 +2207,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
 
       // Deep Recessed Warm-Lit Garage Interior & Exit Floor Ramp
       addBox(root, w * 0.52, 2.28, 0.26, 0, 1.62, -h * 0.42, pal.dark);
-      addBox(root, w * 0.54, 0.10, h * 0.74, 0, 0.50, -0.02, pal.dark);
+      addBox(root, w * 0.54, 0.10, h * 0.74, 0, 0.50, -0.02, pal.grate);
       addBox(root, w * 0.36, 0.14, h * 0.62, 0, 2.34, -0.04, pal.glowGold);
       addBox(root, w * 0.44, 0.14, 0.22, 0, 2.22, h * 0.20, pal.gold);
       addBox(root, w * 0.56, 0.14, 0.32, 0, 0.52, h * 0.38, pal.hazard);
-      addBox(root, w * 0.56, 0.18, 0.96, 0, 0.36, h * 0.47, pal.concrete, 0.22);
+      addBevelBox(root, w * 0.56, 0.18, 0.96, 0, 0.36, h * 0.47, pal.concrete, 0.22);
 
       // 4 External Orange-Gold Overhead Open-Lattice Gantry Cranes (2 left, 2 right)
       for (const side of [-1, 1]) {
@@ -1994,7 +2485,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
       ownedGeos.push(merged);
     }
     if (ownedGeos.length > 0) {
-      root.userData.ownedGeos = ownedGeos;
+      root.userData.ownedGeos = [...(root.userData.ownedGeos || []), ...ownedGeos];
     }
   }
 
@@ -2199,6 +2690,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     }
   }
 
+  function updateAnimatedTextures(dtSec) {
+    const dy = (trackMapsMoving.diff.offset.y - dtSec * 2.6) % 1;
+    trackMapsMoving.diff.offset.y = dy;
+    trackMapsMoving.nor.offset.y = dy;
+    trackMapsMoving.rough.offset.y = dy;
+  }
+
+  function getTrackMaterials(teamId) {
+    const pal = getPalette(teamId);
+    return { idle: pal.track, moving: pal.trackMoving };
+  }
+
   function dispose() {
     disposed = true;
     for (const d of disposables) d?.dispose?.();
@@ -2210,6 +2713,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.65, 0.68), _edge * 0.55);`
     },
     glbLoadedTypes,
     buildInstance: buildProceduralInstance,
+    updateAnimatedTextures,
+    getTrackMaterials,
     loadGlbBufferOverride,
     loadSpriteBufferOverride,
     restoreProceduralModel,

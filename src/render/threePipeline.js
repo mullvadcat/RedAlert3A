@@ -181,6 +181,22 @@ function createWakeTexture() {
   return tex;
 }
 
+function createContactShadowTexture() {
+  const s = 128;
+  const c = makeCanvas(s, s);
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 6, 64, 64, 62);
+  g.addColorStop(0.0, 'rgba(6,10,14,0.56)');
+  g.addColorStop(0.45, 'rgba(8,12,18,0.34)');
+  g.addColorStop(0.78, 'rgba(10,14,20,0.12)');
+  g.addColorStop(1.0, 'rgba(10,14,20,0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function resolveQualityPreset(presetId) {
   if (presetId === 'low' || presetId === 'medium' || presetId === 'balanced') {
     return { ...QUALITY_PRESETS.balanced };
@@ -632,6 +648,17 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
   const ringFxInst = makeFxInst(flatQuadGeo, ringFxMat, MAX_RING_FX, 7);
   const wakeInst = makeFxInst(flatQuadGeo, wakeMat, MAX_WAKES, 3);
 
+  const MAX_CONTACT_SHADOWS = 512;
+  const contactShadowTex = createContactShadowTexture();
+  const contactShadowMat = new THREE.MeshBasicMaterial({
+    map: contactShadowTex,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1
+  });
+  const contactShadowInst = makeFxInst(flatQuadGeo, contactShadowMat, MAX_CONTACT_SHADOWS, 2);
+
   // Live Entity Sync Store
   const entityGroup = new THREE.Group();
   scene.add(entityGroup);
@@ -674,6 +701,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     let ringCount = 0;
     let hpCount = 0;
     let wakeCount = 0;
+    let shadowCount = 0;
 
     // Camera basis for billboarded HP bars
     camRightVec.setFromMatrixColumn(threeCamera.matrixWorld, 0).normalize();
@@ -714,7 +742,12 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
           spawnTime: prevSpawnTime,
           root: built.root,
           parts: built.parts || {},
-          smoothYaw: e.yaw ?? 0
+          smoothYaw: e.yaw ?? 0,
+          prevYaw: e.yaw ?? 0,
+          bankAngle: 0,
+          recoil: 0,
+          prevFireCooldown: e.fireCooldownTicks ?? e.cooldown ?? 0,
+          crouchBlend: 0
         };
         entityMap.set(e.id, rec);
         entityGroup.add(rec.root);
@@ -768,6 +801,28 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
 
       const targetYaw = e.yaw ?? 0;
       rec.smoothYaw = lerpAngle(rec.smoothYaw, targetYaw, Math.min(1, dtSec * 14 + 0.12));
+
+      // Fire recoil detection & decay
+      const curCd = e.fireCooldownTicks ?? e.cooldown ?? 0;
+      if (curCd > rec.prevFireCooldown + 1) {
+        rec.recoil = 1.0;
+      }
+      rec.prevFireCooldown = curCd;
+      rec.recoil = Math.max(0, rec.recoil - dtSec * 4.5);
+
+      if (e.category === 'vehicle') {
+        pitchRollX -= rec.recoil * 0.055;
+      }
+      if (e.category === 'air') {
+        let dyaw = rec.smoothYaw - rec.prevYaw;
+        while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+        while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+        const targetBank = Math.max(-0.42, Math.min(0.42, (-dyaw / Math.max(0.008, dtSec)) * 0.24));
+        rec.bankAngle += (targetBank - rec.bankAngle) * Math.min(1, dtSec * 8);
+        pitchRollZ += rec.bankAngle;
+      }
+      rec.prevYaw = rec.smoothYaw;
+
       rec.root.position.set(ix, drawY, iz);
       rec.root.rotation.set(pitchRollX, rec.smoothYaw, pitchRollZ);
 
@@ -793,8 +848,23 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
 
       // Role part animations
       const p = rec.parts;
+      const isMoving = Math.hypot((e.vx ?? 0), (e.vz ?? 0)) > 0.25 ||
+        (e.prevX !== undefined && Math.hypot(e.x - e.prevX, e.z - e.prevZ) > 0.015);
       if (p.turret) {
         p.turret.rotation.y = (e.turretYaw ?? rec.smoothYaw) - rec.smoothYaw;
+      }
+      if (p.barrel) {
+        p.barrel.position.z = (p.barrel.userData?.restZ ?? 0) - rec.recoil * 0.36;
+      }
+      if (p.weaponPivot) {
+        p.weaponPivot.position.z = (p.weaponPivot.userData?.restZ ?? p.weaponPivot.position.z) - rec.recoil * 0.09;
+      }
+      if (p.trackMeshes?.length) {
+        const tm = assets.getTrackMaterials(e.teamId);
+        const wantMat = isMoving ? tm.moving : tm.idle;
+        for (let ti = 0; ti < p.trackMeshes.length; ti++) {
+          if (p.trackMeshes[ti].material !== wantMat) p.trackMeshes[ti].material = wantMat;
+        }
       }
       if (p.rotor) {
         const speed = e.typeId === 'nighthawk' ? 18.0 : (e.typeId === 'conyard' ? 0.45 : 1.6);
@@ -811,20 +881,50 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         p.sandbags.visible = e.deployState === 'DEPLOYED' || Boolean(e.deployed);
       }
       if (p.oreFill) {
-        const fill = Math.max(0.04, Math.min(1, (e.cargo ?? 0) / ECONOMY_CONFIG.maxHarvesterCargoCells));
+        const cargo = e.cargoCount ?? e.cargo ?? 0;
+        const fill = Math.max(0.04, Math.min(1, cargo / ECONOMY_CONFIG.maxHarvesterCargoCells));
         p.oreFill.scale.y = fill * 0.42;
-        p.oreFill.visible = (e.cargo ?? 0) > 0;
+        p.oreFill.visible = cargo > 0;
       }
-      if (p.rollers && e.harvestingTicks > 0) {
-        p.rollers.rotation.x += dtSec * 10.0;
+      if (p.rollers) {
+        const harvesting = e.fsmState === 'H_HARVESTING' || (e.harvestingTicks ?? 0) > 0;
+        if (harvesting) {
+          p.rollers.rotation.x += dtSec * 12.0;
+        } else if (isMoving) {
+          p.rollers.rotation.x += dtSec * 3.5;
+        }
       }
       if (p.v3Rocket) {
-        p.v3Rocket.visible = (e.cooldown ?? 0) < (def?.weapon?.cooldownTicks ?? 210) * 0.65;
+        p.v3Rocket.visible = curCd < (def?.weapon?.cooldownTicks ?? 210) * 0.65;
+      }
+
+      // Ground contact shadow
+      if (shadowCount < MAX_CONTACT_SHADOWS && !navalInWater && !(e.typeId === 'typhoon' && e.stealth)) {
+        const isAirUnit = e.category === 'air' || e.typeId === 'rocketeer';
+        const gY = state.map ? getElevationAtWorld(state.map, ix, iz) : baseY;
+        let sW;
+        let sH;
+        if (e.isBuilding) {
+          sW = (def?.footprintW ?? 2) * 2.25;
+          sH = (def?.footprintH ?? 2) * 2.25;
+        } else if (isAirUnit) {
+          const altBoost = 1 + Math.max(0, drawY - gY) * 0.06;
+          const r = Math.max(1.25, (e.radius ?? 1.0) * 2.35) * altBoost;
+          sW = r;
+          sH = r;
+        } else {
+          const r = Math.max(1.15, (e.radius ?? 0.9) * 2.55);
+          sW = r;
+          sH = r;
+        }
+        dummy.position.set(ix, (isAirUnit ? gY : baseY) + 0.035, iz);
+        dummy.rotation.set(0, e.isBuilding ? 0 : rec.smoothYaw, 0);
+        dummy.scale.set(sW, 1, sH);
+        dummy.updateMatrix();
+        contactShadowInst.setMatrixAt(shadowCount++, dummy.matrix);
       }
 
       // Infantry locomotion & naval stern wakes
-      const isMoving = Math.hypot((e.vx ?? 0), (e.vz ?? 0)) > 0.25 ||
-        (e.prevX !== undefined && Math.hypot(e.x - e.prevX, e.z - e.prevZ) > 0.015);
       if (navalInWater && isMoving && !(e.typeId === 'typhoon' && e.stealth) && wakeCount < MAX_WAKES) {
         const rad = e.radius ?? 1.5;
         const backOffset = rad * 1.55;
@@ -844,8 +944,23 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
         mixerCandidates.push({ rec, d2, isMoving });
       } else if (p.legL && p.legR) {
         const sw = isMoving ? Math.sin(elapsedSec * 11 + e.id) * 0.48 : 0;
-        p.legL.rotation.x = sw;
-        p.legR.rotation.x = -sw;
+        if (p.bodyRig && p.sandbags) {
+          const deployed = e.deployState === 'DEPLOYED' || Boolean(e.deployed);
+          rec.crouchBlend += ((deployed ? 1 : 0) - rec.crouchBlend) * Math.min(1, dtSec * 10);
+          const cb = rec.crouchBlend;
+          p.bodyRig.position.y = -0.30 * cb;
+          p.bodyRig.rotation.x = 0.12 * cb;
+          if (cb > 0.05) {
+            p.legL.rotation.x = -0.82 * cb;
+            p.legR.rotation.x = 0.72 * cb;
+          } else {
+            p.legL.rotation.x = sw;
+            p.legR.rotation.x = -sw;
+          }
+        } else {
+          p.legL.rotation.x = sw;
+          p.legR.rotation.x = -sw;
+        }
       }
 
       // Selection Ring
@@ -927,6 +1042,9 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
 
     wakeInst.count = wakeCount;
     wakeInst.instanceMatrix.needsUpdate = true;
+
+    contactShadowInst.count = shadowCount;
+    contactShadowInst.instanceMatrix.needsUpdate = true;
 
     hpBgInst.count = hpCount;
     hpFillInst.count = hpCount;
@@ -1190,6 +1308,7 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     world.syncMap(state.map, state.tickCount);
     world.updateSunFocus(camera.targetX, camera.targetZ, camera.height);
     world.updateAtmosphere(elapsedSec, camera.targetX, camera.targetZ);
+    assets.updateAnimatedTextures(dtSec);
 
     syncEntities(state, alpha, uiState, elapsedSec, dtSec);
     populateVfx(state, alpha, elapsedSec);
@@ -1256,10 +1375,12 @@ export function createThreeRenderPipeline(canvas, initialQuality = 'high') {
     smokeTex.dispose();
     shockRingTex.dispose();
     wakeTex.dispose();
+    contactShadowTex.dispose();
     fireMat.dispose();
     smokeMat.dispose();
     ringFxMat.dispose();
     wakeMat.dispose();
+    contactShadowMat.dispose();
     gtaoPass?.dispose?.();
     bloomPass?.dispose?.();
     composer?.dispose?.();
