@@ -113,7 +113,7 @@
 | `L-02` | 2026-11-21 | M0 · 步兵程序化 R1 | 移除通用 Mixamo 灰人覆盖，1:1 重建全部 9 种步兵程序化关节与武器挂载点 | `f0a60c5` | build / test:m1 / test:m6 / 49 几何体全过 | `compare_infantry/board_all9.png` | 已完成 |
 | `L-03` | 2026-11-21 | M0 · 步兵程序化 R2 | 9 种步兵毫米级比例/护盾角度/配饰精修；新增低 `edgeWear` 军服材质消除薄片灰白反光 | `50518ca` | build / test:m1 / test:m6 / 49 几何体全过 | [infantry_comparison.md](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/infantry_comparison.md) | 已完成 |
 | `L-04` | 2026-11-21 | M0 · 验证回退与修复 | 方案 B（HD-2D）3 单位试点后因静态无 3D 动作回退；保留 GI 沙袋部署判定、血条防遮挡高度、陈列室 `teamId` 红蓝同步 3 项修复 | `ef89e95` | `node --check` / build(60模块) / m1 / m6(`0.337 ms/tick`) / 49 几何 / 0 报错全过 | `final_step_422.png`, [hd2d_demo_comparison.md](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/hd2d_demo_comparison.md) | 已完成 / 已封档 |
-| `L-05` | — | M1 · 渲染底座 2.0 | 4 套专属 PBR 贴图 + Extrude/Lathe/Tube 构造器 + Rim Light + 接触阴影 + 履带滚动/后坐力/侧倾/GI 蹲姿 | 待执行 | — | — | 待启动 |
+| `L-05` | 2026-11-21 | M1 · 渲染底座 2.0 | 新增 4 套专属 PBR 贴图（铆钉装甲/帆布织物/可滚动履带/工业格栅）+ 倒角/穹顶/炮塔/Tube 构造器 + Rim Light 轮廓光 + 512 单位接触阴影 + 履带滚动/后坐力/侧倾/GI 蹲姿架枪 | `582ed0e` | `node --check` / build(60模块) / m1 / m6(`0.317 ms/tick`) / 49 几何 / 0 报错(113–127 FPS)全过 | [war_factory 实机](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/browser_evidence/d9fa4771-20e3-4b5e-a645-d55e6c188c0d/final_step_24.png), [gi 蹲姿实机](file:///Users/mullvad.lu/.gemini/antigravity/brain/a7659164-ba7d-43f2-9c3d-0e764302cdbe/browser_evidence/d9fa4771-20e3-4b5e-a645-d55e6c188c0d/final_step_34.png) | 已完成 |
 | `L-06` | — | M2 · Phase 2A 陆军 | 8 型陆军载具 1:1 精雕与陈列室对比验收 | 待执行 | — | — | 待启动 |
 | `L-07` | — | M3 · Phase 2B 空/海 | 4 型空军 + 7 型海军共 11 型装备 1:1 精雕与验收 | 待执行 | — | — | 待启动 |
 | `L-08` | — | M4 · Phase 3 建筑群 | 剩余 4 基地建筑 + 4 防御 + 4 超武 + 3 中立建筑（共 15 座）1:1 精雕与验收 | 待执行 | — | — | 待启动 |
@@ -128,15 +128,15 @@
 
 | 序号 | Entity ID | 官方名称 | 所属类别 | 目标方案 | 当前状态 | 关联阶段 |
 | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | `gi` | 战术大兵 | infantry | Layer 2（站姿本体 `.glb` + 动态 3D 沙袋） | 程序化 3D 基线完成（部署沙袋已修） | M1 + M5/M6 |
-| 2 | `conscript` | 动员兵 | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 3 | `flak_trooper` | 防空步兵 | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 4 | `engineer` | 战地工程师 | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 5 | `rocketeer` | 火箭飞行兵 | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 6 | `tesla_trooper` | 磁暴步兵 | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 7 | `chrono` | 超时空军团兵 | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 8 | `shadow` | 同盟特种兵“幽影” | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
-| 9 | `sledge` | 赤铁爆破王“重锤” | infantry | Layer 2（骨骼 `.glb`） | 程序化 3D 基线完成 | M1 + M5/M6 |
+| 1 | `gi` | 战术大兵 | infantry | Layer 2（站姿本体 `.glb` + 动态 3D 沙袋） | 已完成基线 + M1 精雕 2.0 底座增益（蹲姿/织物/轮廓光/接触阴影） | M5/M6 |
+| 2 | `conscript` | 动员兵 | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（织物/轮廓光/接触阴影） | M5/M6 |
+| 3 | `flak_trooper` | 防空步兵 | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（织物/轮廓光/接触阴影） | M5/M6 |
+| 4 | `engineer` | 战地工程师 | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（轮廓光/接触阴影） | M5/M6 |
+| 5 | `rocketeer` | 火箭飞行兵 | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（织物/轮廓光/接触阴影） | M5/M6 |
+| 6 | `tesla_trooper` | 磁暴步兵 | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（铆钉装甲/轮廓光/接触阴影） | M5/M6 |
+| 7 | `chrono` | 超时空军团兵 | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（铆钉装甲/轮廓光/接触阴影） | M5/M6 |
+| 8 | `shadow` | 同盟特种兵“幽影” | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（织物/轮廓光/接触阴影） | M5/M6 |
+| 9 | `sledge` | 赤铁爆破王“重锤” | infantry | Layer 2（骨骼 `.glb`） | 已完成基线 + M1 精雕 2.0 底座增益（铆钉装甲/轮廓光/接触阴影） | M5/M6 |
 
 ### 5.2 陆军载具（8 / 49 · 目标层：Layer 1 精雕 2.0）
 
@@ -176,16 +176,16 @@
 
 | 序号 | Entity ID | 官方名称 | 所属类别 | 目标方案 | 当前状态 | 关联阶段 |
 | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| 29 | `conyard` | 建造厂 | building | Layer 1（精雕 2.0） | 1:1 精雕基线完成（`8fd79ec`，待 M1 材质/光影增益） | M0 -> M1 |
+| 29 | `conyard` | 建造厂 | building | Layer 1（精雕 2.0） | 已完成基线 + M1 精雕 2.0 底座增益（`8fd79ec` + `582ed0e`） | 已完成 |
 | 30 | `power_plant` | 发电厂 / 磁能反应炉 | building | Layer 1（精雕 2.0） | 待重建 | M4 |
-| 31 | `nuclear_reactor` | 核子反应堆 | building | Layer 1（精雕 2.0） | 1:1 精雕基线完成（`8fd79ec`，待 M1 材质/光影增益） | M0 -> M1 |
-| 32 | `refinery` | 矿石精炼厂 | building | Layer 1（精雕 2.0） | 1:1 精雕基线完成（`8fd79ec`，待 M1 材质/光影增益） | M0 -> M1 |
-| 33 | `barracks` | 兵营 | building | Layer 1（精雕 2.0） | 1:1 精雕基线完成（`8fd79ec`，待 M1 材质/光影增益） | M0 -> M1 |
-| 34 | `war_factory` | 战车工厂 | building | Layer 1（精雕 2.0） | 1:1 精雕基线完成（`8fd79ec`，待 M1 材质/光影增益） | M0 -> M1 |
+| 31 | `nuclear_reactor` | 核子反应堆 | building | Layer 1（精雕 2.0） | 已完成基线 + M1 精雕 2.0 底座增益（`8fd79ec` + `582ed0e`） | 已完成 |
+| 32 | `refinery` | 矿石精炼厂 | building | Layer 1（精雕 2.0） | 已完成基线 + M1 精雕 2.0 底座增益（含工业格栅传送坡道，`582ed0e`） | 已完成 |
+| 33 | `barracks` | 兵营 | building | Layer 1（精雕 2.0） | 已完成基线 + M1 精雕 2.0 底座增益（`8fd79ec` + `582ed0e`） | 已完成 |
+| 34 | `war_factory` | 战车工厂 | building | Layer 1（精雕 2.0） | 已完成基线 + M1 精雕 2.0 底座增益（含工业格栅车间地板与倒角坡道，`582ed0e`） | 已完成 |
 | 35 | `naval_yard` | 造船厂 | building | Layer 1（精雕 2.0） | 待重建 | M4 |
 | 36 | `airforce_radar` | 空指部 / 雷达站 | building | Layer 1（精雕 2.0） | 待重建 | M4 |
 | 37 | `service_depot` | 维修车间 | building | Layer 1（精雕 2.0） | 待重建 | M4 |
-| 38 | `battle_lab` | 作战实验室 | building | Layer 1（精雕 2.0） | 1:1 精雕基线完成（`8fd79ec`，待 M1 材质/光影增益） | M0 -> M1 |
+| 38 | `battle_lab` | 作战实验室 | building | Layer 1（精雕 2.0） | 已完成基线 + M1 精雕 2.0 底座增益（`8fd79ec` + `582ed0e`） | 已完成 |
 
 ### 5.6 防御设施 / 超级武器 / 中立建筑（11 / 49 · 目标层：Layer 1 精雕 2.0）
 
