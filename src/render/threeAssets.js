@@ -612,6 +612,7 @@ export function createThreeAssetLibrary(renderer, worldRef) {
   const unitCone = new THREE.ConeGeometry(0.5, 1, 10);
   const unitSphere = new THREE.SphereGeometry(0.5, 12, 10);
   const unitTorus = new THREE.TorusGeometry(0.5, 0.14, 8, 18);
+  const unitOctahedron = new THREE.OctahedronGeometry(0.5, 0);
 
   function buildCoolingTowerGeo() {
     const pts = [
@@ -800,7 +801,7 @@ export function createThreeAssetLibrary(renderer, worldRef) {
   const slopedCabGeo = buildSlopedCabGeo();
   const hangarArchGeo = buildHangarArchGeo();
   disposables.push(
-    unitBox, unitCyl, unitOct, unitHex, unitCone, unitSphere, unitTorus,
+    unitBox, unitCyl, unitOct, unitHex, unitCone, unitSphere, unitTorus, unitOctahedron,
     unitBevelBox, unitDomeLathe, unitTurretHull,
     jetWingGeo, tailWingGeo, shipBowGeo, coolingTowerGeo, radarDishGeo, slopedCabGeo, hangarArchGeo
   );
@@ -1023,6 +1024,28 @@ totalEmissiveRadiance += uRimColor * _rim;`
     owner.userData.ownedGeos = owner.userData.ownedGeos || [];
     owner.userData.ownedGeos.push(geo);
     return m;
+  }
+
+  function addWheel(parent, r, width, x, y, z, tireMat, hubMat) {
+    addCyl(parent, r, r, width, x, y, z, tireMat, 0, 0, Math.PI * 0.5);
+    addCyl(parent, r * 0.54, r * 0.54, width + 0.03, x, y, z, hubMat, 0, 0, Math.PI * 0.5);
+    addCyl(parent, r * 0.24, r * 0.24, width + 0.055, x, y, z, tireMat, 0, 0, Math.PI * 0.5);
+  }
+
+  function addTrackAssembly(parent, length, width, height, x, y, z, pal, trackMeshes, wheelCount = 5) {
+    const belt = addBevelBox(parent, width * 0.90, height * 0.92, length, x, y, z, pal.track);
+    if (trackMeshes) trackMeshes.push(belt);
+    // Upper track fender lip & end drive sprockets + recessed road wheels
+    const wr = height * 0.42;
+    const span = Math.max(0.4, length - wr * 2.2);
+    for (let i = 0; i < wheelCount; i++) {
+      const t = wheelCount === 1 ? 0.5 : i / (wheelCount - 1);
+      const wz = z - span * 0.5 + t * span;
+      const isEnd = i === 0 || i === wheelCount - 1;
+      addCyl(parent, isEnd ? wr * 1.06 : wr, isEnd ? wr * 1.06 : wr, width * 1.06, x, y - height * 0.05, wz, pal.hull, 0, 0, Math.PI * 0.5);
+      addCyl(parent, wr * 0.52, wr * 0.52, width * 1.12, x, y - height * 0.05, wz, pal.dark, 0, 0, Math.PI * 0.5);
+    }
+    return belt;
   }
 
   function addTrussBoom(parent, length, width, height, x, y, z, rx, ry, rz, chordMat, braceMat) {
@@ -1560,116 +1583,132 @@ totalEmissiveRadiance += uRimColor * _rim;`
     return { root, parts };
   }
 
-  // === 2. TANK / ARMOR / VEHICLE BUILDER (8 types, articulated MBT + Hero MCV) ===
+  // === 2. TANK / ARMOR / VEHICLE BUILDER (8 types — 1:1 Concept Prototype Sculpt) ===
   function buildVehicle(typeId, pal) {
     const root = new THREE.Group();
     const parts = { turret: null, barrel: null, v3Rocket: null, rollers: null, oreFill: null, rotor: null, trackMeshes: [] };
 
-    if ((typeId === 'grizzly' || typeId === 'rhino' || typeId === 'apocalypse') && glbTemplates.tank) {
-      const tankClone = SkeletonUtils.clone(glbTemplates.tank);
-      const scaleMap = { grizzly: 0.255, rhino: 0.285, apocalypse: 0.345 };
-      const s = scaleMap[typeId] ?? 0.26;
-
-      tankClone.traverse((o) => {
-        if (!o.isMesh) return;
-        o.castShadow = true;
-        o.receiveShadow = true;
-        const n = (o.name || '').toLowerCase();
-        if (n.includes('track')) {
-          o.material = pal.track;
-          parts.trackMeshes.push(o);
-        } else if (n.includes('gun')) {
-          o.material = pal.dark;
-        } else if (n.includes('turret')) {
-          o.material = pal.team;
-        } else {
-          o.material = pal.hull;
-        }
-      });
-
-      tankClone.updateMatrixWorld(true);
-      const fullBox = new THREE.Box3().setFromObject(tankClone);
-      const fullCtr = new THREE.Vector3();
-      fullBox.getCenter(fullCtr);
-
-      const modelWrap = new THREE.Group();
-      tankClone.position.set(-fullCtr.x, -fullBox.min.y, -fullCtr.z);
-      modelWrap.add(tankClone);
-      modelWrap.rotation.y = Math.PI * 0.5;
-      modelWrap.scale.setScalar(s);
-      root.add(modelWrap);
-      root.updateMatrixWorld(true);
-
-      const rawTurret = tankClone.getObjectByName('Tank_Turret');
-      const rawGun = tankClone.getObjectByName('Tank_Gun');
-      if (rawTurret) {
-        const tBox = getBoxInParentSpace(rawTurret, root);
-        const tPivot = new THREE.Group();
-        tPivot.position.set((tBox.min.x + tBox.max.x) * 0.5, 0, (tBox.min.z + tBox.max.z) * 0.5);
-        root.add(tPivot);
-        root.updateMatrixWorld(true);
-        tPivot.attach(rawTurret);
-
-        const barrelGroup = new THREE.Group();
-        tPivot.add(barrelGroup);
-        tPivot.updateMatrixWorld(true);
-        if (rawGun) barrelGroup.attach(rawGun);
-
-        if (typeId === 'apocalypse') {
-          const bY = tBox.max.y * 0.68;
-          addCyl(barrelGroup, 0.11, 0.12, 2.45, -0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
-          addCyl(barrelGroup, 0.11, 0.12, 2.45, 0.34, bY, 1.48, pal.dark, Math.PI * 0.5);
-          addBox(tPivot, 0.92, 0.28, 0.42, 0, bY, 0.58, pal.hull);
-          addBox(tPivot, 1.24, 0.44, 0.78, 0, tBox.max.y + 0.20, -0.38, pal.team);
-          addBox(tPivot, 0.16, 0.16, 0.68, -0.40, tBox.max.y + 0.20, 0.08, pal.glowRed);
-          addBox(tPivot, 0.16, 0.16, 0.68, 0.40, tBox.max.y + 0.20, 0.08, pal.glowRed);
-        } else if (typeId === 'rhino') {
-          addBox(tPivot, 0.96, 0.26, 0.78, 0, tBox.max.y + 0.12, -0.24, pal.hull);
-          addBox(tPivot, 0.36, 0.18, 0.36, -0.24, tBox.max.y + 0.28, -0.18, pal.team);
-        } else {
-          addCyl(tPivot, 0.16, 0.18, 0.18, 0.24, tBox.max.y + 0.08, -0.16, pal.hull);
-          addCyl(tPivot, 0.02, 0.02, 0.72, -0.32, tBox.max.y + 0.34, -0.32, pal.trim);
-        }
-        barrelGroup.userData.restZ = barrelGroup.position.z;
-        parts.barrel = barrelGroup;
-        parts.turret = tPivot;
-      }
-
-      if (typeId === 'apocalypse') {
-        addBox(root, 2.55, 0.42, 0.54, 0, 0.34, 1.88, pal.hazard, 0.22);
-        addBox(root, 0.26, 0.54, 3.35, -1.24, 0.42, 0, pal.hull);
-        addBox(root, 0.26, 0.54, 3.35, 1.24, 0.42, 0, pal.hull);
-      } else if (typeId === 'rhino') {
-        addBox(root, 1.85, 0.26, 0.42, 0, 0.44, 1.62, pal.hazard, 0.30);
-        addCyl(root, 0.18, 0.18, 0.85, -0.52, 0.78, -1.52, pal.dark, 0, 0, Math.PI * 0.5);
-        addCyl(root, 0.18, 0.18, 0.85, 0.52, 0.78, -1.52, pal.dark, 0, 0, Math.PI * 0.5);
-      } else {
-        addBox(root, 0.18, 0.36, 2.55, -0.96, 0.38, 0, pal.team);
-        addBox(root, 0.18, 0.36, 2.55, 0.96, 0.38, 0, pal.team);
-      }
-      return { root, parts };
-    }
-
-    if (typeId === 'grizzly' || typeId === 'rhino' || typeId === 'apocalypse') {
-      const sc = typeId === 'apocalypse' ? 1.32 : (typeId === 'rhino' ? 1.12 : 1.0);
-      parts.trackMeshes.push(
-        addBevelBox(root, 0.52 * sc, 0.56 * sc, 2.75 * sc, -0.88 * sc, 0.28 * sc, 0, pal.track),
-        addBevelBox(root, 0.52 * sc, 0.56 * sc, 2.75 * sc, 0.88 * sc, 0.28 * sc, 0, pal.track)
-      );
-      addBevelBox(root, 1.48 * sc, 0.52 * sc, 2.48 * sc, 0, 0.58 * sc, 0, pal.team);
-      addBevelBox(root, 1.44 * sc, 0.34 * sc, 0.56 * sc, 0, 0.64 * sc, 1.12 * sc, pal.hull, 0.34);
+    if (typeId === 'grizzly') {
+      // 1:1 Grizzly MBT (abyssal_units.jpg TR-left): Low sleek white-silver/blue NATO MBT + bevel turret + long 105mm gun & bore evacuator
+      addTrackAssembly(root, 2.78, 0.48, 0.50, -0.88, 0.25, 0, pal, parts.trackMeshes, 5);
+      addTrackAssembly(root, 2.78, 0.48, 0.50, 0.88, 0.25, 0, pal, parts.trackMeshes, 5);
+      addBevelBox(root, 1.48, 0.42, 2.52, 0, 0.50, -0.02, pal.team);
+      addBevelBox(root, 1.44, 0.20, 2.28, 0, 0.72, -0.06, pal.whiteMed);
+      addGeo(root, slopedCabGeo, pal.whiteMed, 1.42, 0.34, 0.62, 0, 0.56, 1.24);
+      // Side armored skirts & front headlights
+      addBevelBox(root, 0.14, 0.32, 2.60, -1.10, 0.42, 0, pal.team);
+      addBevelBox(root, 0.14, 0.32, 2.60, 1.10, 0.42, 0, pal.team);
+      addBox(root, 1.24, 0.08, 0.66, 0, 0.82, -0.92, pal.grate);
+      addSphere(root, 0.075, -0.52, 0.56, 1.42, pal.glowGold);
+      addSphere(root, 0.075, 0.52, 0.56, 1.42, pal.glowGold);
 
       const turret = new THREE.Group();
-      turret.position.set(0, 0.92 * sc, -0.1 * sc);
-      addGeo(turret, unitTurretHull, pal.team, 1.18 * sc, 0.44 * sc, 1.34 * sc, 0, 0.22 * sc, -0.05 * sc);
-      addBevelBox(turret, 0.85 * sc, 0.16 * sc, 0.88 * sc, 0, 0.46 * sc, -0.1 * sc, pal.trim);
+      turret.position.set(0, 0.84, -0.08);
+      addGeo(turret, unitTurretHull, pal.whiteMed, 1.24, 0.42, 1.46, 0, 0.21, -0.04);
+      addBevelBox(turret, 0.46, 0.26, 0.52, -0.42, 0.20, 0.36, pal.team, 0.18, 0.22, 0);
+      addBevelBox(turret, 0.46, 0.26, 0.52, 0.42, 0.20, 0.36, pal.team, 0.18, -0.22, 0);
+      addBevelBox(turret, 0.96, 0.24, 0.34, 0, 0.24, -0.80, pal.hull);
+      addCyl(turret, 0.22, 0.24, 0.14, -0.26, 0.46, -0.18, pal.hull);
+      addCyl(turret, 0.14, 0.16, 0.10, 0.26, 0.44, -0.14, pal.trim);
+      addCyl(turret, 0.018, 0.018, 0.72, -0.46, 0.68, -0.58, pal.silver);
+      addCyl(turret, 0.018, 0.018, 0.64, 0.46, 0.64, -0.58, pal.silver);
+
       const barrelGroup = new THREE.Group();
-      if (typeId === 'apocalypse') {
-        addCyl(barrelGroup, 0.10 * sc, 0.11 * sc, 2.05 * sc, -0.26 * sc, 0.24 * sc, 1.28 * sc, pal.dark, Math.PI * 0.5);
-        addCyl(barrelGroup, 0.10 * sc, 0.11 * sc, 2.05 * sc, 0.26 * sc, 0.24 * sc, 1.28 * sc, pal.dark, Math.PI * 0.5);
-        addBox(turret, 1.05 * sc, 0.34 * sc, 0.55 * sc, 0, 0.62 * sc, -0.45 * sc, pal.dark);
-      } else {
-        addCyl(barrelGroup, 0.09 * sc, 0.10 * sc, 1.85 * sc, 0, 0.24 * sc, 1.18 * sc, pal.dark, Math.PI * 0.5);
+      addBevelBox(barrelGroup, 0.34, 0.26, 0.34, 0, 0.22, 0.70, pal.hull);
+      addCyl(barrelGroup, 0.10, 0.11, 0.48, 0, 0.22, 0.96, pal.hull, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.075, 0.08, 1.56, 0, 0.22, 1.62, pal.dark, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.11, 0.11, 0.32, 0, 0.22, 1.46, pal.hull, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.10, 0.095, 0.20, 0, 0.22, 2.38, pal.hull, Math.PI * 0.5);
+      barrelGroup.userData.restZ = 0;
+      turret.add(barrelGroup);
+      parts.barrel = barrelGroup;
+      root.add(turret);
+      parts.turret = turret;
+    } else if (typeId === 'rhino') {
+      // 1:1 Rhino Heavy Tank (crimson_units.jpg BL-left): Chunky heavy tracks, ribbed crimson/dark armor glacis, hazard mudguards, rear fuel drums & heavy Soviet turret
+      addTrackAssembly(root, 3.08, 0.56, 0.56, -0.98, 0.28, 0, pal, parts.trackMeshes, 6);
+      addTrackAssembly(root, 3.08, 0.56, 0.56, 0.98, 0.28, 0, pal, parts.trackMeshes, 6);
+      addBevelBox(root, 1.62, 0.54, 2.82, 0, 0.56, -0.02, pal.team);
+      addGeo(root, slopedCabGeo, pal.hull, 1.54, 0.42, 0.68, 0, 0.60, 1.38);
+      for (const rx of [-0.46, 0, 0.46]) {
+        addBevelBox(root, 0.16, 0.16, 0.62, rx, 0.72, 1.24, pal.team, 0.42);
+      }
+      addBevelBox(root, 0.58, 0.22, 0.38, -0.98, 0.44, 1.54, pal.hazard, 0.30);
+      addBevelBox(root, 0.58, 0.22, 0.38, 0.98, 0.44, 1.54, pal.hazard, 0.30);
+      addBox(root, 1.32, 0.10, 0.68, 0, 0.86, -1.04, pal.grate);
+      addCyl(root, 0.18, 0.18, 0.84, -0.48, 0.82, -1.52, pal.dark, 0, 0, Math.PI * 0.5);
+      addCyl(root, 0.18, 0.18, 0.84, 0.48, 0.82, -1.52, pal.dark, 0, 0, Math.PI * 0.5);
+      addSphere(root, 0.08, -0.58, 0.62, 1.56, pal.glowGold);
+      addSphere(root, 0.08, 0.58, 0.62, 1.56, pal.glowGold);
+
+      const turret = new THREE.Group();
+      turret.position.set(0, 0.94, -0.08);
+      addGeo(turret, unitTurretHull, pal.team, 1.38, 0.50, 1.56, 0, 0.25, -0.04);
+      addBevelBox(turret, 1.06, 0.20, 1.02, 0, 0.52, -0.10, pal.hull);
+      addBox(turret, 1.42, 0.12, 0.56, 0, 0.24, -0.24, pal.hazard);
+      addCyl(turret, 0.26, 0.28, 0.18, -0.26, 0.66, -0.16, pal.trim);
+      addCyl(turret, 0.02, 0.02, 0.78, -0.50, 0.84, -0.62, pal.silver);
+
+      const barrelGroup = new THREE.Group();
+      addBevelBox(barrelGroup, 0.46, 0.32, 0.38, 0, 0.24, 0.74, pal.hull);
+      addCyl(barrelGroup, 0.12, 0.13, 0.56, 0, 0.24, 1.06, pal.hull, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.095, 0.10, 1.62, 0, 0.24, 1.72, pal.dark, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.13, 0.13, 0.34, 0, 0.24, 1.56, pal.hull, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.125, 0.115, 0.24, 0, 0.24, 2.52, pal.dark, Math.PI * 0.5);
+      barrelGroup.userData.restZ = 0;
+      turret.add(barrelGroup);
+      parts.barrel = barrelGroup;
+      root.add(turret);
+      parts.turret = turret;
+    } else if (typeId === 'apocalypse') {
+      // 1:1 Apocalypse Mammoth Tank (crimson_units.jpg TL): Quad independent heavy track pods, broad stepped hull, twin 120mm cannons & dual 6-tube AA missile pods
+      for (const [tx, tz] of [[-1.30, 1.06], [1.30, 1.06], [-1.30, -1.04], [1.30, -1.04]]) {
+        addTrackAssembly(root, 1.62, 0.58, 0.58, tx, 0.29, tz, pal, parts.trackMeshes, 3);
+        addBevelBox(root, 0.64, 0.26, 1.66, tx, 0.66, tz, pal.team);
+        addBox(root, 0.62, 0.14, 0.18, tx, 0.42, tz + (tz > 0 ? 0.84 : -0.84), pal.hazard);
+      }
+      addBevelBox(root, 2.24, 0.60, 3.36, 0, 0.62, 0, pal.hull);
+      addBevelBox(root, 2.02, 0.36, 3.02, 0, 0.92, -0.06, pal.team);
+      addGeo(root, slopedCabGeo, pal.team, 1.96, 0.44, 0.72, 0, 0.82, 1.56);
+      addBevelBox(root, 2.28, 0.26, 0.42, 0, 0.38, 1.84, pal.hazard, 0.24);
+      addBox(root, 1.56, 0.12, 0.88, 0, 1.12, -1.26, pal.grate);
+      addCyl(root, 0.16, 0.18, 0.34, -0.62, 1.14, -1.78, pal.dark, Math.PI * 0.5);
+      addCyl(root, 0.16, 0.18, 0.34, 0.62, 1.14, -1.78, pal.dark, Math.PI * 0.5);
+      addSphere(root, 0.10, -0.62, 1.14, -1.94, pal.glowGold);
+      addSphere(root, 0.10, 0.62, 1.14, -1.94, pal.glowGold);
+
+      const turret = new THREE.Group();
+      turret.position.set(0, 1.14, -0.08);
+      addCyl(turret, 1.02, 1.08, 0.18, 0, 0.06, 0, pal.hazard);
+      addGeo(turret, unitTurretHull, pal.team, 1.78, 0.62, 1.92, 0, 0.40, -0.06);
+      addBevelBox(turret, 1.24, 0.24, 1.24, 0, 0.72, -0.14, pal.hull);
+      addBox(turret, 0.82, 0.12, 0.18, 0, 0.42, 0.84, pal.hazard);
+      addCyl(turret, 0.26, 0.28, 0.18, 0, 0.88, -0.18, pal.trim);
+      addCyl(turret, 0.022, 0.022, 0.92, -0.62, 1.12, -0.78, pal.silver);
+      addCyl(turret, 0.022, 0.022, 0.92, 0.62, 1.12, -0.78, pal.silver);
+
+      // Dual Side 6-Tube AA Missile Pods (2 rows x 3 cols)
+      for (const side of [-1, 1]) {
+        const px = side * 1.06;
+        addBevelBox(turret, 0.54, 0.44, 0.78, px, 0.50, -0.12, pal.hull);
+        addBox(turret, 0.56, 0.12, 0.72, px, 0.70, -0.12, pal.team);
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 3; c++) {
+            const mx = px + (c - 1) * 0.15;
+            const my = 0.42 + r * 0.15;
+            addCyl(turret, 0.055, 0.055, 0.24, mx, my, 0.28, pal.dark, Math.PI * 0.5);
+            addSphere(turret, 0.042, mx, my, 0.40, pal.glowRed);
+          }
+        }
+      }
+
+      const barrelGroup = new THREE.Group();
+      addBevelBox(barrelGroup, 1.08, 0.38, 0.42, 0, 0.36, 0.94, pal.hull);
+      for (const bx of [-0.34, 0.34]) {
+        addCyl(barrelGroup, 0.13, 0.14, 0.62, bx, 0.36, 1.28, pal.hull, Math.PI * 0.5);
+        addCyl(barrelGroup, 0.105, 0.11, 1.98, bx, 0.36, 2.06, pal.dark, Math.PI * 0.5);
+        addCyl(barrelGroup, 0.14, 0.14, 0.38, bx, 0.36, 1.88, pal.hull, Math.PI * 0.5);
+        addCyl(barrelGroup, 0.14, 0.13, 0.26, bx, 0.36, 3.04, pal.dark, Math.PI * 0.5);
       }
       barrelGroup.userData.restZ = 0;
       turret.add(barrelGroup);
@@ -1677,121 +1716,232 @@ totalEmissiveRadiance += uRimColor * _rim;`
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'ifv') {
-      addBevelBox(root, 1.48, 0.62, 2.38, 0, 0.56, -0.08, pal.team);
-      addGeo(root, slopedCabGeo, pal.hull, 1.42, 0.62, 0.72, 0, 0.60, 1.22);
-      addBox(root, 1.26, 0.24, 0.56, 0, 0.86, 0.88, pal.glass, 0.35);
-      addBox(root, 1.56, 0.16, 0.24, 0, 0.38, 1.52, pal.hazard);
-      for (const z of [-0.82, 0, 0.82]) {
+      // 1:1 Multipurpose IFV (abyssal_units.jpg TR-right): 8x8 wheeled chassis, wedge white-silver/blue cab, armored slit windshields, roof twin 4-cell micro-missile pods
+      addBevelBox(root, 1.54, 0.38, 3.02, 0, 0.46, -0.02, pal.team);
+      addBevelBox(root, 1.50, 0.34, 2.52, 0, 0.80, -0.18, pal.whiteMed);
+      addGeo(root, slopedCabGeo, pal.whiteMed, 1.48, 0.56, 0.92, 0, 0.74, 1.18);
+      addBox(root, 1.24, 0.22, 0.36, 0, 0.94, 1.04, pal.glass, 0.42);
+      addBox(root, 0.14, 0.26, 0.38, 0, 0.94, 1.05, pal.hull, 0.42);
+      addBevelBox(root, 1.58, 0.18, 0.26, 0, 0.40, 1.62, pal.hazard);
+      addBox(root, 0.12, 0.30, 1.42, -0.80, 0.78, -0.32, pal.grate);
+      addBox(root, 0.12, 0.30, 1.42, 0.80, 0.78, -0.32, pal.grate);
+      addSphere(root, 0.08, -0.52, 0.56, 1.68, pal.glowGold);
+      addSphere(root, 0.08, 0.52, 0.56, 1.68, pal.glowGold);
+
+      for (const z of [-1.14, -0.38, 0.38, 1.14]) {
         for (const sx of [-1, 1]) {
-          addCyl(root, 0.34, 0.34, 0.28, sx * 0.82, 0.34, z, pal.dark, 0, 0, Math.PI * 0.5);
-          addCyl(root, 0.16, 0.16, 0.31, sx * 0.82, 0.34, z, pal.hull, 0, 0, Math.PI * 0.5);
+          addWheel(root, 0.35, 0.28, sx * 0.86, 0.35, z, pal.dark, pal.hull);
+          addBox(root, 0.26, 0.09, 0.58, sx * 0.88, 0.76, z, pal.hull);
         }
       }
+
       const turret = new THREE.Group();
-      turret.position.set(0, 1.02, -0.2);
-      addBox(turret, 0.68, 0.38, 0.74, 0, 0.18, 0, pal.hull);
-      addCyl(turret, 0.14, 0.14, 0.72, -0.28, 0.32, 0.1, pal.trim, Math.PI * 0.5);
-      addCyl(turret, 0.14, 0.14, 0.72, 0.28, 0.32, 0.1, pal.trim, Math.PI * 0.5);
+      turret.position.set(0, 1.16, -0.22);
+      addBevelBox(turret, 0.74, 0.34, 0.82, 0, 0.16, 0, pal.whiteMed);
+      addBox(turret, 0.44, 0.18, 0.48, 0, 0.38, -0.04, pal.hull);
+      for (const sx of [-1, 1]) {
+        addBevelBox(turret, 0.32, 0.36, 0.66, sx * 0.50, 0.24, 0.02, pal.team, -0.18);
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 2; c++) {
+            addSphere(turret, 0.048, sx * 0.50 + (c - 0.5) * 0.12, 0.18 + r * 0.13, 0.36, pal.glowGold);
+          }
+        }
+      }
+      const barrelGroup = new THREE.Group();
+      addCyl(barrelGroup, 0.045, 0.055, 0.88, 0, 0.22, 0.66, pal.dark, Math.PI * 0.5);
+      barrelGroup.userData.restZ = 0;
+      turret.add(barrelGroup);
+      parts.barrel = barrelGroup;
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'v3') {
-      parts.trackMeshes.push(
-        addBevelBox(root, 0.44, 0.50, 3.25, -0.84, 0.26, 0, pal.track),
-        addBevelBox(root, 0.44, 0.50, 3.25, 0.84, 0.26, 0, pal.track)
-      );
-      addBevelBox(root, 1.46, 0.54, 3.05, 0, 0.56, 0, pal.team);
-      addGeo(root, slopedCabGeo, pal.hull, 1.38, 0.58, 0.92, 0, 0.98, 1.02);
-      addBox(root, 1.18, 0.24, 0.22, 0, 1.12, 1.36, pal.glass);
-      addBox(root, 0.26, 0.52, 0.32, -0.96, 0.28, -1.35, pal.hazard);
-      addBox(root, 0.26, 0.52, 0.32, 0.96, 0.28, -1.35, pal.hazard);
+      // 1:1 V3 Rocket Launcher (crimson_units.jpg BL-right): Heavy 8x8 military truck, flat armored twin-windshield cab, fixed 35-deg elevated truss rail & massive ballistic missile
+      addBevelBox(root, 1.72, 0.34, 3.85, 0, 0.54, 0, pal.dark);
+      addBevelBox(root, 1.66, 0.22, 2.48, 0, 0.74, -0.68, pal.hull);
+      for (const z of [-1.34, -0.44, 0.46, 1.34]) {
+        for (const sx of [-1, 1]) {
+          addWheel(root, 0.39, 0.30, sx * 0.90, 0.39, z, pal.dark, pal.hull);
+          addBox(root, 0.28, 0.10, 0.66, sx * 0.92, 0.84, z, pal.hull);
+        }
+      }
+      for (const [ox, oz] of [[-0.98, -1.68], [0.98, -1.68], [-0.98, 0.04], [0.98, 0.04]]) {
+        addBox(root, 0.24, 0.42, 0.24, ox, 0.44, oz, pal.hazard);
+      }
+
+      // Flat armored heavy tractor cab
+      addBevelBox(root, 1.72, 0.96, 1.24, 0, 1.20, 1.26, pal.team);
+      addBevelBox(root, 1.64, 0.18, 1.14, 0, 1.70, 1.24, pal.hull);
+      addBox(root, 0.68, 0.36, 0.10, -0.42, 1.36, 1.88, pal.glass);
+      addBox(root, 0.68, 0.36, 0.10, 0.42, 1.36, 1.88, pal.glass);
+      addBox(root, 1.24, 0.30, 0.10, 0, 0.92, 1.89, pal.grate);
+      addBox(root, 1.80, 0.22, 0.24, 0, 0.50, 1.94, pal.hazard);
+      addSphere(root, 0.09, -0.64, 0.86, 1.90, pal.glowGold);
+      addSphere(root, 0.09, 0.64, 0.86, 1.90, pal.glowGold);
+      addSphere(root, 0.10, 0, 1.84, 1.56, pal.glowGold);
+
+      // Elevated fixed truss launch rail & hydraulic lift cylinders
+      addCyl(root, 0.075, 0.09, 1.05, -0.44, 1.18, -0.28, pal.silver, -0.42);
+      addCyl(root, 0.075, 0.09, 1.05, 0.44, 1.18, -0.28, pal.silver, -0.42);
       const rail = new THREE.Group();
-      rail.position.set(0, 1.12, -0.35);
-      rail.rotation.x = -0.34;
-      addBox(rail, 0.68, 0.18, 2.35, 0, 0, 0.1, pal.dark);
+      rail.position.set(0, 1.12, -0.62);
+      rail.rotation.x = -0.60; // Points forward & upward at ~34.4 deg
+      addTrussBoom(rail, 2.75, 0.66, 0.24, 0, 0.12, -1.10, 0, 0, 0, pal.hull, pal.dark);
+
       const rocket = new THREE.Group();
-      addCyl(rocket, 0.24, 0.24, 2.35, 0, 0.26, 0.2, pal.trim, Math.PI * 0.5);
-      addCone(rocket, 0.25, 0.72, 0, 0.26, 1.62, pal.glowRed, Math.PI * 0.5);
+      addCyl(rocket, 0.30, 0.32, 2.55, 0, 0.56, 0.16, pal.dark, Math.PI * 0.5);
+      addCyl(rocket, 0.325, 0.325, 0.18, 0, 0.56, 0.95, pal.gold, Math.PI * 0.5);
+      addCone(rocket, 0.31, 1.05, 0, 0.56, 1.95, pal.team, Math.PI * 0.5);
+      addCone(rocket, 0.16, 0.36, 0, 0.56, 2.38, pal.copper, Math.PI * 0.5);
+      addCyl(rocket, 0.24, 0.32, 0.26, 0, 0.56, -1.18, pal.hull, Math.PI * 0.5);
+      addSphere(rocket, 0.18, 0, 0.56, -1.28, pal.glowGold);
+      // 4 cruciform stabilizing fins
+      addBox(rocket, 0.98, 0.04, 0.54, 0, 0.56, -0.78, pal.team);
+      addBox(rocket, 0.04, 0.98, 0.54, 0, 0.56, -0.78, pal.team);
       rail.add(rocket);
       root.add(rail);
-      parts.turret = rail;
       parts.v3Rocket = rocket;
     } else if (typeId === 'prism') {
-      parts.trackMeshes.push(
-        addBevelBox(root, 0.44, 0.46, 2.55, -0.80, 0.25, 0, pal.track),
-        addBevelBox(root, 0.44, 0.46, 2.55, 0.80, 0.25, 0, pal.track)
-      );
-      addBevelBox(root, 1.42, 0.48, 2.35, 0, 0.52, 0, pal.team);
-      addGeo(root, slopedCabGeo, pal.hull, 1.36, 0.34, 0.56, 0, 0.58, 1.15);
+      // 1:1 Prism Tank (abyssal_units.jpg TL): White-silver/blue tracked hull, dual side glowing cyan capacitor rails, faceted glass crystal turret & focusing optics cannon
+      addTrackAssembly(root, 2.75, 0.46, 0.48, -0.84, 0.24, 0, pal, parts.trackMeshes, 5);
+      addTrackAssembly(root, 2.75, 0.46, 0.48, 0.84, 0.24, 0, pal, parts.trackMeshes, 5);
+      addBevelBox(root, 1.44, 0.38, 2.48, 0, 0.48, -0.02, pal.team);
+      addBevelBox(root, 1.38, 0.26, 2.24, 0, 0.72, -0.06, pal.whiteMed);
+      addGeo(root, slopedCabGeo, pal.whiteMed, 1.36, 0.34, 0.62, 0, 0.56, 1.16);
+      // Glowing cyan capacitor rails on side sponsons + forward coolant slits
+      for (const sx of [-1, 1]) {
+        addBevelBox(root, 0.24, 0.24, 1.28, sx * 0.78, 0.78, -0.36, pal.dark);
+        addBox(root, 0.14, 0.14, 1.12, sx * 0.84, 0.78, -0.36, pal.glowCyan);
+      }
+      addBox(root, 0.34, 0.08, 0.22, -0.44, 0.68, 1.02, pal.glowCyan);
+      addBox(root, 0.34, 0.08, 0.22, 0.44, 0.68, 1.02, pal.glowCyan);
+
       const turret = new THREE.Group();
-      turret.position.set(0, 0.88, -0.05);
-      addOct(turret, 0.56, 0.42, 0, 0.21, 0, pal.hull);
-      addBox(turret, 0.24, 0.68, 0.46, 0, 0.72, -0.1, pal.trim, 0.24);
-      addCyl(turret, 0.30, 0.34, 0.22, 0, 0.94, 0.18, pal.copper, 0.35);
-      const orb = addSphere(turret, 0.28, 0, 1.05, 0.22, pal.glowCyan);
-      parts.rotor = orb;
+      turret.position.set(0, 0.88, -0.06);
+      addOct(turret, 0.62, 0.32, 0, 0.16, 0, pal.hull);
+      addOct(turret, 0.54, 0.18, 0, 0.38, 0, pal.team);
+      // Faceted crystalline prism emitter dome (inner rotating crystal core + translucent outer shell + 4 structural struts)
+      const crystalCore = addGeo(turret, unitOctahedron, pal.glowCyan, 0.68, 0.78, 0.68, 0, 0.84, -0.06);
+      parts.rotor = crystalCore;
+      addGeo(turret, unitOctahedron, pal.holoDome, 0.96, 1.06, 0.96, 0, 0.84, -0.06);
+      for (const ang of [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75]) {
+        addBox(turret, 0.08, 0.68, 0.08, Math.cos(ang) * 0.44, 0.68, -0.06 + Math.sin(ang) * 0.44, pal.dark, Math.sin(ang) * 0.34, 0, -Math.cos(ang) * 0.34);
+      }
+      // Forward focusing prism optics barrel & glowing lens
+      const barrelGroup = new THREE.Group();
+      addCyl(barrelGroup, 0.24, 0.26, 0.72, 0, 0.64, 0.48, pal.hull, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.28, 0.28, 0.16, 0, 0.64, 0.76, pal.team, Math.PI * 0.5);
+      addCyl(barrelGroup, 0.20, 0.22, 0.14, 0, 0.64, 0.86, pal.dark, Math.PI * 0.5);
+      addSphere(barrelGroup, 0.18, 0, 0.64, 0.88, pal.glowCyan);
+      barrelGroup.userData.restZ = 0;
+      turret.add(barrelGroup);
+      parts.barrel = barrelGroup;
       root.add(turret);
       parts.turret = turret;
     } else if (typeId === 'harvester') {
-      parts.trackMeshes.push(
-        addBevelBox(root, 0.50, 0.56, 2.75, -0.94, 0.28, -0.1, pal.track),
-        addBevelBox(root, 0.50, 0.56, 2.75, 0.94, 0.28, -0.1, pal.track)
-      );
-      addBevelBox(root, 1.68, 0.60, 2.52, 0, 0.62, -0.1, pal.team);
-      addGeo(root, slopedCabGeo, pal.gold, 1.42, 0.58, 0.88, 0, 1.14, 0.55);
-      addBox(root, 1.24, 0.22, 0.16, 0, 1.22, 0.96, pal.glass);
-      addBox(root, 1.72, 0.24, 0.22, 0, 0.44, 1.22, pal.hazard);
-      addBevelBox(root, 1.52, 0.58, 1.48, 0, 1.05, -0.68, pal.hull);
-      addBox(root, 1.42, 0.06, 1.38, 0, 1.35, -0.68, pal.grate);
-      const oreFill = addBox(root, 1.26, 0.36, 1.18, 0, 1.24, -0.68, pal.glowGold);
-      oreFill.scale.y = 0.05;
-      parts.oreFill = oreFill;
+      // 1:1 Armed Harvester (roster_hero_air_support_1794749281119.jpg TR): Twin massive front glowing toothed grinder drums on dual hydraulic arms, sloped armored cab, trapezoidal rear hopper filled with gold crystals & rear tracks
+      addTrackAssembly(root, 2.52, 0.52, 0.56, -0.96, 0.28, -0.28, pal, parts.trackMeshes, 5);
+      addTrackAssembly(root, 2.52, 0.52, 0.56, 0.96, 0.28, -0.28, pal, parts.trackMeshes, 5);
+      addBevelBox(root, 1.66, 0.54, 2.48, 0, 0.60, -0.18, pal.team);
+      addBox(root, 0.14, 0.22, 2.38, -1.16, 0.60, -0.28, pal.hazard);
+      addBox(root, 0.14, 0.22, 2.38, 1.16, 0.60, -0.28, pal.hazard);
+
+      // Sloped heavy armored forward cab
+      addGeo(root, slopedCabGeo, pal.olive, 1.44, 0.68, 1.06, 0, 1.12, 0.50);
+      addBevelBox(root, 1.38, 0.22, 0.34, 0, 0.92, 0.92, pal.hull, 0.25);
+      addBox(root, 1.18, 0.24, 0.18, 0, 1.18, 0.98, pal.glass, -0.24);
+      addBox(root, 1.56, 0.20, 0.26, 0, 0.54, 1.04, pal.hazard);
+      addBevelBox(root, 0.24, 0.20, 0.44, -0.44, 1.48, 0.32, pal.dark);
+      addBevelBox(root, 0.24, 0.20, 0.44, 0.44, 1.48, 0.32, pal.dark);
+
+      // Dual fixed armored grinder suspension arms flanking front crusher drums
+      for (const sx of [-1, 1]) {
+        addBevelBox(root, 0.24, 0.34, 1.04, sx * 1.04, 0.58, 1.12, pal.hull, 0.32);
+        addBevelBox(root, 0.26, 0.22, 0.26, sx * 1.04, 0.46, 1.52, pal.dark);
+      }
+      // Twin massive spinning spiked crusher drums in parts.rollers
       const rollers = new THREE.Group();
-      rollers.position.set(0, 0.44, 1.42);
-      addCyl(rollers, 0.38, 0.38, 1.78, 0, 0, 0, pal.hazard, 0, 0, Math.PI * 0.5);
-      addBox(rollers, 1.84, 0.60, 0.18, 0, 0, 0, pal.dark);
+      rollers.position.set(0, 0.46, 1.52);
+      addCyl(rollers, 0.14, 0.14, 2.12, 0, 0, 0, pal.hull, 0, 0, Math.PI * 0.5);
+      for (const dx of [-0.48, 0.48]) {
+        addCyl(rollers, 0.42, 0.42, 0.62, dx, 0, 0, pal.dark, 0, 0, Math.PI * 0.5);
+        addCyl(rollers, 0.44, 0.44, 0.10, dx, 0, 0, pal.hazard, 0, 0, Math.PI * 0.5);
+        for (let ti = 0; ti < 8; ti++) {
+          const ang = (ti / 8) * Math.PI * 2;
+          const sy = Math.cos(ang) * 0.44;
+          const sz = Math.sin(ang) * 0.44;
+          addBox(rollers, 0.52, 0.11, 0.11, dx, sy, sz, pal.glowGold, ang, 0, 0);
+        }
+      }
       root.add(rollers);
       parts.rollers = rollers;
+
+      // Rear trapezoidal armored dump hopper + shallow static gold ore floor + dynamic cargo oreFill crystals
+      addBevelBox(root, 1.64, 0.18, 1.56, 0, 0.88, -0.82, pal.grate);
+      addBox(root, 1.72, 0.56, 0.14, 0, 1.12, -1.56, pal.hull, -0.22);
+      addBox(root, 1.66, 0.50, 0.14, 0, 1.10, -0.08, pal.hull, 0.18);
+      addBox(root, 0.16, 0.56, 1.54, -0.84, 1.12, -0.82, pal.hull, 0, 0, 0.22);
+      addBox(root, 0.16, 0.56, 1.54, 0.84, 1.12, -0.82, pal.hull, 0, 0, -0.22);
+      addBox(root, 0.22, 0.52, 0.18, -0.88, 1.12, -0.82, pal.team, 0, 0, 0.22);
+      addBox(root, 0.22, 0.52, 0.18, 0.88, 1.12, -0.82, pal.team, 0, 0, -0.22);
+      for (const [cx, cz, cs] of [[-0.36, -0.78, 0.28], [0.28, -0.96, 0.26], [0.02, -0.56, 0.24]]) {
+        addGeo(root, unitOctahedron, pal.gold, cs, cs * 0.85, cs, cx, 1.00, cz, 0.3, 0.7, 0.2);
+      }
+      const oreFill = new THREE.Group();
+      oreFill.position.set(0, 1.08, -0.82);
+      for (const [ox, oy, oz, sc] of [
+        [0, 0.32, 0, 0.62], [-0.34, 0.22, 0.22, 0.46], [0.36, 0.24, -0.20, 0.48],
+        [-0.26, 0.20, -0.32, 0.42], [0.28, 0.22, 0.28, 0.44], [0, 0.52, -0.06, 0.38]
+      ]) {
+        addGeo(oreFill, unitOctahedron, pal.glowGold, sc, sc * 1.15, sc, ox, oy, oz, ox, oy, oz);
+      }
+      oreFill.scale.y = 0.05;
+      root.add(oreFill);
+      parts.oreFill = oreFill;
     } else if (typeId === 'mcv') {
-      // Heavy 8x8 Mobile Construction Vehicle — Armored Command Tractor + Stowed Outriggers + Trussed Crane
-      addBox(root, 1.88, 0.36, 4.18, 0, 0.42, -0.02, pal.dark);
-      addBox(root, 2.02, 0.28, 3.85, 0, 0.68, -0.02, pal.hull);
-      addBox(root, 2.08, 0.32, 0.32, 0, 0.46, 2.12, pal.hazard);
-      addBox(root, 1.98, 0.28, 0.26, 0, 0.50, -2.14, pal.hazard);
+      // 1:1 Heavy 8x8 Mobile Construction Vehicle (abyssal_units.jpg BR-right): White-silver/blue 8x8 armored command truck, cab cyan roof bar, segmented ribbed fabrication bays, stowed outriggers & folded boom
+      addBevelBox(root, 1.92, 0.36, 4.22, 0, 0.44, -0.02, pal.dark);
+      addBevelBox(root, 2.04, 0.26, 3.88, 0, 0.70, -0.02, pal.hull);
+      addBox(root, 2.12, 0.32, 0.32, 0, 0.46, 2.14, pal.hazard);
+      addBox(root, 2.02, 0.28, 0.26, 0, 0.50, -2.16, pal.hazard);
 
       // 8 heavy off-road tires with recessed wheel hubs & upper fenders
-      for (const z of [-1.46, -0.52, 0.42, 1.38]) {
+      for (const z of [-1.48, -0.52, 0.44, 1.40]) {
         for (const sx of [-1, 1]) {
-          addCyl(root, 0.42, 0.42, 0.34, sx * 1.08, 0.42, z, pal.dark, 0, 0, Math.PI * 0.5);
-          addCyl(root, 0.21, 0.21, 0.38, sx * 1.08, 0.42, z, pal.hull, 0, 0, Math.PI * 0.5);
-          addBox(root, 0.34, 0.12, 0.72, sx * 1.08, 0.88, z, pal.hull);
+          addWheel(root, 0.44, 0.34, sx * 1.08, 0.44, z, pal.dark, pal.hull);
+          addBox(root, 0.34, 0.12, 0.74, sx * 1.08, 0.90, z, pal.hull);
         }
       }
 
-      // 4 side-stowed hydraulic outrigger jack legs (echoing the deployed Conyard anchors)
+      // 4 side-stowed hydraulic outrigger jack legs
       for (const [ox, oz] of [[-1.16, 0.90], [1.16, 0.90], [-1.16, -0.98], [1.16, -0.98]]) {
         addBox(root, 0.24, 0.48, 0.32, ox, 0.64, oz, pal.dark, 0, 0, ox < 0 ? 0.25 : -0.25);
         addBox(root, 0.28, 0.14, 0.36, ox * 1.05, 0.44, oz, pal.hazard);
       }
 
-      // Sloped armored forward Command Cab + panoramic windshield & twin warm headlights
-      addGeo(root, slopedCabGeo, pal.team, 1.82, 0.88, 1.24, 0, 1.18, 1.36);
+      // Sloped white-silver & blue forward Command Cab + panoramic windshield, front grille, cyan roof bar & twin warm headlights
+      addGeo(root, slopedCabGeo, pal.whiteMed, 1.84, 0.90, 1.26, 0, 1.18, 1.36);
+      addBevelBox(root, 1.92, 0.34, 1.22, 0, 0.94, 1.36, pal.team);
       addBox(root, 1.56, 0.28, 0.18, 0, 1.28, 1.94, pal.glass, -0.18);
       addBox(root, 0.14, 0.34, 0.20, 0, 1.28, 1.96, pal.hull, -0.18);
-      addSphere(root, 0.11, -0.66, 0.68, 2.08, pal.glowGold);
-      addSphere(root, 0.11, 0.66, 0.68, 2.08, pal.glowGold);
+      addBox(root, 1.24, 0.26, 0.14, 0, 0.78, 2.02, pal.grate);
+      addBox(root, 1.04, 0.12, 0.32, 0, 1.66, 1.50, pal.glowCyan);
+      addSphere(root, 0.11, -0.66, 0.68, 2.10, pal.glowGold);
+      addSphere(root, 0.11, 0.66, 0.68, 2.10, pal.glowGold);
 
-      // Dual chrome/dark vertical exhaust stacks behind cab
-      addCyl(root, 0.08, 0.10, 1.05, -0.78, 1.58, 0.62, pal.dark);
-      addCyl(root, 0.08, 0.10, 1.05, 0.78, 1.58, 0.62, pal.dark);
+      // Dual vertical exhaust stacks behind cab
+      addCyl(root, 0.08, 0.10, 1.08, -0.78, 1.60, 0.62, pal.dark);
+      addCyl(root, 0.08, 0.10, 1.08, 0.78, 1.60, 0.62, pal.dark);
 
-      // Rear heavy fabrication module + armored side louver ribs + folded gantry crane boom
-      addBox(root, 1.88, 0.92, 2.38, 0, 1.24, -0.68, pal.team);
-      addBox(root, 1.96, 0.18, 2.15, 0, 1.48, -0.68, pal.hull);
-      addBox(root, 0.24, 0.56, 1.65, -0.98, 1.22, -0.68, pal.dark);
-      addBox(root, 0.24, 0.56, 1.65, 0.98, 1.22, -0.68, pal.dark);
-      addBox(root, 0.46, 0.34, 2.55, 0, 1.86, -0.45, pal.hazard);
-      addBox(root, 0.56, 0.38, 0.68, 0, 1.92, 0.65, pal.gold);
-      addBox(root, 0.68, 0.44, 0.72, 0, 1.94, -1.65, pal.dark);
+      // Rear segmented ribbed Command Center Module + side grate vents + folded boom
+      addBevelBox(root, 1.88, 0.94, 2.40, 0, 1.24, -0.68, pal.whiteMed);
+      for (const rz of [-1.52, -0.68, 0.16]) {
+        addBevelBox(root, 2.00, 1.02, 0.38, 0, 1.26, rz, pal.team);
+      }
+      addBox(root, 0.18, 0.54, 1.72, -0.98, 1.22, -0.68, pal.grate);
+      addBox(root, 0.18, 0.54, 1.72, 0.98, 1.22, -0.68, pal.grate);
+      addBevelBox(root, 0.46, 0.34, 2.55, 0, 1.86, -0.45, pal.hazard);
+      addBevelBox(root, 0.56, 0.38, 0.68, 0, 1.92, 0.65, pal.gold);
+      addBevelBox(root, 0.68, 0.44, 0.72, 0, 1.94, -1.65, pal.dark);
 
       // Spinning rooftop radar scanner + warm strobe beacon
       const mcvRadar = new THREE.Group();
